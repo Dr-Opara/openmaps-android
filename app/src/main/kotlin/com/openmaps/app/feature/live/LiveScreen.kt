@@ -45,7 +45,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.openmaps.app.anchor.ArCoreAnchorBackend
+import com.openmaps.app.core.anchor.RouteAnchorManager
+import com.openmaps.app.core.routing.Coordinate
+import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization
+import com.openmaps.app.feature.map.NavigationState
 import com.openmaps.app.BuildConfig
 import com.openmaps.app.R
 import com.openmaps.app.camera.CameraEngineEvent
@@ -84,6 +89,15 @@ fun LiveScreen(
     hudState: LiveHudState,
     isNavigating: Boolean,
     onModeSelected: (MapMode) -> Unit,
+    /**
+     * The active route and navigation state, read from the one MapViewModel.
+     *
+     * Supplied rather than derived inside Live, because Live already *has* this state in [hudState]
+     * terms and the AR content must consume exactly the same instance the map is showing — a second
+     * copy is how "the map rerouted but the arrows did not" bugs happen.
+     */
+    route: RouteResult? = null,
+    navigationState: NavigationState = NavigationState.Idle,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -102,7 +116,13 @@ fun LiveScreen(
                     // ARCore owns the camera and renders the preview itself. CameraX is NOT
                     // composed here at all — two camera consumers would fight (see
                     // ArCoreSpatialLocalization for the reasoning).
-                    ArPreviewSurface(viewModel, Modifier.fillMaxSize())
+                    ArPreviewSurface(
+                        viewModel = viewModel,
+                        route = route,
+                        navigationState = navigationState,
+                        isNavigating = isNavigating,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 } else {
                     RearCameraPreview(state.cameraState, viewModel::onCameraEvent, Modifier.fillMaxSize())
                 }
@@ -309,7 +329,13 @@ private fun LocalDebugOverlay(
  * engine reports a non-preview state and [LiveScreen] keeps using the CameraX preview instead.
  */
 @Composable
-private fun ArPreviewSurface(viewModel: LiveViewModel, modifier: Modifier = Modifier) {
+private fun ArPreviewSurface(
+    viewModel: LiveViewModel,
+    route: RouteResult?,
+    navigationState: NavigationState,
+    isNavigating: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val engine = viewModel.spatialLocalization
     val arEngine = engine as? ArCoreSpatialLocalization
@@ -322,14 +348,85 @@ private fun ArPreviewSurface(viewModel: LiveViewModel, modifier: Modifier = Modi
     }
 
     val glView = remember(arEngine) { arEngine.previewView() }
+    // Cumulative route distance per vertex, recomputed only when the route itself changes.
+    val routeDistanceAtIndex = remember(route) { route?.let { cumulativeDistances(it.geometry) } }
 
-    // AndroidView requires `update`; the GL surface is fully owned by the AR engine, so there is
-    // nothing to push — an empty block keeps the view out of Compose's recomposition path.
+    // Phase 7: the real ARCore anchor backend, created once per engine. Both suppliers are lambdas
+    // so the backend reads live state rather than capturing a snapshot that would go stale.
+    val anchorBackend = remember(arEngine) {
+        ArCoreAnchorBackend(
+            sessionProvider = { arEngine.session() },
+            cameraTransformProvider = { arEngine.cameraTransform() },
+        )
+    }
+    val anchorManager = remember(arEngine, anchorBackend) { RouteAnchorManager(anchorBackend) }
+    DisposableEffect(anchorManager) {
+        viewModel.routeAnchorManager = anchorManager
+        onDispose {
+            // Release the ARCore anchors the moment Live stops hosting them. Leaving them attached
+            // would keep ARCore refining world anchors nobody is drawing.
+            anchorManager.clear()
+            viewModel.routeAnchorManager = null
+        }
+    }
+
+    // Phase 8: register the chevron renderer with the AR engine. Detached on dispose so a torn-down
+    // Live cannot keep drawing.
+    DisposableEffect(arEngine) {
+        arEngine.overlayRenderer = viewModel.arrowPipeline
+        onDispose { arEngine.overlayRenderer = null }
+    }
+
     AndroidView(factory = { glView }, update = { }, modifier = modifier)
+
+    val spatialState by viewModel.spatialLocalization.state
+        .collectAsState(initial = SpatialLocalizationState.Idle)
 
     LaunchedEffect(arEngine, lifecycleOwner) {
         viewModel.startSpatialLocalization(lifecycleOwner)
     }
+
+    // Anchors are created/destroyed here, on state change — NOT per frame. Creating an ARCore anchor
+    // is a real cost (a server-refined object) and must never sit in the render loop.
+    val progress = when (val nav = navigationState) {
+        is NavigationState.Active -> nav.progress
+        is NavigationState.OffRoute -> nav.progress
+        is NavigationState.Arrived -> nav.progress
+        else -> null
+    }
+
+    LaunchedEffect(route, navigationState, spatialState) {
+        val manager = viewModel.routeAnchorManager
+        val anchored = if (route != null && manager != null) {
+            manager.update(
+                routeKey = routeKeyFor(route),
+                geometry = route.geometry,
+                startIndex = progress?.snappedShapeIndex ?: 0,
+                distanceToNextManeuverMeters = progress?.distanceToNextManeuverMeters ?: Double.MAX_VALUE,
+                remainingDistanceMeters = progress?.remainingDistanceMeters ?: Double.MAX_VALUE,
+                routeDistanceAtIndex = routeDistanceAtIndex,
+                spatialState = spatialState,
+                isNavigating = isNavigating,
+            )
+        } else {
+            emptyList()
+        }
+        viewModel.arrowPipeline.update(
+            route = route,
+            progress = progress,
+            pose = (spatialState as? SpatialLocalizationState.Tracking)?.pose,
+            spatialState = spatialState,
+            viewportWidthPx = glView.width,
+            viewportHeightPx = glView.height,
+            isNavigating = isNavigating,
+            anchoredPoints = anchored,
+            cameraTransform = anchorManager.backendCameraTransform(),
+        )
+        // Hide the overlay entirely when nothing is drawn, rather than paying for a cleared GL
+        // pass every frame while empty.
+        arEngine.setOverlayAlpha(if (viewModel.arrowPipeline.arrowCount() > 0) 1f else 0f)
+    }
+
     DisposableEffect(arEngine) {
         onDispose { viewModel.stopSpatialLocalization() }
     }
@@ -685,6 +782,40 @@ private fun CameraUnavailableBackdrop(modifier: Modifier = Modifier) {
             .background(Brush.verticalGradient(listOf(OpenMapsColors.Navy800, OpenMapsColors.Navy950)))
             .pointerInput(Unit) { detectTapGestures { } },
     )
+}
+
+private const val METERS_PER_DEGREE = 111_320.0
+
+/**
+ * Stable identity for a route, so the anchor manager can tell "same road" from "rerouted road".
+ *
+ * [RouteResult] is a data class, so its hash reflects its contents; a reroute produces different
+ * geometry and therefore a different key, which is what makes the manager drop the old anchors
+ * instead of reusing them on the new road.
+ */
+private fun routeKeyFor(route: RouteResult?): String =
+    route?.let { "geo:${it.geometry.size}:${it.hashCode()}" } ?: "none"
+
+/**
+ * Cumulative distance along the route geometry, in metres, one entry per vertex.
+ *
+ * Computed here rather than in the anchor manager so it is memoised per route object and recomputed
+ * only on a reroute — this feeds the metre-based anchor window, so recomputing it per location
+ * update would be wasted work.
+ */
+private fun cumulativeDistances(geometry: List<Coordinate>): DoubleArray {
+    val out = DoubleArray(geometry.size)
+    for (i in 1 until geometry.size) {
+        out[i] = out[i - 1] + metersBetween(geometry[i - 1], geometry[i])
+    }
+    return out
+}
+
+private fun metersBetween(a: Coordinate, b: Coordinate): Double {
+    val mid = Math.toRadians((a.latitude + b.latitude) / 2.0)
+    val dLat = (b.latitude - a.latitude) * METERS_PER_DEGREE
+    val dLon = (b.longitude - a.longitude) * METERS_PER_DEGREE * Math.cos(mid)
+    return Math.sqrt(dLat * dLat + dLon * dLon)
 }
 
 private fun CameraFailure.messageRes(): Int = when (this) {

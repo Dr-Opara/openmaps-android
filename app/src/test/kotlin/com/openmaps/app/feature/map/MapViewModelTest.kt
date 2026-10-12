@@ -581,6 +581,48 @@ class MapViewModelTest {
     }
 
     @Test
+    fun persistentDeviation_notifiesRouteReplaced_soArrowsAndAnchorsAreDropped() = runTest(dispatcher) {
+        // Phase 7 anchors and Phase 8 arrows are derived from the route geometry. If the reroute
+        // does not tell Live, the previous road's anchors keep being refined and its arrows keep
+        // being drawn — ghost guidance pointing down a road the driver just left.
+        var notifications = 0
+        viewModel.onRouteReplaced = { notifications++ }
+
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        assertEquals("starting navigation is not a route replacement", 0, notifications)
+
+        repeat(OffRouteDetector.DEFAULT_REROUTE_SAMPLES) {
+            repository.emit(LocationUpdate.Fix(at(0.002, 0.003)))
+        }
+
+        assertEquals("the reroute must be announced exactly once", 1, notifications)
+    }
+
+    @Test
+    fun arriving_notifiesNavigationEnded_soAnchorsAreReleased() = runTest(dispatcher) {
+        // The trip is over: keeping world anchors attached would have ARCore refining a road nobody
+        // is driving, and keeping arrows would leave guidance on the camera at the destination.
+        var ended = 0
+        viewModel.onNavigationEnded = { ended++ }
+
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        assertEquals(0, ended)
+
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.009)))
+
+        assertTrue(viewModel.uiState.value.navigationState is NavigationState.Arrived)
+        assertEquals("arrival must release the AR content exactly once", 1, ended)
+    }
+
+    @Test
     fun failedReroute_keepsTheOldRouteAndStaysNavigable() = runTest(dispatcher) {
         val events = collectEvents()
         startWithPermission()

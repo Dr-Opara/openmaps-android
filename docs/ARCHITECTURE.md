@@ -1,6 +1,6 @@
 # OpenMaps Architecture
 
-OpenMaps is a United States-only, Android-first navigation app. This document describes what exists after **Phase 6 (AR localization)**. AR content rendering (anchors, arrows), parking, computer vision, AI and authentication do not exist yet.
+OpenMaps is a United States-only, Android-first navigation app. This document describes what exists after **Phase 8 (AR route arrows on ARCore world anchors)**, which was built on a repaired Phase 7 (AR geospatial route anchoring). Parking, computer vision, AI and authentication do not exist yet.
 
 > **Verification status.** Phases 1-5 were built, unit-tested and manually validated end-to-end on a Pixel 8 API 35 emulator. **Phase 6 is built, unit-tested (175 tests) and emulator-validated only on its fallback paths** — the test emulator has no ARCore and no AR hardware, so Earth tracking, geospatial pose and heading are **unverified on a physical device**. See [SETUP.md](SETUP.md#verification-checklist).
 
@@ -454,8 +454,8 @@ Phase 6 keeps `SpatialPose.headingDegrees` separate from the movement bearing an
 
 ### Projection seam
 
-Phase 5 declined a projection API as speculative. Phase 6 adds `GeoProjector` because it now has a real,
-measured input (a pose with heading and accuracy):
+Phase 5 declined a projection API as speculative. Phase 6 added `GeoProjector` because it then had a
+real, measured input (a pose with heading and accuracy):
 
 ```
 geographic route point → E/N offset from the user → rotate into the device frame → perspective divide → screen (x, y)
@@ -464,9 +464,166 @@ geographic route point → E/N offset from the user → rotate into the device f
 It is pure, GL-free and JVM-testable — the part of AR that is hardest to debug on a real device — and
 returns `visible`/`onScreen` so a caller never draws an arrow for a point behind the driver or past
 the field of view. It uses the same local flat-earth projection as `RouteProgressTracker` and
-`NavigationCamera`, so all three agree. **Phase 7 can replace the perspective step with ARCore's own
-view/projection matrices on the GL thread** without changing anything above this seam. No route
-arrows are rendered — that is Phase 7.
+`NavigationCamera`, so all three agree.
+
+**`GeoProjector` is now the degraded path, not the primary one.** It still exists and still works,
+but every route arrow on a healthy system is placed from ARCore world anchors instead (see below).
+
+### Phase 7: AR geospatial route anchoring
+
+Phase 7 was originally committed as "Complete Phase 7 AR route anchoring" (`fec84b2`) while containing
+**no anchor code at all** — no `Earth.createAnchor`, no `Anchor`, no world transform, no anchor
+lifecycle. The only occurrence of the word "anchor" was Phase 6's `SpatialPose.isAnchorable`, a
+boolean quality flag. So "road-anchored arrows" had nothing to be anchored to, and Phase 8's arrows
+were necessarily placed by re-projecting raw lat/lng every frame.
+
+The repair adds a real anchoring layer:
+
+| Piece | File | Responsibility |
+| --- | --- | --- |
+| Models | `core/anchor/RouteAnchorModels.kt` | `WorldPose`, `WorldTransform` (position + quaternion), `AnchoredRoutePoint`, `RouteAnchorConfig` |
+| Sampling | `core/anchor/RouteAnchorSampler.kt` | Which route points become control points. Pure |
+| Policy | `core/anchor/RouteAnchorManager.kt` | Create / reuse / prune / quality-gate. Pure, via `AnchorBackend` |
+| ARCore | `anchor/ArCoreAnchorBackend.kt` | The **only** file that calls `Earth.createAnchor` |
+
+`com.google.ar.core` types never cross into `core/anchor` or into Compose. `ArCoreAnchorBackend`
+creates genuine geospatial anchors via `Earth.createAnchor(latitude, longitude, altitude, quaternion)`
+and reads `Anchor.getPose()` for a world-space transform in metres.
+
+#### Why anchor positions are absolute, not driver-relative
+
+The first implementation keyed anchors on route vertex index and spaced them out from the driver's
+current position. That is subtly broken in a way that is invisible on a desktop and obvious in a car:
+as the driver moves, the whole ladder of sample positions slides forward, every existing key stops
+being wanted, and the **entire anchor set is destroyed and recreated on every location update**. The
+visual result is a full arrow-set reset — precisely the anchor churn that makes world-locked content
+shimmer instead of sitting still.
+
+An earlier repair attempt then made density a *function of distance ahead* (tighter near the driver,
+tighter near a maneuver) while keeping a stateless grid. That still failed, because a
+forward-dependent thinning rule has to be seeded from somewhere, and the seed moves with the window.
+
+The shipped rule is therefore fully **stateless and absolute**:
+
+- Anchor *n* always lies at `n × anchorGridMeters` (5 m) along the route, whatever the driver is doing.
+- Density is a modular rule on that grid index: keep every 3rd point (15 m) on a straight, every point
+  (5 m) inside the maneuver band.
+- The maneuver band is expressed in *absolute* route distance. As the driver advances, the
+  distance-to-maneuver increases by exactly the amount the base distance increases, so the band's
+  absolute position does not move.
+
+Driving forward then **adds** anchors at the far end of the window and **retires** them at the near
+end — a conveyor belt, not a rebuild. `RouteAnchorSamplerTest` and `RouteAnchorManagerTest` pin this
+down, including a budget test asserting that 100 one-metre position updates create ≤ 20 anchors.
+
+Per-driver density variation (near/far arrow spacing, turn density) still exists, but it belongs to
+Phase 8's sampler, which applies it **per arrow**. The two layers deliberately do different jobs.
+
+#### The anchor window
+
+| Setting | Value | Reason |
+| --- | --- | --- |
+| `anchorGridMeters` | 5 m | The quantization every anchor snaps to |
+| `spacingStraightMeters` | 15 m | Coarse is fine: anchors define a road's direction, not its surface |
+| `spacingNearManeuverMeters` | 5 m | Extra control points on the approach stop arrows cutting the corner |
+| `maneuverApproachBandMeters` | 40 m | How far back the tightened spacing applies |
+| `behindWindowMeters` | 15 m | Needed so the first arrow (past a 6 m near cut-off) can be interpolated |
+| `aheadWindowMeters` | 160 m | Covers Phase 8's 120 m arrow window with margin |
+| `maxAnchors` | 20 | The real cost bound; ~12 are typical on a straight |
+
+The cap is applied to anchors **ahead** of the driver, not to the head of the list. Taking the list
+head would keep the behind-window anchors and push the far ones out, so the same far anchors would be
+dropped and recreated as the driver advanced — the churn bug again, one layer up.
+
+Anchors are created and pruned on route/progress/quality **changes**, never per frame. Creating an
+ARCore anchor is a real cost (a server-refined object) and must never sit in the render loop.
+
+#### Altitude: a fixed offset, deliberately
+
+`roadHeightOffsetMeters` is a **constant 0.35 m lift, not road elevation**. ARCore's terrain and
+rooftop anchors exist in the API but are far less reliable than geospatial ones — they need additional
+imagery support and are frequently unavailable — so this layer anchors geospatially at the Earth
+reference height and lifts by a fixed offset. The lift is applied **in world space**, not as a
+screen-space nudge, so two anchors 10 m apart do not produce a step in arrow height at the boundary.
+
+Consequence, stated plainly: **arrows will float or sink on real hills.** On a 5 % grade, a 120 m
+arrow window drifts ±6 m against a 0.35 m lift. Terrain anchors are the fix and are not implemented.
+
+### Phase 8: AR route arrows
+
+Phase 8's pre-existing logic is unchanged and still owns *which* arrows exist and *which way* they
+point: `ARArrowSampler` does route sampling, near/far spacing, turn density, the near cut-off, the
+visible cap and the tangent heading; `ARArrowQualityGate` does hysteresis; `ARArrowRenderer` is the
+only GL code. The repair changed exactly one thing — the **spatial placement seam**.
+
+```
+route geometry
+  → RouteAnchorManager (Phase 7)          real Earth.createAnchor world poses
+  → AnchoredArrowProjector.worldPoseAlongRoute   interpolate between control points
+  → AnchoredArrowProjector.project         world → camera space → screen
+  → ARArrowRenderer                        draw
+```
+
+`ARArrowPipeline.update` runs the Phase 8 sampler on **both** paths, then chooses placement:
+
+| Priority | Path | When |
+| --- | --- | --- |
+| 1 | **Anchored** (`usingAnchors = true`) | Any tracked anchor exists **and** a camera world transform exists |
+| 2 | **Degraded projection** (`usingAnchors = false`) | No anchors, anchors not yet tracked, no camera transform, or anchors do not reach as far as the arrows |
+
+The fallback is **never silently preferred**. `ARArrowPipeline.usingAnchors` and
+`ARArrowPipeline.degradedReason` state which path is live and, if not, why — so "arrows are showing but
+they slide" is explainable rather than mysterious.
+
+#### Interpolation
+
+Anchors are intentionally sparse. `worldPoseAlongRoute` interpolates linearly **in world space**
+between the two bracketing control points, which means the interpolation is a real line in ARCore's
+frame and stays put as the device moves. Consequences, all covered by `AnchoredArrowProjectorTest`:
+
+- Spacing stays metric and continuous; a 1 mm step in arrow distance never produces a jump.
+- Arrows beyond the anchored window are **dropped, not extrapolated**. Inventing a position past the
+  last anchor produces a confidently wrong chevron, which is the exact failure degraded anchoring is
+  supposed to prevent.
+- Partial coverage degrades gracefully: arrows inside the window are drawn from real world positions
+  and the rest are dropped.
+
+#### Orientation
+
+Arrow heading is the **route tangent from geometry**, never the device heading. The camera's full
+orientation (position *and* quaternion) is used only to build the view-relative transform — that is
+what makes arrows swing across the screen when the phone turns. A position-only projection would leave
+them pinned to screen centre, which is the classic symptom of AR content that is not actually
+world-locked.
+
+#### Overlay host
+
+`ArCoreSpatialLocalization` now exposes a minimal `ArOverlayRenderer` interface
+(`onSurfaceCreated()`, `drawFrame(alpha)`) plus `overlayAlpha`. The AR engine knows nothing about
+anchors, arrows, geometry or rendering policy — only "draw this after the camera". `ARArrowPipeline`
+implements it and is registered/unregistered by `ArPreviewSurface`, so it is the extension point later
+phases reuse without touching the AR engine.
+
+#### Reroute, arrival and Map ↔ Live
+
+`MapViewModel` gained two plain callbacks, `onRouteReplaced` and `onNavigationEnded`, wired to
+`LiveViewModel` in `OpenMapsApp` via a `DisposableEffect` (cleared on dispose, so recomposition cannot
+stack duplicates). The Map feature stays unaware of AR; it only announces when the trip changes.
+
+A reroute clears the anchor set and the arrow set **before** the new ones are built, so two routes are
+never drawn at once. It deliberately does **not** restart the AR session: the camera and pose remain
+valid, and rebuilding mid-drive would flicker the preview and risk a camera handoff.
+
+| Moment | Anchors | Arrows |
+| --- | --- | --- |
+| Reroute | cleared, new route's created | cleared |
+| Arrival / `stopNavigation` / destination clear | released | cleared |
+| Leaving Live (`DisposableEffect` dispose) | released | cleared, overlay detached |
+| Losing localization | retained (not destroyed) | retained where still valid |
+| Poor quality | creation stops, existing kept | suppressed by the quality gate |
+
+Anchors are deliberately **retained** when quality degrades. Destroying and recreating them on a brief
+signal loss would visibly reset every arrow, which is worse than leaving the last good positions up.
 
 ### Fallback
 
@@ -490,31 +647,49 @@ geospatial coordinates. Stripped from release by the `if (BuildConfig.DEBUG)` gu
 location continuously — `ArCoreSpatialLocalization` logs only session lifecycle and failures, and no
 coordinate is ever written to logcat.
 
-## Phase 7 output contract
+## Phase 8 output contract
 
-What Phase 7 (road-anchored AR arrows) can rely on, exactly as it stands at the end of Phase 6:
+What the next phase can rely on, exactly as it stands at the end of Phase 8:
 
 | Requirement | Provided by | Notes |
 | --- | --- | --- |
 | Stable geospatial pose | `SpatialPose.latitude/longitude/altitudeMeters` | From `Earth.cameraGeospatialPose`; `Tracking(null)` until first fix |
 | Device orientation / heading | `SpatialPose.headingDegrees` (device-facing, true north) | Distinct from the GPS movement bearing — do not conflate |
+| **World-space route anchors** | `RouteAnchorManager.anchorPoints()` → `List<AnchoredRoutePoint>` | Each has a real `WorldPose` once ARCore tracks it |
+| **Camera world transform** | `ArCoreSpatialLocalization.cameraTransform()` | Position **and** quaternion; published per frame from the GL thread |
+| **Anchor placement decision** | `ARArrowPipeline.usingAnchors`, `degradedReason` | Which path is live, and why if not |
+| Anchor counts / churn | `RouteAnchorManager.createdCount` / `detachedCount` / `size` | Diagnostics only; not logged |
 | Localization quality | `SpatialPose.quality`, `isAnchorable` | Only `Good` is anchorable |
 | Accuracy values | `horizontalAccuracyMeters`, `verticalAccuracyMeters`, `headingAccuracyDegrees` | Raw, for filtering/hysteresis if needed |
 | AR/Earth state | `SpatialLocalizationState` | `Tracking` / `Limited(reason)` / failure states |
-| Camera projection seam | `GeoProjector.project(world, userPose, viewport…)` | Returns `x/y`, `distanceMeters`, `bearingDegrees`, `visible`, `onScreen` |
-| Navigation route geometry | `RouteResult.geometry`, `RouteManeuvers` (Phase 4) | Input to the projection |
+| Geographic projection seam | `GeoProjector.project(world, userPose, viewport…)` | **Fallback only**; returns `x/y`, `distanceMeters`, `bearingDegrees`, `visible`, `onScreen` |
+| Overlay extension point | `ArCoreSpatialLocalization.ArOverlayRenderer` | `onSurfaceCreated()` + `drawFrame(alpha)` |
+| Navigation route geometry | `RouteResult.geometry`, `RouteManeuvers` (Phase 4) | Input to both anchor sampling and arrow sampling |
 | Navigation state | `MapUiState.navigationState`, `LiveHudState` (Phase 4/5) | Live still does not own it |
 | Live lifecycle | `ArPreviewSurface` + session bound to `LifecycleOwner` | `update()` pumped on the GL thread only |
 | Camera ownership | `PreviewProvider` (`Spatial` \| `CameraX`) | Exactly one owner at a time |
+| Trip lifecycle hooks | `MapViewModel.onRouteReplaced`, `onNavigationEnded` | Plain callbacks; Map stays AR-unaware |
 
-**Still Phase 7 work, not present:** AR anchor creation (`Earth.createAnchor`), GL drawing of world-locked
-content in the AR renderer (Phase 6's renderer draws only the camera background), Streetscape geometry,
-and terrain/rooftop anchoring. The renderer in `ArCoreSpatialLocalization` is the intended host for
-that drawing code — it already owns the GL context and the per-frame pump.
+**Still not present:** terrain/rooftop anchoring (so arrow altitude is a fixed lift, not real road
+elevation), Streetscape geometry, and any anchor persistence across app restarts.
 
-**Unverified without a device:** the ARCore session/GL path, Earth tracking and heading correctness
-have never run on real hardware (no ARCore-capable device was available). The first device run should
-treat the debug diagnostics overlay as the primary diagnostic.
+### Validation status
+
+| Area | Status |
+| --- | --- |
+| Unit tests | 304 passing, 0 failures. Includes all pre-existing Phase 1–8 tests |
+| `assembleDebug` / `lint` | Both pass. Lint warnings unchanged from the pre-existing baseline (40, all warnings) |
+| Emulator (Pixel 8 API 35) | No crashes across launch, 5× Map↔Live, 3× background/foreground, navigation + off-route + reroute + stop. Camera open count stays at 1 — no leaks. ARCore is **not installed** on the emulator, so only the CameraX fallback and the `AR: Idle` state were observable |
+| Physical ARCore device | **PENDING — no ARCore-capable device was available.** Nothing in this document about real spatial stability, road alignment, turn continuity or anchor drift has been observed in the real world |
+
+Emulator testing proves nothing about spatial correctness. An emulator has no ARCore service, so
+`Earth.createAnchor` was never executed even once; the anchored path was exercised only through unit
+tests with a fake backend and real quaternion arithmetic.
+
+**The first run on a physical device should treat the debug diagnostics overlay as the primary
+diagnostic**, and should specifically check: that `usingAnchors` is true while driving, that
+`RouteAnchorManager.size` stays near 12 and `createdCount` grows slowly, that arrows do not slide when
+the phone turns, and that they do not float or sink on a gradient (expected — see the altitude note).
 
 ## Error handling
 

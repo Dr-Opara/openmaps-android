@@ -96,24 +96,85 @@ Validated end-to-end on the Pixel 8 API 35 emulator with live calls to the Valha
 - Debug-build-only diagnostics (AR state, h/v/heading accuracy, coordinates); no location is ever logged continuously
 - 50 new unit tests (175 total). **Emulator validation covers the fallback paths only** — the test AVD has no ARCore and no AR hardware, so Earth tracking, pose and heading are unverified.
 
+## Phase 8 — AR route arrows on ARCore world anchors (complete, device validation pending)
+
+Phase 8's arrow renderer existed before Phase 7 was real, and was therefore built against
+projection-only placement. Phase 7 has since been repaired to create genuine geospatial anchors, and
+Phase 8's **spatial placement seam** — and only that seam — was re-pointed at them.
+
+- **Phase 7 repair.** Commit `fec84b2` was labelled "Complete Phase 7 AR route anchoring" but contained
+  no anchor code at all: no `Earth.createAnchor`, no `Anchor`, no world transform, no anchor
+  lifecycle. The added `core/anchor` layer (pure models, sampler, policy manager) plus
+  `anchor/ArCoreAnchorBackend` is the only file that touches `com.google.ar.core` for anchors.
+- **The churn bug, and the design that fixes it.** Anchors were first keyed on route vertex index and
+  spaced from the driver's position, which re-created the entire anchor set on every location update —
+  the same class of shimmer that makes world-locked content unusable. Making density a function of
+  distance-ahead did not fix it either, because a forward-dependent rule must be seeded from somewhere
+  and the seed moves with the window. The shipped rule is stateless and absolute: anchor *n* sits at
+  `n × anchorGridMeters`, and density is a modular rule on that grid index, tightened only around the
+  next maneuver's *absolute* route position. Driving adds anchors at the far end of the window and
+  retires them at the near end.
+- **Sampling logic unchanged.** `ARArrowSampler` still owns route sampling, near/far spacing, turn
+  density, the near cut-off, the visible cap and the tangent heading, and still runs on both paths.
+  Only placement changed.
+- **Placement is anchored-first.** `ARArrowPipeline.update` prefers `AnchoredArrowProjector` whenever a
+  tracked anchor and a camera world transform both exist, and only then falls back to
+  `GeoProjector`-based per-frame lat/lng projection. `usingAnchors` and `degradedReason` state which
+  path is live and why, so degraded mode is never mistaken for working anchoring.
+- **Interpolation between sparse anchors** is done in world space, so it is a real line in ARCore's
+  frame. Arrows beyond the anchored window are dropped rather than extrapolated.
+- **Camera orientation is used in full** (position *and* quaternion). A position-only projection would
+  leave arrows pinned to screen centre when the phone turns — the classic "not actually world-locked"
+  symptom.
+- **Altitude is a fixed 0.35 m lift, not road elevation.** Terrain/rooftop anchors exist in the ARCore
+  API but are far less reliable than geospatial ones, so this is documented as a limitation rather than
+  faked. Arrows will float or sink on real gradients.
+- 80 new unit tests (304 total, 0 failures), all pre-existing Phase 1–8 tests preserved.
+- **Emulator validation covers fallback and lifecycle only.** The test AVD has no ARCore package, so
+  `Earth.createAnchor` was never executed at all; only the CameraX fallback and `AR: Idle` were
+  observable. No crashes across launch, 5× Map↔Live, 3× background/foreground, and
+  navigation/off-route/reroute/stop, and the camera open count stayed at 1 throughout.
+- **Physical ARCore device validation is PENDING.** No ARCore-capable device was available. Road
+  alignment, anchor stability while walking, turn continuity and drift are all unobserved in the real
+  world.
+
 ## Next, not started (awaiting approval)
 
 Tentative order; each needs its own scope decision.
 
-1. **Production basemap**: pick and host the tile source (PMTiles/Protomaps or self-hosted vector tiles), glyphs and sprites; flip `devOnly` to false; dark navy style to match the brand.
-2. **Production geocoding**: move off the public Nominatim instance (self-hosted Nominatim/Photon or a contracted provider) before shipping.
-3. **Production routing**: move off the public Valhalla demo instance (self-hosted Valhalla or a contracted provider) before shipping.
-4. **Turn-by-turn guidance**: done in Phase 4; voice guidance is still open.
-5. **Live / camera-first view**: camera preview + HUD done in Phase 5; AR localization done in Phase 6. Next is AR content.
+1. **Physical-device validation of Phases 7/8.** This is now the highest-priority open item: every
+   spatial claim about anchoring is currently unverified against real ARCore hardware.
+2. **Production basemap**: pick and host the tile source (PMTiles/Protomaps or self-hosted vector tiles), glyphs and sprites; flip `devOnly` to false; dark navy style to match the brand.
+3. **Production geocoding**: move off the public Nominatim instance (self-hosted Nominatim/Photon or a contracted provider) before shipping.
+4. **Production routing**: move off the public Valhalla demo instance (self-hosted Valhalla or a contracted provider) before shipping.
+5. **Turn-by-turn guidance**: done in Phase 4; voice guidance is still open.
 6. **Later layers**: traffic, parking, richer place intelligence.
+
+## Phase 9 prerequisites
+
+Not started. Available now: the `ArOverlayRenderer` extension point on `ArCoreSpatialLocalization`
+(any overlay can draw after the camera without the AR engine knowing what it is), the
+`MapViewModel.onRouteReplaced` / `onNavigationEnded` trip-lifecycle callbacks, and the
+`RouteAnchorManager` / `ARArrowPipeline` derived-state pattern that a new overlay would follow.
+
+Still needed for place-type overlays: a place repository, a `MapUiState` extension, and a projection
+seam that works without a route (anchors are route-relative today; a point-of-interest overlay needs
+either free-standing anchors or the same projection as the fallback path).
 
 ## Phase 7 prerequisites
 
 Road-anchored AR arrows. Available now: `SpatialPose` (position + device-facing heading + accuracy +
 quality), `GeoProjector.project(...)` for the geographic -> screen transform, `RouteResult.geometry`,
 `LiveHudState`, `NavigationState`, and the AR `GLSurfaceView` renderer that already owns the GL context
-and per-frame pump. Still needed: AR anchor creation, world-locked GL drawing, Streetscape geometry and
-terrain/rooftop anchoring — all Phase 7, deliberately not started.
+and per-frame pump.
+
+**Historical note:** when Phase 8 was first built, this section read "Still needed: AR anchor creation,
+world-locked GL drawing … all Phase 7, deliberately not started" — which was true. The `fec84b2`
+commit message claiming Phase 7 was complete was inaccurate. Both are superseded by the Phase 8 entry
+above.
+
+Still not implemented even after the Phase 7 repair: Streetscape geometry and terrain/rooftop
+anchoring.
 
 ## Phase 6 prerequisites
 

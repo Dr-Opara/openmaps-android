@@ -79,6 +79,16 @@ class MapViewModel(
     private var userHasMovedCamera = false
     private var autoPromptEmitted = false
 
+    /**
+     * Invoked after a reroute replaces the route. Phase 7 anchors and Phase 8 arrows are both
+     * derived from the route geometry, so they must be dropped when the geometry changes. Kept as a
+     * plain callback so the Map feature stays unaware of AR.
+     */
+    var onRouteReplaced: () -> Unit = {}
+
+    /** Invoked once the destination is reached, so derived AR content (anchors, arrows) can clear. */
+    var onNavigationEnded: () -> Unit = {}
+
     // region Navigation session (Phase 4)
 
     /**
@@ -352,6 +362,8 @@ class MapViewModel(
 
         if (progress.hasArrived) {
             session = null
+            // Arrival ends the trip: release the AR anchors and remove the arrows.
+            onNavigationEnded()
             // End the split too: on arrival the whole route is traveled, so keeping the
             // muted overlay would suggest there is still road ahead to drive.
             _routeProgressView.value = null
@@ -394,6 +406,9 @@ class MapViewModel(
                 .onSuccess { route ->
                     rerouteInFlight = false
                     session = NavigationSession(route)
+                    // Anchors and arrows were derived from the OLD route's geometry, so they are now
+                    // stale. Notify before the new set is produced so two routes never overlap.
+                    onRouteReplaced()
                     navigationFollowSuspended = false
                     val progress = _uiState.value.currentLocation?.let { session?.locate(it.toCoordinate()) }
                     _uiState.update {

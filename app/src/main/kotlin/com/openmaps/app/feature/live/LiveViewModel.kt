@@ -1,7 +1,9 @@
 package com.openmaps.app.feature.live
 
 import androidx.lifecycle.ViewModel
+import com.openmaps.app.arrow.ARArrowPipeline
 import com.openmaps.app.camera.CameraEngineEvent
+import com.openmaps.app.core.anchor.RouteAnchorManager
 import com.openmaps.app.camera.CameraFailure
 import com.openmaps.app.camera.RearCameraEngine
 import com.openmaps.app.camera.RearCameraState
@@ -149,9 +151,49 @@ class LiveViewModel(
         spatialFallbackJob?.cancel()
         spatialFallbackJob = null
         spatialEngine.stop()
+        // Never leave anchors or arrows alive over a camera that is no longer being driven.
+        routeAnchorManager?.clear()
+        arrowPipeline.clear()
     }
 
     private var spatialFallbackJob: kotlinx.coroutines.Job? = null
+
+    // endregion
+
+    // region AR anchoring + chevrons (Phases 7/8)
+
+    /**
+     * The AR chevron pipeline. Additive and self-contained: if it yields nothing, Live is unchanged.
+     *
+     * Owned here rather than in the composable so it outlives Live composition and can be cleared
+     * explicitly on the moments stale arrows would otherwise linger — arrival, navigation stop, and
+     * route replacement.
+     */
+    val arrowPipeline: ARArrowPipeline = ARArrowPipeline()
+
+    /**
+     * Phase 7 spatial anchors: the world-space route control points arrows are placed against.
+     * Null when no backend was supplied (non-AR devices, unit tests), in which case Phase 8 falls
+     * back to per-frame geographic projection and reports it via `arrowPipeline.usingAnchors = false`.
+     */
+    var routeAnchorManager: RouteAnchorManager? = null
+
+    /**
+     * A reroute replaces the route that both the anchors and the arrows were derived from, so both
+     * sets are dropped before the new one is produced. Deliberately does **not** restart the AR
+     * session: the camera and the pose remain valid, and rebuilding mid-drive would flicker the
+     * preview and risk a camera handoff.
+     */
+    fun onRouteReplaced() {
+        routeAnchorManager?.clear()
+        arrowPipeline.onRouteReplaced()
+    }
+
+    /** End of trip: release anchors and remove every arrow. */
+    fun onNavigationEnded() {
+        routeAnchorManager?.clear()
+        arrowPipeline.clear()
+    }
 
     // endregion
 

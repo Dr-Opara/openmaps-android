@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +42,7 @@ import com.openmaps.app.feature.live.LiveViewModel
 import com.openmaps.app.feature.live.liveViewModelFactory
 import com.openmaps.app.feature.map.MapScreen
 import com.openmaps.app.feature.map.MapUiEvent
+import com.openmaps.app.feature.map.RouteState
 import com.openmaps.app.feature.map.MapViewModel
 import com.openmaps.app.feature.map.mapViewModelFactory
 import com.openmaps.app.feature.search.SearchScreen
@@ -107,6 +109,23 @@ private fun AppShell(container: AppContainer) {
         liveViewModel.onCameraPermissionChanged(CameraPermissions.evaluate(activity, cameraPrefs))
     }
 
+    // Phase 7/8 lifecycle bridge: the Map feature owns the trip, so it is the only thing that knows
+    // when the route is replaced or the trip ends. Live's anchors and arrows are derived from that
+    // route, so they are told through these two callbacks rather than by watching MapUiState — a
+    // state-driven rebuild would still leave stale anchors for one composition pass, which shows up
+    // as a ghost arrow over the road just driven.
+    //
+    // Assigned once per ViewModel pair and cleared on dispose, so a recomposition cannot stack
+    // duplicate callbacks and clear the arrows repeatedly.
+    DisposableEffect(viewModel, liveViewModel) {
+        viewModel.onRouteReplaced = { liveViewModel.onRouteReplaced() }
+        viewModel.onNavigationEnded = { liveViewModel.onNavigationEnded() }
+        onDispose {
+            viewModel.onRouteReplaced = {}
+            viewModel.onNavigationEnded = {}
+        }
+    }
+
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
@@ -162,6 +181,10 @@ private fun AppShell(container: AppContainer) {
                 hudState = LiveHud.state(state.navigationState, state.selectedDestination?.name),
                 isNavigating = state.isNavigating,
                 onModeSelected = viewModel::onModeSelected,
+                // Phases 7/8 need the *same* route and navigation instances the map is showing, so
+                // a reroute reaches the anchors and arrows through exactly one state update.
+                route = (state.routeState as? RouteState.Ready)?.route,
+                navigationState = state.navigationState,
             )
         }
 

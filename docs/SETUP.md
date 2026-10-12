@@ -73,6 +73,42 @@ openmaps.style.devOnly=false
 - Check `adb logcat -s ArCoreSpatialLoc` for session lifecycle and failures. Coordinates are never logged.
 - A black Live screen with a working camera permission almost always means AR was selected and then failed; check `PreviewProvider` fell back to `CameraX`.
 
+## AR route anchors and arrows (Phases 7/8)
+
+These require a physical ARCore device. There is **no emulator substitute**: without the
+`com.google.ar.core` package, `Earth.createAnchor` is never called even once, so nothing about
+anchoring, arrow stability or road alignment can be checked.
+
+Go **outdoors with a clear sky**. ARCore's geospatial Earth solution is a visual-positioning system; it
+will not initialize indoors, under cover, or against a blank sky.
+
+What to look for while driving or walking slowly:
+
+| Check | Expected | If it fails |
+| --- | --- | --- |
+| `usingAnchors` (diagnostics overlay) | Stays true while tracking | Anchors are not being created or not being tracked; check Earth state and network |
+| `RouteAnchorManager.size` | Roughly 12 on a straight, more near a turn | Below that means anchors are failing; far above means they are not being retired |
+| `createdCount` growth | Slow — a handful per 100 m | Fast growth means anchors are churning, which shows as arrows resetting |
+| Arrows while turning the phone | Sweep across the view | If they stay pinned to the centre of the screen, the camera orientation is not reaching the projector |
+| Arrows on a slope | Expect them to float or sink | **Known limitation, not a bug**: altitude is a fixed 0.35 m lift, not road elevation. Terrain anchors are not implemented |
+| After a reroute | Old arrows gone, new ones on the new road | Ghost arrows mean `onRouteReplaced` did not fire |
+| On arrival / Stop | No arrows, no lingering anchors | Anchors must be released; ARCore should stop refining |
+
+Two things are deliberately noisy and are not faults:
+
+- A short "no anchors yet" period at the start of a trip — ARCore needs a few seconds to establish
+  Earth tracking before the first anchor resolves. The diagnostics chip should say "Improving
+  accuracy…".
+- The arrow set dropping to nothing when localization quality drops below `Fair`. The
+  `ARArrowQualityGate` hysteresis is doing its job: arrows that cannot be trusted are worse than no
+  arrows.
+
+When the anchored path cannot be used, `ARArrowPipeline.degradedReason` carries the reason
+(`no anchors created yet`, `anchors not yet tracked`, `no camera world transform`, or `anchors did not
+cover the arrow window`). Arrows will still draw via the per-frame geographic projection fallback, but
+they will slide and jitter with the GPS fix — that is degraded mode, not working road anchoring, and it
+should not be reported as a success.
+
 ## Verification checklist
 
 **Nothing below has been run.** The remote build environment had no Android SDK and could not reach Google Maven or Maven Central, so it could not compile the Android code, run the Android unit tests, run lint, or launch anything. What *was* done remotely: the pure-Kotlin core (`LocationModels`, `LocationRepository`, `MapModels`, `MapStyleProvider`, `MapUiState`, `MapViewModel`) compiled with the Kotlin 2.0.21 compiler against a stub `ViewModel`, and 35 behavioural checks mirroring the ViewModel unit tests passed in a throwaway harness; XML and resource references were validated statically. That is **not** a substitute for the steps here.
@@ -81,7 +117,7 @@ openmaps.style.devOnly=false
 
 - [ ] Gradle sync succeeds
 - [ ] `./gradlew :app:assembleDebug` succeeds
-- [ ] `./gradlew :app:testDebugUnitTest` passes (175 tests across 12 classes)
+- [ ] `./gradlew :app:testDebugUnitTest` passes (304 tests across 18 classes)
 - [ ] `./gradlew :app:lintDebug` has no errors
 - [ ] `dependencies` output shows no unexpected version conflicts (look at `androidx.lifecycle`, `kotlinx-coroutines`, and MapLibre's transitive libraries)
 - [ ] `./gradlew :app:assembleRelease` succeeds (R8 with MapLibre; try a release build early)

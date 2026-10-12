@@ -302,6 +302,114 @@ class LiveViewModelTest {
 
     // endregion
 
+    // region Phase 7/8 AR content lifecycle
+
+    @Test
+    fun routeReplaced_clearsArrows() {
+        // A reroute means the arrows on screen describe a road the driver just left. They must be
+        // gone before the new set is built, or both routes are drawn at once.
+        viewModel.arrowPipeline.let {
+            it.onRouteReplaced()
+        }
+        viewModel.onRouteReplaced()
+        assertEquals(0, viewModel.arrowPipeline.arrowCount())
+        assertFalse("a reroute must not leave the arrows claiming to be anchored", viewModel.arrowPipeline.usingAnchors)
+    }
+
+    @Test
+    fun navigationEnded_clearsArrows() {
+        viewModel.onNavigationEnded()
+        assertEquals("arrival or stop must leave no arrows on the camera", 0, viewModel.arrowPipeline.arrowCount())
+        assertNull(viewModel.arrowPipeline.degradedReason)
+    }
+
+    @Test
+    fun navigationEnded_releasesAnchors() {
+        // Live is gone, so ARCore must not be left refining world anchors for a road nobody is
+        // driving. The manager is cleared through the same call that clears the arrows.
+        var cleared = 0
+        val manager = object : com.openmaps.app.core.anchor.RouteAnchorManager(FakeAnchorBackend()) {
+            override fun clear() {
+                cleared++
+                super.clear()
+            }
+        }
+        viewModel.routeAnchorManager = manager
+
+        viewModel.onNavigationEnded()
+
+        assertEquals("anchors must be released when navigation ends", 1, cleared)
+        assertEquals(0, viewModel.arrowPipeline.arrowCount())
+    }
+
+    @Test
+    fun routeReplaced_releasesAnchors() {
+        var cleared = 0
+        val manager = object : com.openmaps.app.core.anchor.RouteAnchorManager(FakeAnchorBackend()) {
+            override fun clear() {
+                cleared++
+                super.clear()
+            }
+        }
+        viewModel.routeAnchorManager = manager
+
+        viewModel.onRouteReplaced()
+
+        assertEquals("a reroute must drop the anchors describing the old road", 1, cleared)
+    }
+
+    @Test
+    fun stoppingSpatialLocalization_clearsArrowsAndAnchors() {
+        // Leaving Live tears the camera down; anything still drawing over it would be drawing over a
+        // surface nobody owns any more.
+        var cleared = 0
+        val manager = object : com.openmaps.app.core.anchor.RouteAnchorManager(FakeAnchorBackend()) {
+            override fun clear() {
+                cleared++
+                super.clear()
+            }
+        }
+        viewModel.routeAnchorManager = manager
+
+        viewModel.stopSpatialLocalization()
+
+        assertEquals(1, cleared)
+        assertEquals(0, viewModel.arrowPipeline.arrowCount())
+    }
+
+    /** Minimal backend: the manager's behaviour is covered in RouteAnchorManagerTest. */
+    private class FakeAnchorBackend : com.openmaps.app.core.anchor.AnchorBackend {
+        private val anchors = mutableMapOf<Long, com.openmaps.app.core.anchor.WorldPose>()
+        override fun createAnchor(
+            key: Long,
+            latitude: Double,
+            longitude: Double,
+            altitudeMeters: Double,
+            quaternion: FloatArray,
+        ): Boolean {
+            anchors[key] = com.openmaps.app.core.anchor.WorldPose(0.0, 0.0, -key.toDouble())
+            return true
+        }
+
+        override fun worldPose(key: Long) = anchors[key]
+        override fun trackingState(key: Long) =
+            if (key in anchors) com.openmaps.app.core.anchor.AnchorTrackingState.Tracking
+            else com.openmaps.app.core.anchor.AnchorTrackingState.Stopped
+
+        override fun detach(key: Long) {
+            anchors.remove(key)
+        }
+
+        override fun detachAll() {
+            anchors.clear()
+        }
+
+        override fun cameraTransform(): com.openmaps.app.core.anchor.WorldTransform? = null
+        override fun isAvailable(): Boolean = true
+    }
+
+    // endregion
+
     private class FakeLifecycleOwner : androidx.lifecycle.LifecycleOwner {
         private val registry = androidx.lifecycle.LifecycleRegistry(this)
         override val lifecycle: androidx.lifecycle.Lifecycle get() = registry

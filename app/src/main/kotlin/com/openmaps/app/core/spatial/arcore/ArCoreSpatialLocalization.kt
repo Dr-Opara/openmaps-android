@@ -72,6 +72,32 @@ class ArCoreSpatialLocalization(
      */
     override val providesPreview: Boolean = true
 
+    /**
+     * The live ARCore [Session], or null when none has been created.
+     *
+     * Exposed deliberately and read-only: the anchor backend is the one legitimate second consumer
+     * of the session (it needs `Earth.createAnchor`). Rather than widen this class's API with anchor
+     * methods, the backend receives a supplier and stays ignorant of session lifecycle.
+     */
+    fun session(): Session? = session
+
+    /**
+     * The camera's pose in ARCore's world frame, published from the GL thread each frame.
+     *
+     * ARCore exposes the camera only through [Frame], which is valid for exactly one frame, so it is
+     * copied out here into plain numbers rather than handing out a stale `Frame`. Phase 7 anchors live
+     * in the same world frame, so this is what turns an anchor position into a view-relative one —
+     * and it is the input that makes anchored placement stable as the device moves.
+     *
+     * Orientation is included, not just position: it is the camera's yaw that swings arrows across
+     * the screen when the phone turns.
+     */
+    @Volatile
+    private var cameraTransform: com.openmaps.app.core.anchor.WorldTransform? = null
+
+    /** Latest camera world transform, or null before the first frame. */
+    fun cameraTransform(): com.openmaps.app.core.anchor.WorldTransform? = cameraTransform
+
     private var session: Session? = null
     private var surfaceView: GLSurfaceView? = null
     private var boundOwner: LifecycleOwner? = null
@@ -80,6 +106,38 @@ class ArCoreSpatialLocalization(
     /** GL texture ARCore writes camera frames into. Owned by the renderer; -1 until GL is ready. */
     @Volatile
     private var cameraTextureId: Int = NO_TEXTURE
+
+    /**
+     * Optional overlay drawn on top of the camera background each frame.
+     *
+     * Typed as an interface so the AR engine knows nothing about anchors, arrows, geometry or
+     * rendering policy — it only knows "draw this after the camera". That keeps ARCore session
+     * ownership strictly separate from what is drawn on it, and is the boundary later phases reuse
+     * for additional overlays without touching this class.
+     */
+    @Volatile
+    var overlayRenderer: ArOverlayRenderer? = null
+
+    /**
+     * Opacity for the overlay layer (0 hides it entirely).
+     * @Volatile because it is written from the main thread and read on the GL thread.
+     */
+    @Volatile
+    var overlayAlpha: Float = 0f
+        private set
+
+    fun setOverlayAlpha(alpha: Float) {
+        overlayAlpha = alpha.coerceIn(0f, 1f)
+    }
+
+    /** The minimum interface the AR engine needs from anything drawn over the camera. */
+    interface ArOverlayRenderer {
+        /** Called once when the GL surface is created, so the overlay can build GL resources. */
+        fun onSurfaceCreated()
+
+        /** Called every frame after the camera background. [alpha] is 0..1. */
+        fun drawFrame(alpha: Float)
+    }
 
     /** The GL surface Live hosts when [providesPreview]. */
     fun previewView(): GLSurfaceView = surfaceView ?: GLSurfaceView(context).also { view ->
@@ -230,6 +288,9 @@ class ArCoreSpatialLocalization(
         }
         session = null
         cameraTextureId = NO_TEXTURE
+        // The world frame dies with the session; a pose left over from it would place arrows in a
+        // frame that no longer exists.
+        cameraTransform = null
     }
 
     // endregion
@@ -249,6 +310,21 @@ class ArCoreSpatialLocalization(
                 activeSession.setDisplayGeometry(0, view.width, view.height)
             }
             val frame = activeSession.update()
+            // Publish the camera's world transform before anything can ask for it: anchors and arrows
+            // are positioned relative to this, so it must come from the same frame ARCore produced.
+            cameraTransform = frame.camera.pose?.let { p ->
+                com.openmaps.app.core.anchor.WorldTransform(
+                    position = com.openmaps.app.core.anchor.WorldPose(
+                        p.tx().toDouble(),
+                        p.ty().toDouble(),
+                        p.tz().toDouble(),
+                    ),
+                    qx = p.qx().toDouble(),
+                    qy = p.qy().toDouble(),
+                    qz = p.qz().toDouble(),
+                    qw = p.qw().toDouble(),
+                )
+            }
             _events.tryEmit(toState(frame.camera, activeSession.earth))
         } catch (e: CameraNotAvailableException) {
             Log.w(TAG, "ARCore lost the camera", e)
@@ -367,6 +443,9 @@ class ArCoreSpatialLocalization(
             GLES20.glTexParameteri(TEXTURE_TARGET, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
             cameraTextureId = texture
 
+            // Let any overlay build its own GL resources now that a context exists.
+            overlayRenderer?.onSurfaceCreated()
+
             program = buildProgram()
             positionHandle = GLES20.glGetAttribLocation(program, "a_Position")
             texCoordHandle = GLES20.glGetAttribLocation(program, "a_TexCoord")
@@ -387,6 +466,13 @@ class ArCoreSpatialLocalization(
             // Pump ARCore first so the texture below already holds this frame.
             onDrawFrame()
             drawCameraBackground()
+            // Overlays (Phase 7 anchors / Phase 8 arrows) draw on top of the camera, after it, so
+            // they are always composited over a complete frame.
+            overlayRenderer?.let { renderer ->
+                GLES20.glEnable(GLES20.GL_BLEND)
+                renderer.drawFrame(overlayAlpha)
+                GLES20.glDisable(GLES20.GL_BLEND)
+            }
         }
 
         private fun drawCameraBackground() {
