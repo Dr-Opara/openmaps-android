@@ -22,6 +22,20 @@
         android:name="android.hardware.camera.any"
         android:required="false" />
 
+    <!--
+      AR features are all OPTIONAL. OpenMaps must install and run on devices without AR: Live falls
+      back to the CameraX preview, and map/search/routing/navigation are unaffected. `camera.any`
+      is declared as required="false" above for the same reason.
+    -->
+    <uses-feature
+        android:name="android.hardware.camera.ar"
+        android:required="false" />
+
+    <!-- AR VPS/Earth tracking needs hardware-accelerated OpenGL ES 3.0+. -->
+    <uses-feature
+        android:glEsVersion="0x00030000"
+        android:required="false" />
+
     <application
         android:name=".OpenMapsApplication"
         android:allowBackup="false"
@@ -40,6 +54,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          ARCore (Phase 6). `optional="true"` is the important part: it tells the Play Store the
+          app installs and runs on devices without ARCore, which is what we want because Live falls
+          back to the CameraX preview when Geospatial is unavailable. `value="optional"` combined
+          with the com.google.ar.core marker is the documented way to declare ARCore support.
+        -->
+        <meta-data
+            android:name="com.google.ar.core"
+            android:value="optional" />
     </application>
 
 </manifest>

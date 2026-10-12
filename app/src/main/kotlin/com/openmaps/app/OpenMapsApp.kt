@@ -38,6 +38,7 @@ import com.openmaps.app.feature.live.LiveHud
 import com.openmaps.app.feature.live.LiveScreen
 import com.openmaps.app.feature.live.LiveUiEvent
 import com.openmaps.app.feature.live.LiveViewModel
+import com.openmaps.app.feature.live.liveViewModelFactory
 import com.openmaps.app.feature.map.MapScreen
 import com.openmaps.app.feature.map.MapUiEvent
 import com.openmaps.app.feature.map.MapViewModel
@@ -73,7 +74,7 @@ fun OpenMapsApp(container: AppContainer) {
 private fun AppShell(container: AppContainer) {
     val viewModel: MapViewModel = viewModel(factory = mapViewModelFactory(container))
     val searchViewModel: SearchViewModel = viewModel(factory = searchViewModelFactory(container))
-    val liveViewModel: LiveViewModel = viewModel()
+    val liveViewModel: LiveViewModel = viewModel(factory = liveViewModelFactory(container))
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
 

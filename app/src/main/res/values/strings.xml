@@ -86,6 +86,11 @@
     <string name="route_error_malformed">We couldn\'t read that response. Try again.</string>
     <string name="route_error_no_route">No route found to this destination.</string>
 
+    <!-- Spatial localization (Phase 6) -->
+    <string name="spatial_locating">Locating…</string>
+    <string name="spatial_improving">Improving accuracy…</string>
+    <string name="spatial_ready">Ready</string>
+
     <!-- Navigation (Phase 4) -->
     <string name="nav_start">Start</string>
     <string name="nav_stop">End</string>

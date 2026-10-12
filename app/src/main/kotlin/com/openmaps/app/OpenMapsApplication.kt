@@ -11,6 +11,8 @@ import com.openmaps.app.core.location.LocationPermissionPrefs
 import com.openmaps.app.core.location.LocationRepository
 import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.core.routing.ValhallaRoutingRepository
+import com.openmaps.app.core.spatial.SpatialLocalizationEngine
+import com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization
 import com.openmaps.app.map.BuildConfigMapStyleProvider
 import com.openmaps.app.map.MapStyleProvider
 
@@ -27,6 +29,14 @@ class AppContainer(application: Application) {
     val routingRepository: RoutingRepository = ValhallaRoutingRepository(
         userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
     )
+
+    /**
+     * Phase 6 spatial localization (ARCore). **Constructed eagerly but not started** — support is
+     * checked inside the engine on `start`, because `ArCoreApk.getInstance().requestInstall` needs an
+     * Activity and must only run when the user actually opens Live. Constructing a Session is
+     * deliberately deferred to `start()` so nothing touches the camera at app launch.
+     */
+    val spatialLocalizationEngine: SpatialLocalizationEngine = ArCoreSpatialLocalization(application)
 }
 
 class OpenMapsApplication : Application() {

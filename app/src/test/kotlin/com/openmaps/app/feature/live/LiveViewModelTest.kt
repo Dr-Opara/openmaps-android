@@ -6,6 +6,11 @@ import com.openmaps.app.camera.CameraFailure
 import com.openmaps.app.camera.RearCameraEngine
 import com.openmaps.app.camera.RearCameraState
 import com.openmaps.app.core.camera.CameraPermissionState
+import com.openmaps.app.core.spatial.FakeSpatialLocalization
+import com.openmaps.app.core.spatial.LimitedReason
+import com.openmaps.app.core.spatial.SpatialAvailability
+import com.openmaps.app.core.spatial.SpatialFailure
+import com.openmaps.app.core.spatial.SpatialLocalizationState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -162,6 +167,144 @@ class LiveViewModelTest {
 
         assertFalse(engineLess.canStartCamera)
         assertTrue(engineLess.uiState.value.isCameraUsable)
+    }
+
+    // region Spatial localization (Phase 6)
+
+    @Test
+    fun defaultSpatialEngine_isTheNoopFallback() = runTest(dispatcher) {
+        // A LiveViewModel built with no AR engine must still be fully usable on CameraX.
+        val plain = LiveViewModel(engine)
+        assertFalse(plain.spatialProvidesPreview)
+        assertEquals(PreviewProvider.CameraX, plain.previewProvider.value)
+    }
+
+    @Test
+    fun unsupportedArSelectsCameraX_immediatelyAndWithoutOpeningACamera() = runTest(dispatcher) {
+        // The regression this guards: selecting AR by *capability* and then failing left Live with
+        // no camera at all. The probe must be decisive before any preview is composed.
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Unsupported)
+        val vm = LiveViewModel(engine, spatial)
+
+        assertEquals(PreviewProvider.CameraX, vm.previewProvider.value)
+        assertFalse(vm.spatialProvidesPreview)
+    }
+
+    @Test
+    fun notInstalledArSelectsCameraX() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.NotInstalled)
+        assertEquals(PreviewProvider.CameraX, LiveViewModel(engine, spatial).previewProvider.value)
+    }
+
+    @Test
+    fun supportedAndCapableArSelectsTheArSurface() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Supported)
+        val vm = LiveViewModel(engine, spatial)
+
+        assertEquals(PreviewProvider.Spatial, vm.previewProvider.value)
+        assertTrue(vm.spatialProvidesPreview)
+    }
+
+    @Test
+    fun engineThatCannotRenderNeverSelectsAr_evenWhenArIsSupported() = runTest(dispatcher) {
+        // A supported AR stack on an engine that cannot draw a preview still must use CameraX.
+        val spatial = FakeSpatialLocalization(providesPreview = false, availability = SpatialAvailability.Supported)
+        assertEquals(PreviewProvider.CameraX, LiveViewModel(engine, spatial).previewProvider.value)
+    }
+
+    @Test
+    fun arFailingMidSession_handsTheCameraBackToCameraX() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Supported)
+        val vm = LiveViewModel(engine, spatial)
+        vm.onCameraPermissionChanged(CameraPermissionState.Granted)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+        assertEquals(PreviewProvider.Spatial, vm.previewProvider.value)
+
+        // AR dies after a successful probe — Live must not be left with a dead camera surface.
+        spatial.emit(SpatialLocalizationState.Failed(SpatialFailure.SessionCreationFailed))
+
+        assertEquals(PreviewProvider.CameraX, vm.previewProvider.value)
+    }
+
+    @Test
+    fun arBecomingUnsupportedMidSession_alsoFallsBack() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Supported)
+        val vm = LiveViewModel(engine, spatial)
+        vm.onCameraPermissionChanged(CameraPermissionState.Granted)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+
+        spatial.emit(SpatialLocalizationState.Unsupported)
+
+        assertEquals(PreviewProvider.CameraX, vm.previewProvider.value)
+    }
+
+    @Test
+    fun arReportingLimited_doesNotFallBack() = runTest(dispatcher) {
+        // Degraded tracking is still ARCore owning a working camera; switching would flicker the
+        // preview for no reason.
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Supported)
+        val vm = LiveViewModel(engine, spatial)
+        vm.onCameraPermissionChanged(CameraPermissionState.Granted)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+
+        spatial.emit(SpatialLocalizationState.Limited(LimitedReason.InsufficientFeatures))
+
+        assertEquals(PreviewProvider.Spatial, vm.previewProvider.value)
+    }
+
+    @Test
+    fun spatialLocalization_isNotStartedWithoutCameraPermission() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization()
+        val vm = LiveViewModel(engine, spatial)
+
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+
+        assertEquals("AR must not start before the camera is usable", 0, spatial.startCount)
+    }
+
+    @Test
+    fun spatialLocalization_startsOnceCameraPermissionIsGranted() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization()
+        val vm = LiveViewModel(engine, spatial)
+        vm.onCameraPermissionChanged(CameraPermissionState.Granted)
+
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+
+        assertEquals(1, spatial.startCount)
+        assertTrue("an AR engine owns the camera and renders its own preview", vm.spatialProvidesPreview)
+    }
+
+    @Test
+    fun stopSpatialLocalization_isIdempotent() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization()
+        val vm = LiveViewModel(engine, spatial)
+        vm.onCameraPermissionChanged(CameraPermissionState.Granted)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+
+        vm.stopSpatialLocalization()
+        vm.stopSpatialLocalization()
+
+        assertEquals(2, spatial.stopCount)
+    }
+
+    @Test
+    fun revokingCameraPermission_preventsFurtherLocalizationStarts() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization()
+        val vm = LiveViewModel(engine, spatial)
+        vm.onCameraPermissionChanged(CameraPermissionState.Granted)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+
+        vm.onCameraPermissionChanged(CameraPermissionState.PermanentlyDenied)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+
+        assertEquals("AR must not restart without camera permission", 1, spatial.startCount)
+    }
+
+    // endregion
+
+    private class FakeLifecycleOwner : androidx.lifecycle.LifecycleOwner {
+        private val registry = androidx.lifecycle.LifecycleRegistry(this)
+        override val lifecycle: androidx.lifecycle.Lifecycle get() = registry
     }
 
     private fun TestScope.collectEvents(): MutableList<LiveUiEvent> =

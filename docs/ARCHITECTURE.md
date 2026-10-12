@@ -1,8 +1,8 @@
 # OpenMaps Architecture
 
-OpenMaps is a United States-only, Android-first navigation app. This document describes what exists after **Phase 5 (Live camera mode)**. AR anchoring, parking, computer vision, AI and authentication do not exist yet.
+OpenMaps is a United States-only, Android-first navigation app. This document describes what exists after **Phase 6 (AR localization)**. AR content rendering (anchors, arrows), parking, computer vision, AI and authentication do not exist yet.
 
-> **Verification status.** Phases 1-5 have all been built, unit-tested, and manually validated end-to-end on a Pixel 8 API 35 emulator — Phase 5's pass included a live rear-camera preview, the permission prompt/grant/deny/revoke flow, the navigation HUD over the camera feed, a live reroute while in Live, arrival in Live, and repeated Map <-> Live switching. See [SETUP.md](SETUP.md#verification-checklist).
+> **Verification status.** Phases 1-5 were built, unit-tested and manually validated end-to-end on a Pixel 8 API 35 emulator. **Phase 6 is built, unit-tested (175 tests) and emulator-validated only on its fallback paths** — the test emulator has no ARCore and no AR hardware, so Earth tracking, geospatial pose and heading are **unverified on a physical device**. See [SETUP.md](SETUP.md#verification-checklist).
 
 ## Stack
 
@@ -11,7 +11,8 @@ OpenMaps is a United States-only, Android-first navigation app. This document de
 | Language / UI | Kotlin 2.0.21, Jetpack Compose (BOM 2024.12.01), Material 3 |
 | Build | Gradle Kotlin DSL, version catalog (`gradle/libs.versions.toml`), AGP 8.7.3 |
 | Map renderer | MapLibre Native Android `org.maplibre.gl:android-sdk:11.13.5` |
-| Camera | CameraX `androidx.camera` 1.4.2 (`camera-core`, `camera-camera2`, `camera-lifecycle`, `camera-view`), preview use case only |
+| Camera | CameraX `androidx.camera` 1.4.2 (preview use case) — the Live fallback camera |
+| AR / spatial | ARCore `com.google.ar:core` 1.56.0, Geospatial (Earth) mode, runtime support-checked, optional |
 | Map data | OpenStreetMap-derived vector tiles via a configurable style URL |
 | Geocoding | OSM Nominatim (`nominatim.openstreetmap.org`), development-only — see [Geocoding](#geocoding) |
 | Routing | Valhalla demo instance (`valhalla1.openstreetmap.de`), development-only — see [Routing](#routing) |
@@ -57,9 +58,17 @@ com.openmaps.app
 │   │   ├── OffRouteDetector             multi-sample hysteresis before a reroute
 │   │   ├── NavigationCamera             follow-camera target (ahead on the route, bearing)
 │   │   └── NavigationSession            per-trip state: tracker + detector + camera
-│   └── camera                           Phase 5 camera permission model
-│       ├── CameraModels                 CameraPermissionState                                    (pure Kotlin)
-│       └── CameraPermissions            OS permission -> CameraPermissionState (+ "already asked" flag)
+│   ├── camera                           Phase 5 camera permission model
+│   │   ├── CameraModels                 CameraPermissionState                                    (pure Kotlin)
+│   │   └── CameraPermissions            OS permission -> CameraPermissionState (+ "already asked" flag)
+│   └── spatial                          Phase 6 AR localization
+│       ├── SpatialModels                SpatialLocalizationState, SpatialPose, quality, availability (pure Kotlin)
+│       ├── SpatialLocalizationEngine    interface the app talks to                              (pure Kotlin)
+│       ├── LocalizationQualityMapper    accuracy -> LocalizationQuality thresholds               (pure Kotlin)
+│       ├── LiveLocalizationStatus        SpatialLocalizationState -> what the HUD shows           (pure Kotlin)
+│       ├── GeoProjector                 geographic -> screen projection seam                     (pure Kotlin)
+│       ├── NoopSpatialLocalization      the non-AR fallback engine
+│       └── arcore/ArCoreSpatialLocalization   the ONLY file importing com.google.ar.core
 ├── map                                  the ONLY package that knows about MapLibre
 │   ├── MapModels                        CameraState, MapCommand, MapEvent, MapMode, MapError    (pure Kotlin)
 │   ├── MapStyleProvider                 MapStyleSource + provider interface                     (pure Kotlin)
@@ -325,22 +334,187 @@ The live bearing during a rotate gesture is exposed as a separate `compassBearin
 - Camera-move events are throttled to bearing changes of at least 0.5 degrees.
 - The engine uses MapLibre's default `SurfaceView`. If overlay z-ordering or animation artefacts appear over the map on a device, try `textureMode(true)` (slower but composites like a normal view).
 
-## Phase 6 prerequisites
+## Spatial localization (Phase 6)
 
-Phase 6 adds AR localisation to the Live screen. Everything it needs already exists, and nothing in Phase 5 needs to be rewritten to accommodate it:
+### Camera integration decision — ARCore replaces CameraX, it does not run beside it
 
-| Requirement | Already available |
+**The Android camera stack allows exactly one owner of the rear camera.** ARCore's tracking pipeline
+needs those frames itself (motion tracking, VPS), so a CameraX preview bound at the same time would
+either starve ARCore or be starved by it, nondeterministically. Running both was therefore rejected.
+
+ARCore `SharedCamera` was also rejected: it exists to hand ARCore-owned frames *to* another pipeline,
+and Phase 6 has no second pipeline. Adding it would be complexity with no consumer.
+
+Because ARCore is *also* the source of the camera image once `setCameraTextureName` is called, **one
+owner can serve both jobs**: `ArCoreSpatialLocalization` renders the camera background itself through
+a minimal `GLSurfaceView`, so it reports `providesPreview = true`. Live composes that surface
+*instead of* the CameraX preview — never both.
+
+**The provider decision is state, not a type check.** An early revision chose the provider from the
+engine's `providesPreview` capability, which meant that whenever AR was selected and then failed, the
+CameraX fallback had never been composed and the user got a black screen with no camera at all
+(observed on the emulator). The decision is now made in two steps:
+
+1. `probeAvailability()` — a **camera-free** `ArCoreApk.checkAvailability()` asked *before any camera
+   is opened*. Anything other than `Supported` selects CameraX from the very first frame.
+2. A runtime guard in `LiveViewModel` watching `SpatialLocalizationState`: if AR later reports
+   `Failed`/`Unsupported`/`NotInstalled`, the session is stopped and the provider flips back to
+   CameraX mid-session.
+
+`PreviewProvider` (`Spatial` | `CameraX`) is exposed as a `StateFlow` so `LiveScreen` reacts without
+re-owning the policy.
+
+### Architecture
+
+`SpatialLocalizationEngine` is the seam, same shape as `map.MapEngine` and `camera.RearCameraEngine`:
+the app depends on the interface plus provider-neutral types, and only
+`spatial/arcore/ArCoreSpatialLocalization.kt` imports `com.google.ar.core`. No `Session`, `Earth`,
+`Pose` or `GeospatialPose` type ever crosses it.
+
+- **In**: `probeAvailability()` (camera-free), `providesPreview`, `start(lifecycleOwner)`, `stop()`.
+- **Out**: `state: Flow<SpatialLocalizationState>`.
+
+`NoopSpatialLocalization` makes "AR cannot run here" a *value* the rest of the app handles normally —
+the same reason `RouteState.Error` and `RearCameraState.Unavailable` are modeled rather than thrown.
+It is what the JVM tests, and Live on a non-AR device, run on.
+
+`LiveViewModel` gained the engine and the provider decision. It **still does not own navigation** —
+Phase 4's guarantee is unchanged, and AR is additive on top of it.
+
+### Session lifecycle
+
+Tied to the `LifecycleOwner` exactly as the Phase 5 camera engine was, because that is where the
+camera-leak risk lives:
+
+- `start()` registers an observer and resumes if already RESUMED.
+- `ON_RESUME` → `requestInstall()` support check → create `Session` once → configure Geospatial →
+  `setCameraTextureName` (once GL produces it) → `resume()`.
+- `ON_PAUSE` → `pause()`; `ON_DESTROY` → `close()`.
+- `stop()` → pause, close, surface pause. Idempotent.
+- **No duplicate sessions**: the session is created once and reused across resume/pause.
+- `update()` is pumped **only from the GL thread** (the renderer), so it can never be called
+  concurrently with itself.
+
+Every ARCore throw is classified: `SessionUnsupportedException`/`UnavailableException` →
+`Unsupported`; `NotYetAvailableException` → `NotInstalled`; `CameraNotAvailableException` →
+`Failed(CameraUnavailable)`; anything else → `Failed(SessionCreationFailed)`. None reaches the UI as
+a crash.
+
+### Geospatial state mapping
+
+| ARCore | `SpatialLocalizationState` |
 | --- | --- |
-| Camera feed | `RearCameraEngine` / `CameraXRearEngine`; an `ImageAnalysis` use case attaches to the same `ProcessCameraProvider` bind |
-| Current location | `MapUiState.currentLocation` (single location source, unchanged) |
-| Device heading | `UserLocation.bearingDegrees`, already consumed by `NavigationCamera` |
-| Route geometry | `RouteResult.geometry` / `RouteManeuvers` (Phase 4) |
-| Current maneuver + progress | `LiveHudState.Maneuver` and `RouteProgress` |
-| Navigation-active state | `MapUiState.navigationState` / `isNavigating` |
-| Lifecycle hooks | `RearCameraHost` already binds to the composition lifecycle and releases on dispose |
-| Overlay seam | The HUD is a pure state -> UI mapping, so an AR overlay layer composes beside it without touching the mapping |
+| Camera not TRACKING, PAUSED | `Initializing` |
+| Camera not TRACKING, STOPPED | `Limited(Initializing)` |
+| Camera not TRACKING, other | `Limited(InsufficientFeatures / ExcessiveMotion / …)` |
+| Camera TRACKING, Earth not `ENABLED` | `Limited(PoorGeolocation)` |
+| Earth `ERROR_NOT_AUTHORIZED` / `ERROR_GEOSPATIAL_MODE_DISABLED` | `Failed(EarthUnavailable)` |
+| Earth `ERROR_APK_VERSION_TOO_OLD` | `NotInstalled` |
+| Camera + Earth TRACKING, pose not yet valid | `Tracking(null)` |
+| Camera + Earth TRACKING with a pose | `Tracking(pose)` |
 
-**Not yet provided (Phase 6 work):** a camera-frame -> screen-coordinate projection seam (`latLngToScreen`-style), which Phase 5 deliberately did not declare — with no consumer it would be speculative API. ARCore, geospatial anchors and road-anchored arrows are all out of scope here.
+`Tracking(null)` exists deliberately: ARCore reports TRACKING before the first geospatial pose
+arrives, and building a pose from missing values would be a lie. The Live status chip treats it as
+still "Locating…".
+
+### Localization quality
+
+Quality is computed from **real accuracy values**, not from ARCore's coarse tracking state —
+"TRACKING" says nothing about whether the *heading* is usable, which is the number that decides
+whether AR content can be anchored. Thresholds live in `LocalizationQualityMapper` as constructor
+parameters with documented defaults, so they can be retuned on real device data without touching
+ARCore code:
+
+| Level | Horizontal | Heading |
+| --- | --- | --- |
+| `Unavailable` | > 100 m, or **unknown** | > 45°, or unknown |
+| `Acquiring` | fine, but not yet settled | fine |
+| `Poor` | > 20 m or > 20° | |
+| `Fair` | ≤ 20 m and ≤ 20° | |
+| `Good` | ≤ 5 m and ≤ 5° | |
+
+A **missing** accuracy is `Unavailable`, never "perfect" — treating unknown as excellent is the
+easiest way to display a confident heading that is pure noise. A heading error beyond 45° is likewise
+`Unavailable` rather than `Poor`, because "which way am I facing" is unknown, not merely imprecise.
+`isAnchorable` is true only at `Good`.
+
+### Heading / orientation
+
+Three distinct concepts, deliberately not conflated:
+
+| Concept | Source | Use |
+| --- | --- | --- |
+| Device heading | `GeospatialPose.heading` (ARCore) | AR/world-relative: which way the phone points |
+| GPS movement bearing | `UserLocation.bearingDegrees` (Phase 1) | route-following: which way the car travels |
+| Follow-camera bearing | `NavigationCamera` (Phase 4) | map orientation while navigating |
+
+They diverge exactly when a driver is stationary or sliding — the moment guidance matters most — so
+Phase 6 keeps `SpatialPose.headingDegrees` separate from the movement bearing and adds
+`headingDeltaDegrees`/`headingsAgree` helpers rather than reusing the GPS value.
+
+### Projection seam
+
+Phase 5 declined a projection API as speculative. Phase 6 adds `GeoProjector` because it now has a real,
+measured input (a pose with heading and accuracy):
+
+```
+geographic route point → E/N offset from the user → rotate into the device frame → perspective divide → screen (x, y)
+```
+
+It is pure, GL-free and JVM-testable — the part of AR that is hardest to debug on a real device — and
+returns `visible`/`onScreen` so a caller never draws an arrow for a point behind the driver or past
+the field of view. It uses the same local flat-earth projection as `RouteProgressTracker` and
+`NavigationCamera`, so all three agree. **Phase 7 can replace the perspective step with ARCore's own
+view/projection matrices on the GL thread** without changing anything above this seam. No route
+arrows are rendered — that is Phase 7.
+
+### Fallback
+
+Live degrades, it does not break:
+
+| Condition | Result |
+| --- | --- |
+| ARCore unsupported / not installed | `probeAvailability()` → CameraX from frame one; HUD silent |
+| Camera permission denied | existing Phase 5 permission panel |
+| Session creation fails | `Failed` → runtime guard flips to CameraX |
+| Earth unresolved (no network) | `Limited(PoorGeolocation)` → chip says "Improving accuracy…" |
+| Poor GPS / poor VPS | `Limited` or `Tracking` with low quality → "Improving accuracy…" |
+| Background/foreground | session pause/resume tied to lifecycle; no duplicate session |
+
+Map mode is always available regardless: it never touches the AR engine.
+
+### Debug diagnostics
+
+`BuildConfig.DEBUG`-gated overlay showing AR state, horizontal/vertical/heading accuracy and the
+geospatial coordinates. Stripped from release by the `if (BuildConfig.DEBUG)` guard. Nothing logs
+location continuously — `ArCoreSpatialLocalization` logs only session lifecycle and failures, and no
+coordinate is ever written to logcat.
+
+## Phase 7 output contract
+
+What Phase 7 (road-anchored AR arrows) can rely on, exactly as it stands at the end of Phase 6:
+
+| Requirement | Provided by | Notes |
+| --- | --- | --- |
+| Stable geospatial pose | `SpatialPose.latitude/longitude/altitudeMeters` | From `Earth.cameraGeospatialPose`; `Tracking(null)` until first fix |
+| Device orientation / heading | `SpatialPose.headingDegrees` (device-facing, true north) | Distinct from the GPS movement bearing — do not conflate |
+| Localization quality | `SpatialPose.quality`, `isAnchorable` | Only `Good` is anchorable |
+| Accuracy values | `horizontalAccuracyMeters`, `verticalAccuracyMeters`, `headingAccuracyDegrees` | Raw, for filtering/hysteresis if needed |
+| AR/Earth state | `SpatialLocalizationState` | `Tracking` / `Limited(reason)` / failure states |
+| Camera projection seam | `GeoProjector.project(world, userPose, viewport…)` | Returns `x/y`, `distanceMeters`, `bearingDegrees`, `visible`, `onScreen` |
+| Navigation route geometry | `RouteResult.geometry`, `RouteManeuvers` (Phase 4) | Input to the projection |
+| Navigation state | `MapUiState.navigationState`, `LiveHudState` (Phase 4/5) | Live still does not own it |
+| Live lifecycle | `ArPreviewSurface` + session bound to `LifecycleOwner` | `update()` pumped on the GL thread only |
+| Camera ownership | `PreviewProvider` (`Spatial` \| `CameraX`) | Exactly one owner at a time |
+
+**Still Phase 7 work, not present:** AR anchor creation (`Earth.createAnchor`), GL drawing of world-locked
+content in the AR renderer (Phase 6's renderer draws only the camera background), Streetscape geometry,
+and terrain/rooftop anchoring. The renderer in `ArCoreSpatialLocalization` is the intended host for
+that drawing code — it already owns the GL context and the per-frame pump.
+
+**Unverified without a device:** the ARCore session/GL path, Earth tracking and heading correctness
+have never run on real hardware (no ARCore-capable device was available). The first device run should
+treat the debug diagnostics overlay as the primary diagnostic.
 
 ## Error handling
 
@@ -350,6 +524,7 @@ Phase 6 adds AR localisation to the Live screen. Everything it needs already exi
 - **Geocoding**: `SearchViewModel` never lets a `GeocodingException` reach the UI as raw text; it maps each to a `SearchError` with its own short, user-facing string (`search_error_no_network`, `_timeout`, `_rate_limited`, `_server`, `_malformed`). A blank or too-short query (`< SearchViewModel.MIN_QUERY_LENGTH`) never fires a request and is not treated as an error — it just shows nothing (or the recent list, if blank). A successful empty result list shows "No results found," not an error.
 - **Routing**: `MapViewModel` maps every `RoutingException` to a `RouteError` the same way (`route_error_no_network`, `_timeout`, `_server`, `_malformed`, `_no_route`), shown as a short line in the bottom panel in place of distance/ETA. Missing origin is not an error either — `RouteState.WaitingForLocation` gets its own quiet copy ("Waiting for your location…") and resolves itself the moment a fix arrives. Missing destination never reaches `requestRoute` at all (it returns immediately if `selectedDestination` is null).
 - **Camera (Phase 5)**: every CameraX failure is classified into a `CameraFailure` and rendered as a short explanation over an opaque backdrop — never a crash and never a bare black screen. `NoRearCamera`, `BindingFailed` and `InUse` each get their own copy, with retry and a way back to the map. Camera permission states get their own panel. The user can always return to Map: the X control is in the top bar regardless of camera state.
+- **AR / spatial (Phase 6)**: every ARCore exception is mapped to a `SpatialLocalizationState` (`Unsupported`, `NotInstalled`, `PermissionRequired`, `Failed(reason)`) or a `Limited(reason)`; none is ever allowed to escape as a crash, and all of them fall back to the CameraX preview. Map mode never touches the AR engine, so the map, search, routing and navigation remain available no matter what AR does.
 
 ## Migrating to PMTiles / self-hosted tiles
 

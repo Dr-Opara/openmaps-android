@@ -13,6 +13,9 @@ lifecycle = "2.8.7"
 coroutines = "1.9.0"
 maplibre = "11.13.5"
 camerax = "1.4.2"
+# ARCore (Phase 6, spatial localization). Latest stable; requires minSdk 24 (we are 26) and is
+# ARM64 + x86_64 device compatible. Support is ALWAYS runtime-checked (ArCoreApk), never assumed.
+arcore = "1.56.0"
 junit = "4.13.2"
 json = "20260814"
 
@@ -43,6 +46,11 @@ androidx-camera-core = { group = "androidx.camera", name = "camera-core", versio
 androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+
+# ARCore (Phase 6). Supplies Geospatial (Earth) tracking. The app checks support at runtime via
+# ArCoreApk and only constructs a Session when ARCore can actually run; otherwise it stays on the
+# CameraX path. `optional = true` in the manifest keeps the app installable without ARCore.
+google-ar-core = { group = "com.google.ar", name = "core", version.ref = "arcore" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 json = { group = "org.json", name = "json", version.ref = "json" }

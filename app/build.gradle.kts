@@ -92,11 +92,16 @@ dependencies {
     // MapLibre Native (OpenStreetMap-compatible, no proprietary SDKs).
     implementation(libs.maplibre.android)
 
-    // CameraX (Phase 5, Live camera preview). Preview use cases only; no ImageAnalysis yet.
+    // CameraX (Phase 5, Live camera preview + Phase 6 fallback camera when ARCore is absent).
+    // Preview use cases only; no ImageAnalysis yet.
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
+
+    // ARCore (Phase 6, Geospatial/Earth localization). Support is runtime-checked; the CameraX
+    // engine remains the fallback when ARCore is unsupported, not installed, or unusable.
+    implementation(libs.google.ar.core)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

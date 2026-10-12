@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -27,6 +28,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -39,7 +43,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization
+import com.openmaps.app.BuildConfig
 import com.openmaps.app.R
 import com.openmaps.app.camera.CameraEngineEvent
 import com.openmaps.app.camera.CameraFailure
@@ -50,6 +57,9 @@ import com.openmaps.app.core.camera.CameraPermissionState
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.OpenMapsWordmark
 import com.openmaps.app.core.routing.ManeuverType
+import com.openmaps.app.core.spatial.LiveLocalizationStatus
+import com.openmaps.app.core.spatial.LiveLocalizationStatusMapper
+import com.openmaps.app.core.spatial.SpatialLocalizationState
 import com.openmaps.app.feature.map.MapModeToggle
 import com.openmaps.app.map.MapMode
 import java.util.Locale
@@ -77,6 +87,9 @@ fun LiveScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // Reactive: flips from Spatial to CameraX mid-session if AR fails, which is what guarantees a
+    // camera is always available in Live.
+    val previewProvider by viewModel.previewProvider.collectAsState()
 
     Box(
         modifier
@@ -85,7 +98,14 @@ fun LiveScreen(
     ) {
         when {
             state.cameraPermission == CameraPermissionState.Granted ->
-                RearCameraPreview(state.cameraState, viewModel::onCameraEvent, Modifier.fillMaxSize())
+                if (previewProvider == PreviewProvider.Spatial) {
+                    // ARCore owns the camera and renders the preview itself. CameraX is NOT
+                    // composed here at all — two camera consumers would fight (see
+                    // ArCoreSpatialLocalization for the reasoning).
+                    ArPreviewSurface(viewModel, Modifier.fillMaxSize())
+                } else {
+                    RearCameraPreview(state.cameraState, viewModel::onCameraEvent, Modifier.fillMaxSize())
+                }
 
             else ->
                 // No camera permission: an opaque fallback so the map underneath never shows
@@ -182,6 +202,136 @@ fun LiveScreen(
                 modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 40.dp),
             )
         }
+
+        // Localization status (Phase 6). Collected here (not passed down) so the Live HUD does not
+        // recompose on every navigation tick. Debug diagnostics are strictly opt-in and only
+        // compiled into debug builds.
+        val spatialState by viewModel.spatialLocalization.state
+            .collectAsState(initial = SpatialLocalizationState.Idle)
+        val localizationStatus = remember(spatialState) { LiveLocalizationStatusMapper.of(spatialState) }
+
+        if (localizationStatus != LiveLocalizationStatus.None) {
+            LocalizationChip(
+                status = localizationStatus,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 96.dp, start = 16.dp, end = 16.dp),
+            )
+        }
+
+        if (BuildConfig.DEBUG) {
+            LocalDebugOverlay(
+                state = spatialState,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 8.dp),
+            )
+        }
+    }
+}
+
+/**
+ * A quiet "Locating… / Improving accuracy… / Ready" chip. Deliberately restrained: it is
+ * informational, not a warning, and it must never compete with the maneuver for attention.
+ */
+@Composable
+private fun LocalizationChip(status: LiveLocalizationStatus, modifier: Modifier = Modifier) {
+    val label = when (status) {
+        LiveLocalizationStatus.Locating -> stringResource(R.string.spatial_locating)
+        LiveLocalizationStatus.Improving -> stringResource(R.string.spatial_improving)
+        LiveLocalizationStatus.Ready -> stringResource(R.string.spatial_ready)
+        LiveLocalizationStatus.None -> return
+    }
+    Row(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.6f))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            Icons.Filled.LocationOn,
+            contentDescription = null,
+            tint = OpenMapsColors.ElectricBlue,
+            modifier = Modifier.size(14.dp),
+        )
+        Text(text = label, style = MaterialTheme.typography.labelMedium, color = Color.White)
+    }
+}
+
+/**
+ * Debug-build-only localization diagnostics (accuracy values, Earth state). Stripped from release
+ * builds by the `if (BuildConfig.DEBUG)` guard at the call site. Provides the accuracy visibility
+ * needed to tune [com.openmaps.app.core.spatial.LocalizationQualityMapper] thresholds on real
+ * hardware — without it there is no way to know whether a quality gate is too strict in the field.
+ */
+@Composable
+private fun LocalDebugOverlay(
+    state: SpatialLocalizationState,
+    modifier: Modifier = Modifier,
+) {
+    val pose = (state as? SpatialLocalizationState.Tracking)?.pose
+    Column(
+        modifier = modifier
+            .clip(MaterialTheme.shapes.small)
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.75f))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.End,
+    ) {
+        Text(
+            text = "AR: ${state::class.simpleName}",
+            style = MaterialTheme.typography.labelSmall,
+            color = OpenMapsColors.Cyan,
+        )
+        if (pose != null) {
+            Text(
+                text = "hAcc=${pose.horizontalAccuracyMeters?.let { "%.1f".format(it) } ?: "-"}m " +
+                    "vAcc=${pose.verticalAccuracyMeters?.let { "%.1f".format(it) } ?: "-"}m " +
+                    "hdgAcc=${pose.headingAccuracyDegrees?.let { "%.0f".format(it) } ?: "-"}°",
+                style = MaterialTheme.typography.labelSmall,
+                color = OpenMapsColors.TextSecondary,
+            )
+            Text(
+                text = "%.5f,%.5f hdg=%.0f°".format(pose.latitude, pose.longitude, pose.headingDegrees),
+                style = MaterialTheme.typography.labelSmall,
+                color = OpenMapsColors.TextSecondary,
+            )
+        }
+    }
+}
+
+/**
+ * Hosts the ARCore-owned camera preview and ties the session to the Live lifecycle.
+ *
+ * This is the Phase 6 camera/AR integration point: ARCore holds the camera and draws the preview via
+ * its own [android.opengl.GLSurfaceView], and this composable hosts that surface while starting and
+ * stopping localization against the composition's lifecycle owner (so backgrounding pauses the
+ * session and leaving Live closes it).
+ *
+ * The session is created by [LiveViewModel.spatialLocalization]; when AR is unsupported or fails the
+ * engine reports a non-preview state and [LiveScreen] keeps using the CameraX preview instead.
+ */
+@Composable
+private fun ArPreviewSurface(viewModel: LiveViewModel, modifier: Modifier = Modifier) {
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val engine = viewModel.spatialLocalization
+    val arEngine = engine as? ArCoreSpatialLocalization
+
+    if (arEngine == null) {
+        // An engine that claims a preview but is not the ARCore one: fall back rather than render
+        // nothing. Defensive; the container only ever supplies ArCoreSpatialLocalization here.
+        Box(modifier.background(OpenMapsColors.Navy950))
+        return
+    }
+
+    val glView = remember(arEngine) { arEngine.previewView() }
+
+    // AndroidView requires `update`; the GL surface is fully owned by the AR engine, so there is
+    // nothing to push — an empty block keeps the view out of Compose's recomposition path.
+    AndroidView(factory = { glView }, update = { }, modifier = modifier)
+
+    LaunchedEffect(arEngine, lifecycleOwner) {
+        viewModel.startSpatialLocalization(lifecycleOwner)
+    }
+    DisposableEffect(arEngine) {
+        onDispose { viewModel.stopSpatialLocalization() }
     }
 }
 

@@ -64,6 +64,15 @@ openmaps.style.devOnly=false
 - Emulator: the virtual scene camera works; use `adb emu geo fix <lon> <lat>` to simulate movement. Note the platform de-duplicates identical consecutive fixes, so vary the coordinates slightly when testing off-route/reroute behaviour, or the sample never arrives.
 - To test a denial: `adb shell pm revoke com.openmaps.app android.permission.CAMERA`, then background and resume the app.
 
+## AR / spatial localization (Live)
+
+- ARCore is declared `optional`; the app installs and runs without it, and Live falls back to the CameraX preview.
+- **The default Pixel 8 AVD cannot test AR.** It reports no `android.hardware.camera.ar` feature and has no `com.google.ar.core` package installed, so `probeAvailability()` returns `NotInstalled`/`Unsupported` and Live stays on CameraX. This is a valid test of the fallback path, not of AR.
+- To verify AR for real you need a **physical ARCore-certified device** (Google Play Services for AR present). `adb shell pm list packages | grep google.ar` should show `com.google.ar.core`.
+- Debug builds show a small diagnostics overlay (AR state, horizontal/vertical/heading accuracy, coordinates) in the bottom-right of Live. Use it to tune `LocalizationQualityMapper` thresholds against real accuracy distributions.
+- Check `adb logcat -s ArCoreSpatialLoc` for session lifecycle and failures. Coordinates are never logged.
+- A black Live screen with a working camera permission almost always means AR was selected and then failed; check `PreviewProvider` fell back to `CameraX`.
+
 ## Verification checklist
 
 **Nothing below has been run.** The remote build environment had no Android SDK and could not reach Google Maven or Maven Central, so it could not compile the Android code, run the Android unit tests, run lint, or launch anything. What *was* done remotely: the pure-Kotlin core (`LocationModels`, `LocationRepository`, `MapModels`, `MapStyleProvider`, `MapUiState`, `MapViewModel`) compiled with the Kotlin 2.0.21 compiler against a stub `ViewModel`, and 35 behavioural checks mirroring the ViewModel unit tests passed in a throwaway harness; XML and resource references were validated statically. That is **not** a substitute for the steps here.
@@ -72,7 +81,7 @@ openmaps.style.devOnly=false
 
 - [ ] Gradle sync succeeds
 - [ ] `./gradlew :app:assembleDebug` succeeds
-- [ ] `./gradlew :app:testDebugUnitTest` passes (125 tests across 9 classes)
+- [ ] `./gradlew :app:testDebugUnitTest` passes (175 tests across 12 classes)
 - [ ] `./gradlew :app:lintDebug` has no errors
 - [ ] `dependencies` output shows no unexpected version conflicts (look at `androidx.lifecycle`, `kotlinx-coroutines`, and MapLibre's transitive libraries)
 - [ ] `./gradlew :app:assembleRelease` succeeds (R8 with MapLibre; try a release build early)
@@ -123,6 +132,18 @@ Live mode (camera):
 - [ ] Reach the destination while in Live: "You've arrived" card with "Back to map"; the camera stays live and the app does not close
 - [ ] Revoke camera permission (see above) then resume: the "Camera access is off" panel appears; no crash, and Map is always reachable
 - [ ] Rotate the device while in Live: the preview stays aligned and the HUD stays readable
+
+AR localization (physical ARCore device required — see above):
+
+- [ ] On a device **without** ARCore: Live opens the CameraX preview normally, no localization chip, no crash
+- [ ] On an ARCore device: first open of Live may prompt to install "Google Play Services for AR"; after which Live opens with the AR preview
+- [ ] AR preview looks identical to the CameraX preview (same camera image), with no black frame or flicker on the handoff
+- [ ] Debug overlay in the corner shows `AR: Tracking` and horizontal accuracy that **improves outdoors** and degrades indoors
+- [ ] The chip shows "Locating…" then settles to "Ready" (or stays "Improving accuracy…" indoors)
+- [ ] Navigation HUD, rerouting and arrival all behave exactly as on the Map screen while AR runs
+- [ ] Background/foreground while AR is tracking: session pauses and resumes, no duplicate camera client
+- [ ] Map | Live repeatedly: exactly one camera owner at a time (`adb shell dumpsys media.camera` shows a single `com.openmaps.app` client, and none on the Map screen)
+- [ ] Rotate to landscape: the AR preview stays aligned
 
 Map failure:
 

@@ -84,6 +84,18 @@ Validated end-to-end on the Pixel 8 API 35 emulator with live calls to the Valha
 - Fixed a Phase 4 bug found while building the HUD: the maneuver banner paired the *next* maneuver's instruction with the *current* maneuver's distance. Both surfaces now agree.
 - 22 new unit tests (125 total). Validated end-to-end on the Pixel 8 API 35 emulator with a live rear-camera preview, permission grant/deny/revoke, live reroute while in Live, arrival in Live, 8 rapid Map <-> Live transitions, and background/foreground cycles.
 
+## Phase 6: AR localization, Done (emulator fallback paths only — needs a physical device)
+
+- ARCore `com.google.ar:core` 1.56.0, Geospatial (Earth) mode, runtime support-checked, `optional` in the manifest so the app still installs without it
+- `SpatialLocalizationEngine` seam + provider-neutral `SpatialLocalizationState`/`SpatialPose`; only `spatial/arcore` imports `com.google.ar.core`
+- **Camera decision: ARCore replaces CameraX rather than running beside it.** One camera owner at a time; ARCore renders its own preview via `GLSurfaceView`, and CameraX is the fallback. `SharedCamera` was rejected as unused complexity
+- Provider choice is **state, not a type check**: a camera-free `probeAvailability()` decides before any camera opens, plus a runtime guard that hands the camera back to CameraX if AR fails mid-session (an earlier revision black-screened here — caught on the emulator and fixed)
+- Localization quality from real accuracy values (`Unavailable/Acquiring/Poor/Fair/Good`), configurable thresholds, missing accuracy treated as unknown rather than perfect
+- `GeoProjector`: the geographic -> screen projection seam Phase 5 deferred, now pure, GL-free and unit-testable, returning `visible`/`onScreen` so Phase 7 never draws an arrow behind the driver
+- Quiet localization chip ("Locating… / Improving accuracy… / Ready"); silent entirely when AR is unsupported or failing
+- Debug-build-only diagnostics (AR state, h/v/heading accuracy, coordinates); no location is ever logged continuously
+- 50 new unit tests (175 total). **Emulator validation covers the fallback paths only** — the test AVD has no ARCore and no AR hardware, so Earth tracking, pose and heading are unverified.
+
 ## Next, not started (awaiting approval)
 
 Tentative order; each needs its own scope decision.
@@ -92,8 +104,16 @@ Tentative order; each needs its own scope decision.
 2. **Production geocoding**: move off the public Nominatim instance (self-hosted Nominatim/Photon or a contracted provider) before shipping.
 3. **Production routing**: move off the public Valhalla demo instance (self-hosted Valhalla or a contracted provider) before shipping.
 4. **Turn-by-turn guidance**: done in Phase 4; voice guidance is still open.
-5. **Live / camera-first view**: camera preview and HUD are done in Phase 5; AR localisation is the next step (Phase 6).
+5. **Live / camera-first view**: camera preview + HUD done in Phase 5; AR localization done in Phase 6. Next is AR content.
 6. **Later layers**: traffic, parking, richer place intelligence.
+
+## Phase 7 prerequisites
+
+Road-anchored AR arrows. Available now: `SpatialPose` (position + device-facing heading + accuracy +
+quality), `GeoProjector.project(...)` for the geographic -> screen transform, `RouteResult.geometry`,
+`LiveHudState`, `NavigationState`, and the AR `GLSurfaceView` renderer that already owns the GL context
+and per-frame pump. Still needed: AR anchor creation, world-locked GL drawing, Streetscape geometry and
+terrain/rooftop anchoring — all Phase 7, deliberately not started.
 
 ## Phase 6 prerequisites
 
