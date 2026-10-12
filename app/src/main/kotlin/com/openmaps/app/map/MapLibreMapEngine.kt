@@ -1,10 +1,13 @@
 package com.openmaps.app.map
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.location.Location
 import android.view.Gravity
 import android.view.View
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import com.openmaps.app.core.location.UserLocation
 import kotlinx.coroutines.channels.BufferOverflow
@@ -170,8 +173,15 @@ class MapLibreMapEngine(
         val style = readyMap.style ?: return
         val location = userLocation
         val component = readyMap.locationComponent
+        val hasLocationPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
 
-        if (location == null) {
+        if (location == null || !hasLocationPermission) {
             if (component.isLocationComponentActivated) component.isLocationComponentEnabled = false
             return
         }
