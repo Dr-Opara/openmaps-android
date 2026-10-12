@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenMaps</string>
+    <string name="tagline">See What\'s Ahead</string>
+
+    <!-- Map screen -->
+    <string name="map_search_hint">Where are you going?</string>
+    <string name="mode_map">Map</string>
+    <string name="mode_live">Live</string>
+    <string name="cd_settings">Settings</string>
+    <string name="cd_recenter">Recenter on my location</string>
+    <string name="cd_compass">Reset map to north</string>
+    <string name="cd_dismiss">Dismiss</string>
+    <string name="cd_back">Back</string>
+    <string name="panel_title">Explore what\'s around you</string>
+
+    <!-- Map error -->
+    <string name="map_unavailable_title">Map unavailable</string>
+    <string name="map_unavailable_body">OpenMaps couldn\'t load the map. Check your connection and try again.</string>
+    <string name="action_retry">Retry</string>
+
+    <!-- Location prompts -->
+    <string name="location_loading">Finding your location…</string>
+    <string name="location_allow_title">Show your location</string>
+    <string name="location_allow_body">Allow location access to see where you are on the map. You can still browse without it.</string>
+    <string name="location_allow_action">Allow</string>
+    <string name="location_denied_title">Location access is off</string>
+    <string name="location_denied_body">OpenMaps needs permission to show your position. You can keep exploring the map.</string>
+    <string name="location_blocked_title">Location is blocked</string>
+    <string name="location_blocked_body">Turn on location for OpenMaps in system settings to see where you are.</string>
+    <string name="location_blocked_action">Open settings</string>
+    <string name="location_services_off_title">Location is turned off</string>
+    <string name="location_services_off_body">Turn on location services on your device to see where you are.</string>
+    <string name="location_services_off_action">Turn on</string>
+    <string name="location_unavailable_title">Can\'t find your location</string>
+    <string name="location_unavailable_body">Your position isn\'t available right now. Moving to an open area can help.</string>
+    <string name="location_unavailable_action">Try again</string>
+
+    <!-- Live -->
+    <string name="live_title">Live view</string>
+    <string name="live_body">Camera-first navigation is coming in a later phase. The map is fully available in the meantime.</string>
+
+    <!-- Search -->
+    <string name="search_title">Search destinations</string>
+    <string name="search_recent_header">Recent</string>
+    <string name="search_recent_empty">Places you search for will appear here.</string>
+    <string name="search_not_available">Destination search isn\'t available yet.</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_location">Location</string>
+    <string name="settings_location_access">Location access</string>
+    <string name="settings_perm_unknown">Checking…</string>
+    <string name="settings_perm_not_requested">Not requested yet</string>
+    <string name="settings_perm_precise">Allowed · precise</string>
+    <string name="settings_perm_approximate">Allowed · approximate</string>
+    <string name="settings_perm_denied">Not allowed</string>
+    <string name="settings_perm_blocked">Blocked in system settings</string>
+    <string name="settings_open_app_settings">Open app settings</string>
+    <string name="settings_section_map">Map</string>
+    <string name="settings_map_style">Map style</string>
+    <string name="settings_map_dev_only">Development only</string>
+    <string name="settings_section_about">About</string>
+    <string name="settings_version">Version</string>
+</resources>

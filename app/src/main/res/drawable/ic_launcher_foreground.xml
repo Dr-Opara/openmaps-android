@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OpenMaps mark on the 1024-unit grid used by the app-icon design:
+     blue location pin + two forward chevrons + cyan ground ring.
+     Stays inside the adaptive-icon safe zone (centered 66/108 circle). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+
+    <path
+        android:pathData="M416,790a96,20 0 1,0 192,0a96,20 0 1,0 -192,0"
+        android:strokeColor="#8C5FE3FF"
+        android:strokeWidth="8" />
+    <path
+        android:fillColor="#2F7BFF"
+        android:pathData="M512,790C512,790 312,612 312,440A200,200 0 1,1 712,440C712,612 512,790 512,790Z" />
+    <path
+        android:pathData="M424,500L512,428L600,500"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="46"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M448,408L512,356L576,408"
+        android:strokeColor="#8BEBFF"
+        android:strokeWidth="38"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

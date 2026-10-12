@@ -1,0 +1,121 @@
+package com.openmaps.app.feature.map
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.openmaps.app.core.designsystem.OpenMapsWordmark
+import com.openmaps.app.map.MapEngine
+import com.openmaps.app.map.MapLibreHost
+import com.openmaps.app.map.MapLibreMapEngine
+import com.openmaps.app.map.MapStyleProvider
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+
+/**
+ * The Map experience. State and policy live in [MapViewModel]; this composable only lays out
+ * the map and overlays and forwards user intent.
+ *
+ * The map itself lives in [MapLibreHost] and receives data through flows, so state changes
+ * here (prompts, mode, errors) never recreate or re-update the map view.
+ */
+@Composable
+fun MapScreen(
+    viewModel: MapViewModel,
+    styleProvider: MapStyleProvider,
+    onSearchClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // One engine per composition of this screen. The initial camera is the ViewModel's last
+    // known camera, so a rotation/recreation restores the view the user left.
+    val engine: MapEngine = remember(viewModel, styleProvider) {
+        MapLibreMapEngine(styleProvider = styleProvider, initialCamera = viewModel.uiState.value.cameraState)
+    }
+    val userLocationFlow = remember(viewModel) {
+        viewModel.uiState.map { it.currentLocation }.distinctUntilChanged()
+    }
+    var bottomInsetPx by remember { mutableIntStateOf(0) }
+    LaunchedEffect(engine, bottomInsetPx) { engine.setBottomInset(bottomInsetPx) }
+
+    Box(modifier.fillMaxSize()) {
+        MapLibreHost(
+            engine = engine,
+            commands = viewModel.commands,
+            userLocation = userLocationFlow,
+            onEvent = viewModel::onMapEvent,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        // Failure state sits above the map but below the controls, so search and settings
+        // stay reachable while the map is unavailable.
+        if (state.error != null) {
+            MapUnavailableOverlay(onRetry = viewModel::onRetryMap, modifier = Modifier.fillMaxSize())
+        }
+
+        // Top: subtle brand + Map/Live toggle, then the search field.
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                OpenMapsWordmark(Modifier.padding(start = 4.dp))
+                MapModeToggle(selected = state.selectedMapMode, onSelected = viewModel::onModeSelected)
+            }
+            MapSearchBar(onSearchClick = onSearchClick, onSettingsClick = onSettingsClick)
+        }
+
+        // Bottom: controls, then the location card, then the collapsed panel.
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .onSizeChanged { bottomInsetPx = it.height }
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(
+                modifier = Modifier.align(Alignment.End),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                CompassButton(bearing = viewModel.compassBearing, onClick = viewModel::onCompassClicked)
+                RecenterButton(hasLocation = state.currentLocation != null, onClick = viewModel::onRecenterClicked)
+            }
+            state.locationPrompt?.let { prompt ->
+                LocationPromptCard(
+                    prompt = prompt,
+                    onAction = viewModel::onLocationPromptAction,
+                    onDismiss = viewModel::onDismissLocationPrompt,
+                    modifier = Modifier.align(Alignment.Start),
+                )
+            }
+            BottomPanel()
+        }
+    }
+}
