@@ -56,6 +56,9 @@ fun MapScreen(
     val destinationFlow = remember(viewModel) {
         viewModel.uiState.map { it.selectedDestination }.distinctUntilChanged()
     }
+    val routeFlow = remember(viewModel) {
+        viewModel.uiState.map { (it.routeState as? RouteState.Ready)?.route }.distinctUntilChanged()
+    }
     var bottomInsetPx by remember { mutableIntStateOf(0) }
     LaunchedEffect(engine, bottomInsetPx) { engine.setBottomInset(bottomInsetPx) }
 
@@ -65,6 +68,7 @@ fun MapScreen(
             commands = viewModel.commands,
             userLocation = userLocationFlow,
             destination = destinationFlow,
+            route = routeFlow,
             onEvent = viewModel::onMapEvent,
             modifier = Modifier.fillMaxSize(),
         )
@@ -121,6 +125,7 @@ fun MapScreen(
             }
             BottomPanel(
                 destination = state.selectedDestination,
+                routeState = state.routeState,
                 onClearDestination = viewModel::onDestinationCleared,
             )
         }

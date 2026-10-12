@@ -1,8 +1,8 @@
 # OpenMaps Architecture
 
-OpenMaps is a United States-only, Android-first navigation app. This document describes what exists after **Phase 2 (destination search + geocoding)**. Routing, AR, parking, computer vision, AI and authentication do not exist yet.
+OpenMaps is a United States-only, Android-first navigation app. This document describes what exists after **Phase 3 (routing engine)**. Turn-by-turn guidance, AR, parking, computer vision, AI and authentication do not exist yet.
 
-> **Verification status.** Phase 1 and Phase 2 have both been built, unit-tested, and manually validated end-to-end on a Pixel 8 API 35 emulator (search → select → camera fly-to → marker → clear), including live network calls to the geocoding provider. See [SETUP.md](SETUP.md#verification-checklist).
+> **Verification status.** Phases 1-3 have all been built, unit-tested, and manually validated end-to-end on a Pixel 8 API 35 emulator — Phase 3's pass included a live route request/response against the routing provider, a rendered route line, distance/ETA, camera fit, route replacement and route clearing. See [SETUP.md](SETUP.md#verification-checklist).
 
 ## Stack
 
@@ -13,12 +13,13 @@ OpenMaps is a United States-only, Android-first navigation app. This document de
 | Map renderer | MapLibre Native Android `org.maplibre.gl:android-sdk:11.13.5` |
 | Map data | OpenStreetMap-derived vector tiles via a configurable style URL |
 | Geocoding | OSM Nominatim (`nominatim.openstreetmap.org`), development-only — see [Geocoding](#geocoding) |
+| Routing | Valhalla demo instance (`valhalla1.openstreetmap.de`), development-only — see [Routing](#routing) |
 | Location | Platform `LocationManager` (no Google Play services) |
 | State | `ViewModel` + `StateFlow` |
 | DI | Manual `AppContainer` (no framework) |
 | SDK levels | minSdk 26, targetSdk/compileSdk 35 |
 
-Explicitly **not** used: Google Maps SDK, Mapbox Maps SDK, Google Places API, proprietary navigation SDKs.
+Explicitly **not** used: Google Maps SDK, Mapbox Maps SDK, Google Places API, Google Directions API, proprietary navigation SDKs.
 
 ## Layers and packages
 
@@ -34,14 +35,20 @@ com.openmaps.app
 │   │   ├── LocationRepository           interface + LocationUpdate                              (pure Kotlin)
 │   │   ├── AndroidLocationRepository    LocationManager implementation
 │   │   └── LocationPermissions          OS permission -> LocationPermissionState (+ "already asked" flag)
-│   └── geocoding                        Phase 2 geocoding layer
-│       ├── GeocodingModels              SearchResult, GeocodingException                        (pure Kotlin)
-│       ├── GeocodingRepository          interface                                                (pure Kotlin)
-│       ├── NominatimGeocodingRepository HTTP + JSON implementation (java.net + org.json)
-│       ├── NominatimResponseParser      pure response-parsing logic, unit-tested without network
-│       ├── RecentSearchList             pure dedup/cap policy for recents                         (pure Kotlin)
-│       ├── RecentSearchStore            interface
-│       └── SharedPreferencesRecentSearchStore  SharedPreferences-backed implementation
+│   ├── geocoding                        Phase 2 geocoding layer
+│   │   ├── GeocodingModels              SearchResult, GeocodingException                        (pure Kotlin)
+│   │   ├── GeocodingRepository          interface                                                (pure Kotlin)
+│   │   ├── NominatimGeocodingRepository HTTP + JSON implementation (java.net + org.json)
+│   │   ├── NominatimResponseParser      pure response-parsing logic, unit-tested without network
+│   │   ├── RecentSearchList             pure dedup/cap policy for recents                         (pure Kotlin)
+│   │   ├── RecentSearchStore            interface
+│   │   └── SharedPreferencesRecentSearchStore  SharedPreferences-backed implementation
+│   └── routing                          Phase 3 routing layer
+│       ├── RoutingModels                Coordinate, RouteResult, RouteBounds, RoutingException   (pure Kotlin)
+│       ├── RoutingRepository            interface                                                (pure Kotlin)
+│       ├── ValhallaRoutingRepository    HTTP + JSON implementation (java.net + org.json)
+│       ├── ValhallaResponseParser       pure response-parsing logic, unit-tested without network
+│       └── PolylineDecoder              pure polyline6 decoder, unit-tested against a captured response
 ├── map                                  the ONLY package that knows about MapLibre
 │   ├── MapModels                        CameraState, MapCommand, MapEvent, MapMode, MapError    (pure Kotlin)
 │   ├── MapStyleProvider                 MapStyleSource + provider interface                     (pure Kotlin)
@@ -50,26 +57,27 @@ com.openmaps.app
 │   ├── MapLibreMapEngine                MapLibre implementation
 │   └── MapLibreHost                     Compose host (AndroidView + lifecycle + flow wiring)
 └── feature
-    ├── map       MapViewModel, MapUiState, MapScreen, MapControls
+    ├── map       MapViewModel, MapUiState, RouteState, MapScreen, MapControls
     ├── live      LiveScreen (placeholder, no camera/AR)
     ├── search    SearchViewModel, SearchUiState, SearchScreen (real geocoding search)
     ├── settings  SettingsScreen
     └── splash    SplashScreen
 ```
 
-Dependency direction: `feature -> map (interface + models), core`. `MapViewModel`, `MapUiState`, `SearchViewModel` and `SearchUiState` import **no** Android framework and **no** MapLibre types, which is why they can be unit-tested on the JVM. `core.geocoding.SearchResult` is used directly as `MapEngine.setDestination`'s parameter type, exactly mirroring how `core.location.UserLocation` is already used for `setUserLocation` — `map` depending on `core.*` pure-Kotlin models is an established pattern, not a new exception.
+Dependency direction: `feature -> map (interface + models), core`. `MapViewModel`, `MapUiState`, `SearchViewModel` and `SearchUiState` import **no** Android framework and **no** MapLibre types, which is why they can be unit-tested on the JVM. `core.geocoding.SearchResult` and `core.routing.RouteResult` are used directly as `MapEngine.setDestination`/`setRoute`'s parameter types, exactly mirroring how `core.location.UserLocation` is already used for `setUserLocation` — `map` depending on `core.*` pure-Kotlin models is an established pattern, not a new exception.
 
 ## MapLibre integration
 
 `MapEngine` is the seam. The app depends on the interface and on engine-neutral types; `MapLibreMapEngine` translates them.
 
-- **Commands in** (`MapCommand`): `MoveCamera(target, animated, durationMillis)`, `RetryStyle`.
+- **Commands in** (`MapCommand`): `MoveCamera(target, animated, durationMillis)`, `RetryStyle`, `FitBounds(bounds, paddingPx, durationMillis)` (Phase 3).
 - **Events out** (`MapEvent`): `StyleLoaded`, `StyleFailed`, `UserGestureStarted`, `BearingChanged`, `CameraIdle`.
 - **Location in**: `setUserLocation(UserLocation?)`.
 - **Destination in** (Phase 2): `setDestination(SearchResult?)` — shows/hides/replaces the destination marker.
+- **Route in** (Phase 3): `setRoute(RouteResult?)` — shows/hides/replaces the route line.
 - **Insets in**: `setBottomInset(px)` keeps the required map attribution above the bottom panel.
 
-Planned extension points, deliberately not declared yet: route rendering (GeoJSON line layer), AR/map synchronisation (expose camera and projection).
+Planned extension points, deliberately not declared yet: AR/map synchronisation (expose camera and projection), active-navigation camera tracking (Phase 4+).
 
 ### Destination marker
 
@@ -77,13 +85,19 @@ Planned extension points, deliberately not declared yet: route rendering (GeoJSO
 
 **Known limitation**: a `SymbolLayer` with a programmatically added custom pin icon (tried both via `Style.addImage(String, Drawable)` and a manually rasterized `Bitmap`, with `icon-size`/`icon-anchor`/`icon-allow-overlap` explicitly set and the bitmap's pixel content verified non-transparent) consistently rendered nothing on this project's test emulator (MapLibre 11.13.5, Pixel 8 API 35, 16 KB page size, OpenGL backend) — no exceptions, all layer/property/visibility state read back correctly, simply no pixels drawn. A `CircleLayer` with the identical source and camera position renders correctly, which is why the marker is a circle and not a custom pin. Revisit a custom icon (and the deleted `ic_destination_pin.xml` sketch, recoverable from git history if wanted) if a future MapLibre release or a physical device shows different behavior.
 
+### Route line
+
+`MapLibreMapEngine.setRoute` renders the route the same way as the destination marker — a dedicated `GeoJsonSource` (`openmaps-route-source`) + a dedicated `LineLayer` (`openmaps-route-layer`), brand electric blue, round cap/join, 5px wide. `setGeoJson` replaces the previous line wholesale, so there is never more than one route line, and passing `null` (or an empty geometry) clears it. The route layer is added with `Style.addLayerBelow(..., DESTINATION_LAYER_ID)` so the destination marker always renders on top of the line leading to it; by construction the destination layer already exists by the time a route layer is first created (`loadStyle`'s style-loaded callback calls `syncDestination()` before `syncRoute()`), so this ordering is reliable rather than racy. A plain data layer like this cannot intercept touches, so it does not interfere with map gestures.
+
+Camera fit: on a successful route, `MapViewModel` sends one `MapCommand.FitBounds` built from the route's bounds (computed server-side by Valhalla from the actual route geometry, not derived client-side). `MapLibreMapEngine` converts it to a MapLibre `LatLngBounds` (`LatLngBounds.from(north, east, south, west)` — note the parameter order) and calls `animateCamera(newLatLngBounds(bounds, paddingPx), durationMillis)`. This fires exactly once per successful route (inside the coroutine's `onSuccess`), never on a timer or per-frame, so it never fights a camera move the user makes afterward — there is no active-navigation camera tracking yet (Phase 4+).
+
 ### Lifecycle and view ownership
 
 - One engine owns one `MapView`. Compose creates the engine with `remember` and the view in `AndroidView(factory = ...)`; there is no `update` block, so ordinary state changes never touch the view.
 - `MapLibreHost` registers a `LifecycleEventObserver`. Lifecycle replay brings the view up to the current state; `MapLibreMapEngine` maps events to `MapView.onCreate/onStart/onResume/onPause/onStop/onDestroy` with a small stage guard so calls are never duplicated or out of order, and `release()` walks the view down if the composable leaves while the activity lives.
 - `onLowMemory` is forwarded through `ComponentCallbacks2`.
 - **Search, Settings and Live are layered over an always-composed Map** rather than being navigation destinations. A navigation library would dispose the map composition on every screen change and force a style reload. Adopt one when the screen count justifies it and the map can be hoisted.
-- While Live (an opaque placeholder) is showing, the map keeps running underneath. Pausing it is a Phase 3 concern when Live becomes real.
+- While Live (an opaque placeholder) is showing, the map keeps running underneath. Pausing it is a later-phase concern when Live becomes real.
 
 ## Map style configuration
 
@@ -115,6 +129,43 @@ Attribution is mandatory for OSM-derived data. The SDK's attribution control sta
 **Parsing** is split from the network call: `NominatimResponseParser.parse(body): List<SearchResult>` is a pure function (only `org.json`, no Android types), so it is unit-testable without a real HTTP request. `NominatimGeocodingRepository.search` does the HTTP round trip, then delegates to the parser, mapping any failure (timeout, non-2xx, malformed JSON, cancellation) to the right `GeocodingException` — `CancellationException` is explicitly rethrown rather than swallowed, so a debounced search that gets superseded cancels cleanly instead of surfacing a spurious error.
 
 **Recent searches**: `RecentSearchStore` (interface) / `SharedPreferencesRecentSearchStore` (impl) persists up to 8 entries as a small JSON array in the same `SharedPreferences` file as `LocationPermissionPrefs` — no database for one short list. Ordering/dedup/cap is `RecentSearchList.withRecorded`, a pure function (most-recent-first, re-selecting an existing entry moves it to the front instead of duplicating it) kept separate so it is unit-testable without `SharedPreferences`.
+
+## Routing
+
+`RoutingRepository.route(origin, destination): Result<RouteResult>` is the seam (`core/routing`), the same shape as `GeocodingRepository`: a provider-neutral interface, `Result.failure` carrying a typed `RoutingException` (`NoNetwork`, `Timeout`, `Server(code)`, `Malformed`, `NoRouteFound`) instead of a thrown exception. `RouteResult` (`geometry: List<Coordinate>`, `distanceMeters`, `durationSeconds`, `bounds: RouteBounds?`) is the only routing-provider shape anything outside `core/routing` ever sees — no Valhalla JSON reaches `MapViewModel` or the UI.
+
+**Provider**: `ValhallaRoutingRepository` calls the public Valhalla demo instance (`valhalla1.openstreetmap.de`), run by FOSSGIS e.V. on OpenStreetMap data — free, open, no API key, the same lineage as the tile source and Nominatim. It POSTs `{"locations":[{lat,lon},{lat,lon}],"costing":"auto","units":"kilometers"}` with an 10s connect/read timeout and a descriptive `User-Agent`. `costing` is hardcoded to `"auto"` (driving) — Phase 3 has no mode picker.
+
+**Development-only constraints** (same category as the tile source and the geocoding provider): this is a shared community demo server with no SLA, no documented rate limit, and (observed, not just assumed — see below) a practical limit on how far apart the two points can be. **Do not ship to the public on it.** Before production, move to a self-hosted Valhalla instance or a contracted routing provider — only `RoutingRepository`'s implementation needs to change.
+
+**Parsing** mirrors geocoding: `ValhallaResponseParser.parse(body): RouteResult` is a pure function (only `org.json`), unit-tested without a real HTTP request, including against a response body captured from a live call. It reads `trip.summary.length` (kilometers, since the request asked for `units: kilometers`, converted to meters) and `trip.summary.time` (seconds, always unit-independent), concatenates `shape` across all of `trip.legs` (normally one leg for a two-point request) through `PolylineDecoder`, and reads `min_lat`/`min_lon`/`max_lat`/`max_lon` off `trip.summary` for `bounds` — Valhalla computes these server-side from the actual route, so nothing is recomputed client-side. `trip.status != 0` throws `RoutingException.NoRouteFound`.
+
+**The "no route" response shape is different from a parse failure**, and is handled before the parser ever sees it: an unroutable pair (confirmed live, e.g. two mid-ocean points) comes back as **HTTP 400** with a body like `{"error_code":171,"error":"No suitable edges near location","status_code":400}` — there is no `"trip"` key at all. `ValhallaRoutingRepository` checks for this shape directly on any 4xx response (parseable JSON with an `"error"` field) and maps it to `RoutingException.NoRouteFound` rather than `Malformed`. This is also what happens in practice for routes the demo server's distance limits reject (observed: a cross-country US route came back `NoRouteFound`; a request a few miles away succeeded normally — see the Phase 3 emulator validation notes).
+
+**Polyline decoding**: Valhalla's `shape` is a Google-style encoded polyline, but at **precision 6**, not the more common precision 5 — confirmed empirically (decoding a live response's shape at precision 5 produced an impossible ~407° latitude; precision 6 landed within meters of the requested origin). `PolylineDecoder` is pure Kotlin, independent of any MapLibre/geojson type, and is unit-tested both against a hand-verified minimal case and the captured live shape.
+
+## Route flow
+
+```
+MapUiState.selectedDestination set (Phase 2 flow) ──► MapViewModel.requestRoute()
+                                                          │
+          currentLocation == null ? ── yes ──► routeState = WaitingForLocation (no request made)
+                                      ── no  ──► routeState = Loading
+                                                   │
+                                                   ▼
+                                     RoutingRepository.route(origin, destination)
+                                          │                           │
+                                       success                     failure
+                                          ▼                           ▼
+                           routeState = Ready(RouteResult)   routeState = Error(RouteError)
+                                          │
+                                          ▼
+                       one-time MapCommand.FitBounds(route.bounds)
+```
+
+A location fix that arrives while `routeState == WaitingForLocation` re-triggers `requestRoute()` automatically (see `MapViewModel.onLocationUpdate`'s `Fix` branch) — nothing invents a default origin, and the user never has to retry by hand. `requestRoute()` always cancels any in-flight `routeJob` first, so a destination change (or any other reason to call it again) can only ever let the *latest* call's result land; `onDestinationCleared()` also cancels the job and resets `routeState` to `Idle`. `MapScreen`'s `routeFlow` derives `(routeState as? RouteState.Ready)?.route` and feeds it to `MapLibreHost` -> `engine.setRoute`, the same declarative pattern Phase 2 established for the destination marker — the route line is never driven by an imperative "clear" call, it simply disappears when `routeState` stops being `Ready` for any reason (cleared, replaced, erred).
+
+**Why `RouteState` is one field, not five**: `MapUiState.routeState: RouteState` is a sealed type (`Idle | WaitingForLocation | Loading | Ready(RouteResult) | Error(RouteError)`) rather than the flatter `routeStatus`/`routeGeometry`/`routeDistanceMeters`/`routeDurationSeconds`/`routeError` shape sketched during planning. A `Ready` state structurally cannot exist without its `RouteResult`, and an `Error` cannot exist without its reason — the flatter shape would allow nonsensical combinations (e.g. `routeStatus = Ready` with `routeDistanceMeters = null`) that the type system should rule out instead of leaving to runtime discipline.
 
 ## Location flow
 
@@ -154,6 +205,7 @@ State of record is the `MapViewModel`; the engine is the renderer.
 4. **Recenter**: animates to the user, keeping the current bearing and pitch and at least zoom 14. With no fix it runs the recovery action instead (permission, settings, retry).
 5. **Compass**: shown only when the bearing is more than 1 degree from north; tap animates bearing to 0 and keeps zoom/pitch.
 6. **Persistence**: the camera is stored on `CameraIdle`, and optimistically when the app issues a move, so rotating the device mid-animation restores the destination.
+7. **Route fit** (Phase 3): a successful route fires one `MapCommand.FitBounds` so the whole route is visible. Fired once, from the `onSuccess` of the route request — never repeated, never fights a camera move the user makes afterward. No active-navigation camera tracking yet.
 
 Gestures (pan, pinch zoom, double-tap, two-finger rotate, two-finger pitch) are MapLibre's built-in gestures with zoom clamped to 2-20. The built-in compass and logo are disabled; OpenMaps draws its own compass.
 
@@ -169,19 +221,21 @@ Map (tap search bar)
   → user taps a result or a recent
       → SearchScreen calls searchViewModel.onResultSelected(result)   (records recent, resets query)
       → SearchScreen's onResultSelected callback (from AppShell) also fires:
-          → MapViewModel.onDestinationSelected(result)  (sets selectedDestination, flies camera)
+          → MapViewModel.onDestinationSelected(result)  (sets selectedDestination, flies camera, requests a route — see Route flow)
           → overlay = None
   → MapScreen's destinationFlow (uiState.map { it.selectedDestination }) → MapLibreHost → engine.setDestination
-  → BottomPanel shows the destination summary with a clear (×) button → onDestinationCleared()
+  → BottomPanel shows the destination summary (+ Phase 3: distance/ETA, see Route flow) with a clear (×) button → onDestinationCleared()
 ```
 
-Two ViewModels, two responsibilities, deliberately not merged: `SearchViewModel` owns the *search session* (query, results, loading/error, recent list) and is constructed the same way as `MapViewModel` (`viewModel(factory = searchViewModelFactory(container))` in `AppShell`, so it persists across the search overlay opening/closing — a reopened search screen keeps whatever was mid-flight). `MapViewModel` owns *what the map shows* (camera, current location, destination marker) and gains only `onDestinationSelected`/`onDestinationCleared` for Phase 2; it has no knowledge of queries or the provider. The callback wiring (`onResultSelected` bubbling from `SearchScreen` up through `AppShell`) is the same plain-lambda pattern `onBack`/`onSearchClick`/`onSettingsClick` already used in Phase 1 — no new navigation/event-bus mechanism was introduced.
+Two ViewModels, two responsibilities, deliberately not merged: `SearchViewModel` owns the *search session* (query, results, loading/error, recent list) and is constructed the same way as `MapViewModel` (`viewModel(factory = searchViewModelFactory(container))` in `AppShell`, so it persists across the search overlay opening/closing — a reopened search screen keeps whatever was mid-flight). `MapViewModel` owns *what the map shows* (camera, current location, destination marker, route) and gains only `onDestinationSelected`/`onDestinationCleared` for Phase 2 (plus the private `requestRoute` for Phase 3); it has no knowledge of search queries or either provider. The callback wiring (`onResultSelected` bubbling from `SearchScreen` up through `AppShell`) is the same plain-lambda pattern `onBack`/`onSearchClick`/`onSettingsClick` already used in Phase 1 — no new navigation/event-bus mechanism was introduced.
 
 ## State model
 
-`MapUiState` holds `currentLocation`, `locationPermission`, `locationStatus`, `cameraState`, `selectedMapMode`, `isMapReady`, `error`, `dismissedPrompt` and (Phase 2) `selectedDestination`; `isLocationLoading` and `locationPrompt` are derived. One-shot effects that need an Activity (`RequestLocationPermission`, `OpenAppSettings`, `OpenLocationSettings`) are `MapUiEvent`s on a buffered channel.
+`MapUiState` holds `currentLocation`, `locationPermission`, `locationStatus`, `cameraState`, `selectedMapMode`, `isMapReady`, `error`, `dismissedPrompt`, (Phase 2) `selectedDestination` and (Phase 3) `routeState`; `isLocationLoading` and `locationPrompt` are derived. One-shot effects that need an Activity (`RequestLocationPermission`, `OpenAppSettings`, `OpenLocationSettings`) are `MapUiEvent`s on a buffered channel.
 
 `SearchUiState` (Phase 2) holds `query`, `results`, `isSearching`, `error` (`SearchError`, a UI-facing enum distinct from `GeocodingException`) and `recentSearches`; `hasNoResults` is derived.
+
+`RouteState` (Phase 3, see [Route flow](#route-flow)) is `MapUiState.routeState`'s type: `Idle | WaitingForLocation | Loading | Ready(RouteResult) | Error(RouteError)`.
 
 The live bearing during a rotate gesture is exposed as a separate `compassBearing: StateFlow<Float>` collected only by the compass button, so rotating the map does not recompose the screen every frame.
 
@@ -198,6 +252,7 @@ The live bearing during a rotate gesture is exposed as a separate `compassBearin
 - Tile errors after the style has loaded do not raise the overlay; MapLibre degrades gracefully.
 - **Location**: see the table above. Nothing throws; every state has UI.
 - **Geocoding**: `SearchViewModel` never lets a `GeocodingException` reach the UI as raw text; it maps each to a `SearchError` with its own short, user-facing string (`search_error_no_network`, `_timeout`, `_rate_limited`, `_server`, `_malformed`). A blank or too-short query (`< SearchViewModel.MIN_QUERY_LENGTH`) never fires a request and is not treated as an error — it just shows nothing (or the recent list, if blank). A successful empty result list shows "No results found," not an error.
+- **Routing**: `MapViewModel` maps every `RoutingException` to a `RouteError` the same way (`route_error_no_network`, `_timeout`, `_server`, `_malformed`, `_no_route`), shown as a short line in the bottom panel in place of distance/ETA. Missing origin is not an error either — `RouteState.WaitingForLocation` gets its own quiet copy ("Waiting for your location…") and resolves itself the moment a fix arrives. Missing destination never reaches `requestRoute` at all (it returns immediately if `selectedDestination` is null).
 
 ## Migrating to PMTiles / self-hosted tiles
 
@@ -218,3 +273,6 @@ Nothing in the Map screen needs to change; only the provider does.
 - **Geocoding provider**: Nominatim's public instance is development-only (see [Geocoding](#geocoding)). Needs a production decision (self-hosted Nominatim/Photon vs. a contracted provider) before shipping, same open question as the tile source.
 - **Destination marker is a plain circle, not a custom pin icon**, because of the `SymbolLayer` icon-rendering issue documented under [Destination marker](#destination-marker). Worth re-trying a custom icon on a physical device or a newer MapLibre release.
 - Recents are capped at 8 and not synced across devices/accounts; fine until there's a reason for more.
+- **Routing provider**: the public Valhalla demo instance is development-only (see [Routing](#routing)), same category of open question as the tile source and geocoding provider — needs a production decision before shipping.
+- **Costing is hardcoded to `"auto"`** (driving); no mode picker exists. Revisit once the product needs walking/cycling.
+- **No re-routing on GPS drift**: a route is requested once per destination selection (or once the first location fix arrives after one). It does not refresh as the user's position updates. That is an active-navigation concern, explicitly out of Phase 3's scope ("no active turn-by-turn navigation yet") and a Phase 4 prerequisite.

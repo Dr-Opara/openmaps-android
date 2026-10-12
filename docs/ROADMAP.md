@@ -45,30 +45,48 @@ Phase 1 build/test/lint validated locally (`gradlew assembleDebug testDebugUnitT
 
 Validated end-to-end on the Pixel 8 API 35 emulator, including live network calls to Nominatim. Known limitation: the destination marker renders as a plain circle, not a custom pin icon — see [ARCHITECTURE.md#destination-marker](ARCHITECTURE.md#destination-marker).
 
+## Phase 3: Routing engine, Done (needs device check beyond the emulator)
+
+- `RoutingRepository` abstraction + `Coordinate`/`RouteResult`/`RouteBounds`/`RoutingException` models (pure Kotlin)
+- `ValhallaRoutingRepository`: public Valhalla demo instance, `costing=auto`, development-only (no SLA — see [ARCHITECTURE.md#routing](ARCHITECTURE.md#routing))
+- Route requested automatically when a destination is selected and a location fix is available; waits (does not invent an origin) if it isn't, and resumes automatically once one arrives
+- Route line on the map (`MapEngine.setRoute`, `GeoJsonSource` + `LineLayer`, brand blue, below the destination marker)
+- One-time camera fit to the route's bounds on success; no active-navigation camera tracking
+- Compact route summary (distance + ETA) in the bottom panel; loading/waiting-for-location/error states all have their own short copy, no raw HTTP errors
+- Replacing/clearing a destination correctly replaces/removes the route, same `GeoJsonSource.setGeoJson`-replaces-wholesale mechanism Phase 2 established for the marker
+- Unit tests: polyline decoding, response parsing (including a response captured from a live call), `MapViewModel` route request/replace/cancel/clear/error-mapping
+- Documentation (ARCHITECTURE.md: Routing, Route flow, Route line sections)
+
+Validated end-to-end on the Pixel 8 API 35 emulator with live calls to the Valhalla demo instance: a nearby destination produced a rendered route line, correct distance/ETA, and a one-time camera fit; a cross-country destination correctly surfaced "No route found" (the demo server's own limits, not a bug); replacing and clearing both worked with no stale state; Map/Live switching with an active route survived with no crash. Known limitation: no custom route styling beyond a solid line (no casing/halo); revisit if the brand wants more visual weight on the route.
+
 ## Next, not started (awaiting approval)
 
 Tentative order; each needs its own scope decision.
 
 1. **Production basemap**: pick and host the tile source (PMTiles/Protomaps or self-hosted vector tiles), glyphs and sprites; flip `devOnly` to false; dark navy style to match the brand.
 2. **Production geocoding**: move off the public Nominatim instance (self-hosted Nominatim/Photon or a contracted provider) before shipping.
-3. **Routing**: engine and data choice, route line rendering through `MapEngine`. (Phase 2 explicitly stopped before this.)
-4. **Turn-by-turn guidance**: maneuvers, rerouting, voice.
-5. **Live / camera-first view**: the product's differentiator; depends on routing and on map/camera synchronisation.
+3. **Production routing**: move off the public Valhalla demo instance (self-hosted Valhalla or a contracted provider) before shipping.
+4. **Turn-by-turn guidance**: maneuvers, rerouting as the user drives, voice.
+5. **Live / camera-first view**: the product's differentiator; depends on turn-by-turn and on map/camera synchronisation.
 6. **Later layers**: traffic, parking, richer place intelligence.
 
-## Phase 3 prerequisites
+## Phase 4 prerequisites
 
-Before routing can start, these Phase 2 decisions need to be either confirmed or revisited:
+Before turn-by-turn can start, these Phase 3 decisions need to be either confirmed or revisited:
 
-- A real `SearchResult.id`/coordinate pair is already available as the route destination input — no new destination-selection plumbing needed, routing can consume `MapUiState.selectedDestination` directly.
-- Decide whether routing needs a *second* point (origin) beyond "current location," and if so whether that reuses the search UI or needs its own entry point.
-- The destination marker is a `CircleLayer`; a route line would be a natural second `GeoJsonSource`/layer pair on the same `MapEngine` — confirm whether it should share the destination source or use its own (recommend its own, so clearing the destination doesn't require also clearing the route).
-- Pick the routing engine/data source (own open-question, independent of the geocoding provider decision above).
+- `RouteResult.geometry` (a decoded `List<Coordinate>`) is already available as the maneuver/tracking input — no new route-fetching plumbing needed, turn-by-turn can consume `MapUiState.routeState`'s `Ready.route` directly.
+- Valhalla's response includes a full `maneuvers` array per leg (instructions, street names, bearings) that Phase 3's parser deliberately **discards** (`ValhallaResponseParser` only reads `shape`/`summary`) since maneuver UI was explicitly out of scope. Re-parsing that array is the natural starting point for turn-by-turn instructions — it does not require a different API call.
+- Phase 3 requests a route **once** per destination selection. Turn-by-turn needs re-routing as the user's position diverges from the route (or periodically) — decide the trigger (distance-off-route threshold vs. a timer) and whether it reuses `requestRoute()` or needs its own path.
+- The route line is a `CircleLayer`-adjacent `LineLayer` with no directionality styling. Active navigation typically wants a "traveled" vs. "remaining" visual split, which means either two layers (consumed/remaining) or a data-driven line-gradient expression — a MapLibre styling decision, not an architecture one.
+- No active-navigation camera mode exists yet (Phase 3's `FitBounds` is one-time only). Turn-by-turn needs a follow/tilt camera mode — likely a new `MapCommand` and probably the point where `Live` stops being a placeholder.
+- Pick the routing engine/data source for maneuvers specifically if it differs from the Phase 3 routing decision (Valhalla already returns maneuvers, so by default this is the same provider unless a reason emerges to split them).
 
 ## Open questions
 
 - Which production tile host, and what volume do we expect at launch?
 - Which production geocoding provider, and at what volume?
+- Which production routing provider, and at what volume?
 - Is the permission prompt on first launch (current behaviour) the desired onboarding, or should a pre-prompt explain it first?
 - Do we want a persisted camera across process death (currently restored only across configuration changes)?
 - Should recent searches sync across devices/accounts, or stay per-device (current behaviour)?
+- Should a route auto-refresh if the user's location updates significantly while one is `Ready` (currently it does not re-request after the initial fetch)?

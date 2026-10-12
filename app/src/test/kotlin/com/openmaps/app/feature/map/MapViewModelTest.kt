@@ -6,6 +6,11 @@ import com.openmaps.app.core.location.LocationRepository
 import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.LocationUpdate
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.routing.Coordinate
+import com.openmaps.app.core.routing.RouteBounds
+import com.openmaps.app.core.routing.RouteResult
+import com.openmaps.app.core.routing.RoutingException
+import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.map.CameraState
 import com.openmaps.app.map.MapCommand
 import com.openmaps.app.map.MapError
@@ -33,12 +38,13 @@ class MapViewModelTest {
 
     private val dispatcher = UnconfinedTestDispatcher()
     private val repository = FakeLocationRepository()
+    private val routingRepository = FakeRoutingRepository()
     private lateinit var viewModel: MapViewModel
 
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
-        viewModel = MapViewModel(repository, fixTimeoutMillis = TIMEOUT)
+        viewModel = MapViewModel(repository, routingRepository, fixTimeoutMillis = TIMEOUT)
     }
 
     @After
@@ -269,6 +275,111 @@ class MapViewModelTest {
         assertNull(viewModel.uiState.value.selectedDestination)
     }
 
+    // region Routing
+
+    @Test
+    fun selectingDestination_withLocationAlready_requestsRoute_andBecomesReady() = runTest(dispatcher) {
+        val commands = collectCommands()
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        commands.clear()
+        routingRepository.result = Result.success(route(distanceMeters = 1609.0, durationSeconds = 300.0))
+
+        viewModel.onDestinationSelected(place("dest", 41.0, -75.0))
+
+        assertEquals(listOf(Coordinate(40.0, -74.0)), routingRepository.originsReceived)
+        assertEquals(listOf(Coordinate(41.0, -75.0)), routingRepository.destinationsReceived)
+        val ready = viewModel.uiState.value.routeState as RouteState.Ready
+        assertEquals(1609.0, ready.route.distanceMeters, EPS)
+        assertEquals(300.0, ready.route.durationSeconds, EPS)
+        // A FitBounds command follows the MoveCamera from onDestinationSelected.
+        assertTrue(commands.any { it is MapCommand.FitBounds })
+    }
+
+    @Test
+    fun selectingDestination_withoutLocation_waitsForLocation_andNeverCallsProvider() = runTest(dispatcher) {
+        viewModel.onDestinationSelected(place("dest", 41.0, -75.0))
+
+        assertEquals(RouteState.WaitingForLocation, viewModel.uiState.value.routeState)
+        assertTrue(routingRepository.originsReceived.isEmpty())
+    }
+
+    @Test
+    fun locationArrivingLater_triggersTheWaitingRoute() = runTest(dispatcher) {
+        routingRepository.result = Result.success(route())
+        viewModel.onDestinationSelected(place("dest", 41.0, -75.0))
+        assertEquals(RouteState.WaitingForLocation, viewModel.uiState.value.routeState)
+
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+
+        assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+        assertEquals(1, routingRepository.originsReceived.size)
+    }
+
+    @Test
+    fun noDestination_neverRequestsARoute() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+
+        assertEquals(RouteState.Idle, viewModel.uiState.value.routeState)
+        assertTrue(routingRepository.originsReceived.isEmpty())
+    }
+
+    @Test
+    fun selectingAnotherDestination_replacesTheRoute_onlyFinalRequestLands() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        routingRepository.result = Result.success(route(distanceMeters = 111.0))
+
+        viewModel.onDestinationSelected(place("a", 1.0, 1.0))
+        routingRepository.result = Result.success(route(distanceMeters = 222.0))
+        viewModel.onDestinationSelected(place("b", 2.0, 2.0))
+
+        assertEquals(2, routingRepository.destinationsReceived.size)
+        val ready = viewModel.uiState.value.routeState as RouteState.Ready
+        assertEquals(222.0, ready.route.distanceMeters, EPS)
+    }
+
+    @Test
+    fun destinationCleared_cancelsAndClearsTheRoute() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        routingRepository.result = Result.success(route())
+        viewModel.onDestinationSelected(place("a", 1.0, 1.0))
+        assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+
+        viewModel.onDestinationCleared()
+
+        assertEquals(RouteState.Idle, viewModel.uiState.value.routeState)
+    }
+
+    @Test
+    fun providerFailure_mapsToTypedRouteError() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        routingRepository.result = Result.failure(RoutingException.NoRouteFound)
+
+        viewModel.onDestinationSelected(place("a", 1.0, 1.0))
+
+        val error = viewModel.uiState.value.routeState as RouteState.Error
+        assertEquals(RouteError.NoRouteFound, error.reason)
+    }
+
+    @Test
+    fun networkFailure_mapsToNoNetworkRouteError() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        routingRepository.result = Result.failure(RoutingException.NoNetwork)
+
+        viewModel.onDestinationSelected(place("a", 1.0, 1.0))
+
+        val error = viewModel.uiState.value.routeState as RouteState.Error
+        assertEquals(RouteError.NoNetwork, error.reason)
+    }
+
+    // endregion
+
     // region helpers
 
     private fun startWithPermission() {
@@ -296,6 +407,13 @@ class MapViewModelTest {
         longitude = lon,
     )
 
+    private fun route(distanceMeters: Double = 1000.0, durationSeconds: Double = 120.0) = RouteResult(
+        geometry = listOf(Coordinate(40.0, -74.0), Coordinate(41.0, -75.0)),
+        distanceMeters = distanceMeters,
+        durationSeconds = durationSeconds,
+        bounds = RouteBounds(south = 40.0, west = -75.0, north = 41.0, east = -74.0),
+    )
+
     private class FakeLocationRepository : LocationRepository {
         private val flow = MutableSharedFlow<LocationUpdate>(extraBufferCapacity = 16)
         val subscribers: Int get() = flow.subscriptionCount.value
@@ -303,6 +421,20 @@ class MapViewModelTest {
             check(flow.tryEmit(update))
         }
         override fun updates(): Flow<LocationUpdate> = flow
+    }
+
+    private class FakeRoutingRepository : RoutingRepository {
+        val originsReceived = mutableListOf<Coordinate>()
+        val destinationsReceived = mutableListOf<Coordinate>()
+        var result: Result<RouteResult> = Result.success(
+            RouteResult(geometry = emptyList(), distanceMeters = 0.0, durationSeconds = 0.0),
+        )
+
+        override suspend fun route(origin: Coordinate, destination: Coordinate): Result<RouteResult> {
+            originsReceived += origin
+            destinationsReceived += destination
+            return result
+        }
     }
 
     // endregion

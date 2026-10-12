@@ -7,5 +7,10 @@ import com.openmaps.app.AppContainer
 
 /** Builds [MapViewModel] from the app container (no DI framework). */
 fun mapViewModelFactory(container: AppContainer): ViewModelProvider.Factory = viewModelFactory {
-    initializer { MapViewModel(locationRepository = container.locationRepository) }
+    initializer {
+        MapViewModel(
+            locationRepository = container.locationRepository,
+            routingRepository = container.routingRepository,
+        )
+    }
 }

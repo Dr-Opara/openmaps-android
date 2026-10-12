@@ -1,5 +1,7 @@
 package com.openmaps.app.map
 
+import com.openmaps.app.core.routing.RouteBounds
+
 /**
  * Engine-neutral map types. Feature UI and the ViewModel talk in these;
  * only `MapLibreMapEngine` knows about MapLibre classes.
@@ -35,6 +37,13 @@ sealed interface MapCommand {
 
     /** Reload the style after a failure ("Map unavailable" -> Retry). */
     data object RetryStyle : MapCommand
+
+    /** One-time camera fit to [bounds] (Phase 3: fit the route once it loads). Not repeated after. */
+    data class FitBounds(
+        val bounds: RouteBounds,
+        val paddingPx: Int = 64,
+        val durationMillis: Int = 700,
+    ) : MapCommand
 }
 
 /** Events from the map engine to the ViewModel. */

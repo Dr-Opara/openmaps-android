@@ -53,7 +53,9 @@ import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.map.MapMode
 import kotlinx.coroutines.flow.StateFlow
+import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Map | Live segmented toggle, shared by the Map and Live screens. */
 @Composable
@@ -179,13 +181,13 @@ fun CompassButton(
 private const val COMPASS_VISIBLE_THRESHOLD_DEGREES = 1f
 
 /**
- * Collapsed bottom panel. Shows a compact destination summary once one is selected, otherwise
- * the Phase 1 placeholder. Intentionally shows no ETA, distance or route: nothing is fabricated
- * before routing exists.
+ * Collapsed bottom panel. Shows a compact destination summary (plus, once Phase 3's route
+ * loads, distance/ETA) once a destination is selected, otherwise the Phase 1 placeholder.
  */
 @Composable
 fun BottomPanel(
     destination: SearchResult?,
+    routeState: RouteState,
     onClearDestination: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -227,6 +229,7 @@ fun BottomPanel(
                         style = MaterialTheme.typography.bodyMedium,
                         color = OpenMapsColors.TextSecondary,
                     )
+                    RouteSummaryLine(routeState)
                 }
                 IconButton(onClick = onClearDestination) {
                     Icon(
@@ -239,6 +242,66 @@ fun BottomPanel(
         }
     }
 }
+
+/** One compact line under the destination subtitle: loading, error, or "12 mi · 18 min". */
+@Composable
+private fun RouteSummaryLine(routeState: RouteState) {
+    when (routeState) {
+        RouteState.Idle -> Unit
+        RouteState.WaitingForLocation -> RouteStatusText(stringResource(R.string.route_waiting_for_location))
+        RouteState.Loading -> RouteLoadingRow()
+        is RouteState.Ready -> RouteStatusText(
+            text = "${formatDistance(routeState.route.distanceMeters)} · ${formatDuration(routeState.route.durationSeconds)}",
+            color = OpenMapsColors.ElectricBlue,
+        )
+        is RouteState.Error -> RouteStatusText(stringResource(routeState.reason.toMessageRes()))
+    }
+}
+
+@Composable
+private fun RouteStatusText(text: String, color: Color = OpenMapsColors.TextSecondary) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = color,
+        modifier = Modifier.padding(top = 2.dp),
+    )
+}
+
+@Composable
+private fun RouteLoadingRow() {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = OpenMapsColors.ElectricBlue)
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = stringResource(R.string.route_loading),
+            style = MaterialTheme.typography.labelLarge,
+            color = OpenMapsColors.TextSecondary,
+        )
+    }
+}
+
+private fun RouteError.toMessageRes(): Int = when (this) {
+    RouteError.NoNetwork -> R.string.route_error_no_network
+    RouteError.Timeout -> R.string.route_error_timeout
+    RouteError.ServerError -> R.string.route_error_server
+    RouteError.Malformed -> R.string.route_error_malformed
+    RouteError.NoRouteFound -> R.string.route_error_no_route
+}
+
+private fun formatDistance(meters: Double): String {
+    val miles = meters / METERS_PER_MILE
+    return if (miles < 10) String.format(Locale.US, "%.1f mi", miles) else "${miles.roundToInt()} mi"
+}
+
+private fun formatDuration(seconds: Double): String {
+    val totalMinutes = (seconds / 60).roundToInt().coerceAtLeast(1)
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return if (hours > 0) "$hours hr $minutes min" else "$minutes min"
+}
+
+private const val METERS_PER_MILE = 1609.344
 
 /** One card for every location situation; copy and primary action depend on [prompt]. */
 @Composable

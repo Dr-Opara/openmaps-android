@@ -54,6 +54,15 @@
     <string name="search_error_server">Something went wrong on our end. Try again.</string>
     <string name="search_error_malformed">We couldn\'t read that response. Try again.</string>
 
+    <!-- Route -->
+    <string name="route_waiting_for_location">Waiting for your location…</string>
+    <string name="route_loading">Finding route…</string>
+    <string name="route_error_no_network">You\'re offline. Check your connection and try again.</string>
+    <string name="route_error_timeout">That took too long. Try again.</string>
+    <string name="route_error_server">Something went wrong on our end. Try again.</string>
+    <string name="route_error_malformed">We couldn\'t read that response. Try again.</string>
+    <string name="route_error_no_route">No route found to this destination.</string>
+
     <!-- Settings -->
     <string name="settings_title">Settings</string>
     <string name="settings_section_location">Location</string>

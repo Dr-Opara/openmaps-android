@@ -9,6 +9,9 @@ import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.LocationUpdate
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.location.isGranted
+import com.openmaps.app.core.routing.Coordinate
+import com.openmaps.app.core.routing.RoutingException
+import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.map.CameraState
 import com.openmaps.app.map.MapCommand
 import com.openmaps.app.map.MapError
@@ -39,6 +42,7 @@ import kotlin.math.max
  */
 class MapViewModel(
     private val locationRepository: LocationRepository,
+    private val routingRepository: RoutingRepository,
     private val fixTimeoutMillis: Long = DEFAULT_FIX_TIMEOUT_MILLIS,
 ) : ViewModel() {
 
@@ -57,6 +61,7 @@ class MapViewModel(
 
     private var locationJob: Job? = null
     private var timeoutJob: Job? = null
+    private var routeJob: Job? = null
     private var isAppVisible = false
     private var autoCenterHandled = false
     private var userHasMovedCamera = false
@@ -157,15 +162,54 @@ class MapViewModel(
         _uiState.update { it.copy(dismissedPrompt = it.locationPrompt) }
     }
 
-    /** A search result (fresh or recent) was picked: show its marker and fly the camera to it. */
+    /** A search result (fresh or recent) was picked: show its marker, fly the camera, request a route. */
     fun onDestinationSelected(result: SearchResult) {
         _uiState.update { it.copy(selectedDestination = result) }
         moveCamera(CameraState(result.latitude, result.longitude, DESTINATION_ZOOM), durationMillis = 900)
+        requestRoute()
     }
 
-    /** Clears the destination marker and summary. */
+    /** Clears the destination marker, summary and any route (in flight or loaded). */
     fun onDestinationCleared() {
-        _uiState.update { it.copy(selectedDestination = null) }
+        routeJob?.cancel()
+        routeJob = null
+        _uiState.update { it.copy(selectedDestination = null, routeState = RouteState.Idle) }
+    }
+
+    // endregion
+
+    // region Routing
+
+    /**
+     * Fetches a route from the current location to [MapUiState.selectedDestination]. Cancels
+     * any in-flight request first, so a destination change (or a second call for any other
+     * reason) always replaces the pending route rather than racing it — only the latest call's
+     * result can land.
+     *
+     * No origin yet: this is not an error, it is [RouteState.WaitingForLocation]. A location fix
+     * arriving later re-triggers this automatically (see [onLocationUpdate]); nothing invents a
+     * default origin.
+     */
+    private fun requestRoute() {
+        routeJob?.cancel()
+        val destination = _uiState.value.selectedDestination ?: return
+        val origin = _uiState.value.currentLocation
+        if (origin == null) {
+            _uiState.update { it.copy(routeState = RouteState.WaitingForLocation) }
+            return
+        }
+        _uiState.update { it.copy(routeState = RouteState.Loading) }
+        routeJob = viewModelScope.launch {
+            routingRepository.route(
+                origin = Coordinate(origin.latitude, origin.longitude),
+                destination = Coordinate(destination.latitude, destination.longitude),
+            ).onSuccess { route ->
+                _uiState.update { it.copy(routeState = RouteState.Ready(route)) }
+                route.bounds?.let { bounds -> commandChannel.trySend(MapCommand.FitBounds(bounds)) }
+            }.onFailure { cause ->
+                _uiState.update { it.copy(routeState = RouteState.Error(cause.toRouteError())) }
+            }
+        }
     }
 
     // endregion
@@ -224,6 +268,8 @@ class MapViewModel(
                 timeoutJob?.cancel()
                 _uiState.update { it.copy(currentLocation = update.location, locationStatus = LocationStatus.Available) }
                 centerOnFirstFix(update.location)
+                // A route that was only missing an origin can proceed now that one exists.
+                if (_uiState.value.routeState == RouteState.WaitingForLocation) requestRoute()
             }
             LocationUpdate.ServicesDisabled -> {
                 timeoutJob?.cancel()
@@ -275,4 +321,13 @@ class MapViewModel(
         /** Maps any bearing to [-180, 180) so "rotated" checks and the compass needle are symmetric. */
         fun normalizeBearing(degrees: Double): Float = (((degrees % 360.0) + 540.0) % 360.0 - 180.0).toFloat()
     }
+}
+
+private fun Throwable.toRouteError(): RouteError = when (this) {
+    is RoutingException.NoNetwork -> RouteError.NoNetwork
+    is RoutingException.Timeout -> RouteError.Timeout
+    is RoutingException.Server -> RouteError.ServerError
+    is RoutingException.Malformed -> RouteError.Malformed
+    is RoutingException.NoRouteFound -> RouteError.NoRouteFound
+    else -> RouteError.Malformed
 }

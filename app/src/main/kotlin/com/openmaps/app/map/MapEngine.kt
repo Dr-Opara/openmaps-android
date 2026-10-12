@@ -5,6 +5,7 @@ import android.view.View
 import androidx.lifecycle.Lifecycle
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.routing.RouteResult
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -12,12 +13,12 @@ import kotlinx.coroutines.flow.Flow
  * engine-neutral types in MapModels.kt; only [MapLibreMapEngine] imports MapLibre.
  *
  * Responsibilities today: view creation + lifecycle, style loading, camera commands/events,
- * current-location puck, destination marker.
+ * current-location puck, destination marker, route line.
  *
  * Planned extension points (intentionally NOT declared yet, to avoid speculative API):
- *  - route rendering   -> e.g. `setRoute(polyline)`, drawn on a GeoJSON line layer (Phase 3+)
  *  - POI overlays      -> e.g. `setPlaces(list)`, symbol layers
  *  - AR/map sync       -> expose camera + projection (`latLngToScreen`) once Live needs it
+ *  - active navigation camera tracking (Phase 4+)
  */
 interface MapEngine {
     /** Engine -> app events (style loaded/failed, user gesture, camera idle, bearing). */
@@ -41,6 +42,9 @@ interface MapEngine {
 
     /** Show a destination marker at [destination], or hide it when null. Replaces any previous one. */
     fun setDestination(destination: SearchResult?)
+
+    /** Show the route line for [route], or hide it when null. Replaces any previous one. */
+    fun setRoute(route: RouteResult?)
 
     /**
      * Space covered by overlays at the bottom of the map. Keeps required attribution visible

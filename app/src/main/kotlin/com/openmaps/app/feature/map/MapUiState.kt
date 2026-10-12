@@ -28,6 +28,8 @@ data class MapUiState(
     val dismissedPrompt: LocationPrompt? = null,
     /** The destination marker shown on the map, or null when none is selected. */
     val selectedDestination: SearchResult? = null,
+    /** The route to [selectedDestination], as one lifecycle value (see [RouteState]). */
+    val routeState: RouteState = RouteState.Idle,
 ) {
     val isLocationLoading: Boolean
         get() = locationStatus == LocationStatus.Loading

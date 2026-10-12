@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.routing.RouteResult
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -19,6 +20,7 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.location.LocationComponentActivationOptions
 import org.maplibre.android.location.LocationComponentOptions
 import org.maplibre.android.location.modes.CameraMode
@@ -28,10 +30,13 @@ import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 import kotlin.math.abs
 
@@ -69,6 +74,7 @@ class MapLibreMapEngine(
     private var pendingMove: MapCommand.MoveCamera? = null
     private var userLocation: UserLocation? = null
     private var destination: SearchResult? = null
+    private var route: RouteResult? = null
     private var bottomInsetPx = 0
     private var density = 1f
     private var lastReportedBearing = Double.NaN
@@ -149,6 +155,7 @@ class MapLibreMapEngine(
             _events.tryEmit(MapEvent.StyleLoaded)
             syncUserLocation()
             syncDestination()
+            syncRoute()
         }
     }
 
@@ -161,6 +168,17 @@ class MapLibreMapEngine(
             MapCommand.RetryStyle -> {
                 val readyMap = map
                 if (readyMap != null) loadStyle(readyMap) else mapView?.getMapAsync { onMapReady(it) }
+            }
+            is MapCommand.FitBounds -> {
+                val readyMap = map ?: return
+                val bounds = LatLngBounds.from(
+                    command.bounds.north,
+                    command.bounds.east,
+                    command.bounds.south,
+                    command.bounds.west,
+                )
+                val update = CameraUpdateFactory.newLatLngBounds(bounds, command.paddingPx)
+                readyMap.animateCamera(update, command.durationMillis)
             }
         }
     }
@@ -263,6 +281,52 @@ class MapLibreMapEngine(
         )
     }
 
+    override fun setRoute(route: RouteResult?) {
+        this.route = route
+        syncRoute()
+    }
+
+    /**
+     * Route line as a GeoJSON source + line layer, same approach and same reasoning as the
+     * destination marker (a dedicated source/layer pair, added below the destination layer so
+     * the marker stays on top of the line it leads to). [GeoJsonSource.setGeoJson] replaces the
+     * previous geometry wholesale, so there is never more than one route line, and passing
+     * `null` clears it (e.g. when the destination is cleared or replaced while a new route is
+     * still loading).
+     */
+    private fun syncRoute() {
+        val readyMap = map ?: return
+        if (!styleLoaded) return // Re-applied from the style-loaded callback.
+        val style = readyMap.style ?: return
+        ensureRouteLayer(style)
+        val source = style.getSourceAs<GeoJsonSource>(ROUTE_SOURCE_ID) ?: return
+        val currentRoute = route
+        source.setGeoJson(
+            if (currentRoute == null || currentRoute.geometry.isEmpty()) {
+                FeatureCollection.fromFeatures(emptyArray())
+            } else {
+                val points = currentRoute.geometry.map { Point.fromLngLat(it.longitude, it.latitude) }
+                FeatureCollection.fromFeature(Feature.fromGeometry(LineString.fromLngLats(points)))
+            },
+        )
+    }
+
+    private fun ensureRouteLayer(style: Style) {
+        if (style.getLayer(ROUTE_LAYER_ID) != null) return
+        style.addSource(GeoJsonSource(ROUTE_SOURCE_ID))
+        val layer = LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
+            PropertyFactory.lineColor(ACCENT_BLUE),
+            PropertyFactory.lineWidth(ROUTE_LINE_WIDTH),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        )
+        if (style.getLayer(DESTINATION_LAYER_ID) != null) {
+            style.addLayerBelow(layer, DESTINATION_LAYER_ID)
+        } else {
+            style.addLayer(layer)
+        }
+    }
+
     override fun setBottomInset(pixels: Int) {
         bottomInsetPx = pixels
         applyAttributionMargins()
@@ -359,5 +423,8 @@ class MapLibreMapEngine(
         const val DESTINATION_LAYER_ID = "openmaps-destination-layer"
         const val DESTINATION_MARKER_RADIUS = 9f
         const val DESTINATION_MARKER_STROKE_WIDTH = 3f
+        const val ROUTE_SOURCE_ID = "openmaps-route-source"
+        const val ROUTE_LAYER_ID = "openmaps-route-layer"
+        const val ROUTE_LINE_WIDTH = 5f
     }
 }
