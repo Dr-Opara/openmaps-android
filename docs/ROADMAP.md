@@ -59,6 +59,31 @@ Validated end-to-end on the Pixel 8 API 35 emulator, including live network call
 
 Validated end-to-end on the Pixel 8 API 35 emulator with live calls to the Valhalla demo instance: a nearby destination produced a rendered route line, correct distance/ETA, and a one-time camera fit; a cross-country destination correctly surfaced "No route found" (the demo server's own limits, not a bug); replacing and clearing both worked with no stale state; Map/Live switching with an active route survived with no crash. Known limitation: no custom route styling beyond a solid line (no casing/halo); revisit if the brand wants more visual weight on the route.
 
+## Phase 4: Turn-by-turn navigation, Done (needs device check beyond the emulator)
+
+- Maneuver parsing from Valhalla's `maneuvers` array (Phase 3 discarded it), mapped to a provider-neutral `ManeuverType`; per-leg shape-index offsets so multi-leg routes index correctly
+- `NavigationState` lifecycle (`Idle | Ready | Active | OffRoute | Rerouting | Arrived | Error`) wrapping `RouteProgress`
+- `RouteProgressTracker`: snaps a location onto route geometry; current/next maneuver, distance to next, remaining distance/time, monotone (never regressing) progress
+- Conservative off-route detection: a 75 m threshold **plus** 2-sample confirm / 5-sample reroute hysteresis, so GPS noise never costs a network round trip
+- Rerouting that keeps the old route displayed; a failed reroute returns to `OffRoute` with a one-time event instead of dead-ending the trip
+- Arrival detection requiring both ≤10 m remaining and ≥99% progress
+- Navigation camera: targets 110 m *ahead* on the route (capped 8 m from the end), bearing from device heading -> route direction -> held bearing when far off route; manual pan suspends follow, recenter resumes
+- Traveled/remaining route split (`openmaps-route-traveled-*`, muted slate under the accent line)
+- Maneuver banner, trip summary, explicit start/stop; phase-1 map behaviour preserved (verified by test)
+- 39 new unit tests (103 total). Validated end-to-end on the Pixel 8 API 35 emulator with live Valhalla routing.
+
+## Phase 5: Live camera mode, Done (needs device check beyond the emulator)
+
+- CameraX 1.4.2 rear-camera preview behind a `RearCameraEngine` interface — the only file importing CameraX is `CameraXRearEngine`, mirroring how `MapEngine` isolates MapLibre
+- **Live does not own navigation**: it derives a HUD purely from the existing `MapUiState.navigationState`, so Map <-> Live preserves the trip and never restarts routing
+- `LiveHud.state`: a pure `NavigationState` -> HUD mapping, so the whole guidance surface is unit-tested without a camera
+- Camera permission modelled exactly like location permission (including the persisted "already asked" flag for permanently-denied), requested only when Live is opened and re-checked on resume
+- Every CameraX failure classified into `CameraFailure` and rendered as an explanation — no crash, no bare black screen, always a way back to Map
+- Lifecycle-bound camera: closes when the app backgrounds, released explicitly on leaving Live (no leak across repeated switches)
+- HUD: maneuver arrow + distance + instruction + "Then …", remaining distance/time, destination name; directional scrims instead of blurred glass; "Rerouting…"/"Off route" transient states suppress stale figures; arrival card
+- Fixed a Phase 4 bug found while building the HUD: the maneuver banner paired the *next* maneuver's instruction with the *current* maneuver's distance. Both surfaces now agree.
+- 22 new unit tests (125 total). Validated end-to-end on the Pixel 8 API 35 emulator with a live rear-camera preview, permission grant/deny/revoke, live reroute while in Live, arrival in Live, 8 rapid Map <-> Live transitions, and background/foreground cycles.
+
 ## Next, not started (awaiting approval)
 
 Tentative order; each needs its own scope decision.
@@ -66,9 +91,20 @@ Tentative order; each needs its own scope decision.
 1. **Production basemap**: pick and host the tile source (PMTiles/Protomaps or self-hosted vector tiles), glyphs and sprites; flip `devOnly` to false; dark navy style to match the brand.
 2. **Production geocoding**: move off the public Nominatim instance (self-hosted Nominatim/Photon or a contracted provider) before shipping.
 3. **Production routing**: move off the public Valhalla demo instance (self-hosted Valhalla or a contracted provider) before shipping.
-4. **Turn-by-turn guidance**: maneuvers, rerouting as the user drives, voice.
-5. **Live / camera-first view**: the product's differentiator; depends on turn-by-turn and on map/camera synchronisation.
+4. **Turn-by-turn guidance**: done in Phase 4; voice guidance is still open.
+5. **Live / camera-first view**: camera preview and HUD are done in Phase 5; AR localisation is the next step (Phase 6).
 6. **Later layers**: traffic, parking, richer place intelligence.
+
+## Phase 6 prerequisites
+
+AR localisation, and what is already in place for it:
+
+- Camera feed — `RearCameraEngine` binds a `Preview` use case to a `ProcessCameraProvider`; an `ImageAnalysis` use case attaches to the same bind. Phase 5 deliberately added **no** analyzer, since nothing consumed it yet.
+- Current location, device heading, route geometry, current/next maneuver, navigation-active state — all already flow to Live from the single `MapViewModel`.
+- Lifecycle hooks — `RearCameraHost` already binds to the composition lifecycle and releases on dispose, so an analyzer needs no new lifecycle work.
+- Overlay seam — the HUD is a pure state-to-UI mapping, so an AR overlay composes beside it without touching that mapping.
+- **Still needed**: a camera-frame -> screen-coordinate projection seam (`latLngToScreen`-style) for anchoring, plus a device-capability decision (ARCore vs. non-AR fallback). Phase 5 deliberately did not declare the projection API, to avoid speculative surface.
+- Open question carried from Phase 5: the emulator's synthetic rear camera cannot validate real AR tracking — a physical device is required for Phase 6.
 
 ## Phase 4 prerequisites
 

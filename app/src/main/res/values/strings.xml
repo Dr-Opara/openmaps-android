@@ -37,9 +37,32 @@
     <string name="location_unavailable_body">Your position isn\'t available right now. Moving to an open area can help.</string>
     <string name="location_unavailable_action">Try again</string>
 
-    <!-- Live -->
-    <string name="live_title">Live view</string>
-    <string name="live_body">Camera-first navigation is coming in a later phase. The map is fully available in the meantime.</string>
+    <!-- Live (Phase 5: rear camera preview + navigation HUD) -->
+    <string name="live_camera_starting">Starting camera…</string>
+    <string name="live_camera_unavailable">Camera unavailable</string>
+    <string name="live_camera_no_rear_body">This device doesn\'t have a rear camera. The map and navigation still work.</string>
+    <string name="live_camera_binding_failed_body">The camera couldn\'t start. Close other camera apps and try again.</string>
+    <string name="live_camera_in_use_body">Another app is using the camera. Close it and try again.</string>
+    <string name="live_camera_unknown_body">The camera stopped unexpectedly.</string>
+    <string name="live_camera_retry">Try again</string>
+
+    <string name="live_permission_title">Camera access</string>
+    <string name="live_permission_body">OpenMaps needs the rear camera to show the road ahead while you navigate.</string>
+    
+    <string name="live_permission_denied_body">Camera access is off, so Live can\'t show the road ahead. You can turn it on in system settings.</string>
+    <string name="live_permission_blocked_body">Camera access is blocked. Open settings to allow it.</string>
+    <string name="live_permission_action_allow">Allow</string>
+    <string name="live_permission_action_settings">Open settings</string>
+    <string name="cd_back_to_map">Back to map</string>
+    <string name="live_navigating">Navigating</string>
+    <string name="live_destination_format">To %1$s</string>
+    <string name="live_remaining_format">%1$s left · %2$s</string>
+    <string name="live_turn_in_format">in %1$s</string>
+    <string name="live_then_format">Then %1$s</string>
+    <string name="live_rerouting">Rerouting…</string>
+    <string name="live_off_route">Off route</string>
+    <string name="live_arrived_title">You\'ve arrived</string>
+    <string name="live_arrived_action">Back to map</string>
 
     <!-- Search -->
     <string name="search_title">Search destinations</string>

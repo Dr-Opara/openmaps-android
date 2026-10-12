@@ -53,9 +53,16 @@ openmaps.style.devOnly=false
 
 ## Location
 
-- Permissions declared: `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `INTERNET`, `ACCESS_NETWORK_STATE`. No background location.
+- Permissions declared: `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `CAMERA`, `INTERNET`, `ACCESS_NETWORK_STATE`. No background location.
 - Location updates run only while the app is visible and permission is granted.
 - Emulator: Extended controls (...) > Location, set a point or route. A real fix may take a few seconds to arrive.
+
+## Camera (Live mode)
+
+- `CAMERA` is declared but the `android.hardware.camera.any` feature is **not required**, so OpenMaps still installs on camera-less devices; Live simply explains and the map/navigation keep working.
+- The camera dialog appears **only when you first open Live**, never on launch.
+- Emulator: the virtual scene camera works; use `adb emu geo fix <lon> <lat>` to simulate movement. Note the platform de-duplicates identical consecutive fixes, so vary the coordinates slightly when testing off-route/reroute behaviour, or the sample never arrives.
+- To test a denial: `adb shell pm revoke com.openmaps.app android.permission.CAMERA`, then background and resume the app.
 
 ## Verification checklist
 
@@ -65,7 +72,7 @@ openmaps.style.devOnly=false
 
 - [ ] Gradle sync succeeds
 - [ ] `./gradlew :app:assembleDebug` succeeds
-- [ ] `./gradlew :app:testDebugUnitTest` passes (`MapViewModelTest`, 14 tests)
+- [ ] `./gradlew :app:testDebugUnitTest` passes (125 tests across 9 classes)
 - [ ] `./gradlew :app:lintDebug` has no errors
 - [ ] `dependencies` output shows no unexpected version conflicts (look at `androidx.lifecycle`, `kotlinx-coroutines`, and MapLibre's transitive libraries)
 - [ ] `./gradlew :app:assembleRelease` succeeds (R8 with MapLibre; try a release build early)
@@ -102,6 +109,21 @@ Location services and failures:
 - [ ] Indoors/no fix for 20 s: "Can't find your location" with Try again
 - [ ] Dismiss a card with X: stays hidden until the situation changes
 
+Live mode (camera):
+
+- [ ] No camera dialog on launch; it appears only when Live is first opened
+- [ ] Allow: rear-camera preview fills the screen, upright in portrait, with the top bar, HUD and summary readable over it
+- [ ] Maneuver row shows an arrow, "in 382 ft", the instruction, and the following maneuver as "Then ..."
+- [ ] Bottom summary shows the destination and remaining distance/time, and both decrease as you move
+- [ ] Map | Live and back, **8+ times rapidly**: no crash, and the camera is released each time (`adb shell dumpsys media.camera` shows no `com.openmaps.app` client on the Map screen)
+- [ ] Back to Map mid-navigation: the route, the blue dot and the navigation banner are all still there — nothing restarted
+- [ ] Background (home) then foreground while the camera is open: preview returns, no crash
+- [ ] Drive off the route while in Live: "Off route" appears, the stale trip summary disappears, and the preview keeps running
+- [ ] Stay off route: "Rerouting..." appears briefly, then the maneuver and figures update to the new route
+- [ ] Reach the destination while in Live: "You've arrived" card with "Back to map"; the camera stays live and the app does not close
+- [ ] Revoke camera permission (see above) then resume: the "Camera access is off" panel appears; no crash, and Map is always reachable
+- [ ] Rotate the device while in Live: the preview stays aligned and the HUD stays readable
+
 Map failure:
 
 - [ ] Airplane mode, then cold start: "Map unavailable" with Retry; Search and Settings still open
@@ -109,7 +131,7 @@ Map failure:
 
 App behaviour:
 
-- [ ] Map | Live toggle works; Live shows the placeholder; Back returns to the map
+- [ ] Map | Live toggle works; Live shows the camera permission prompt; Back (and the X in the Live top bar) returns to the map
 - [ ] "Where are you going?" opens Search destinations (placeholder); back returns **without** the map reloading
 - [ ] Settings shows location access, map style with the "Development only" label, attribution, version
 - [ ] Rotate the device: camera and dot are restored; no crash

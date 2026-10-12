@@ -31,9 +31,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.openmaps.app.core.camera.CameraPermissions
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.location.LocationPermissions
+import com.openmaps.app.feature.live.LiveHud
 import com.openmaps.app.feature.live.LiveScreen
+import com.openmaps.app.feature.live.LiveUiEvent
+import com.openmaps.app.feature.live.LiveViewModel
 import com.openmaps.app.feature.map.MapScreen
 import com.openmaps.app.feature.map.MapUiEvent
 import com.openmaps.app.feature.map.MapViewModel
@@ -69,17 +73,26 @@ fun OpenMapsApp(container: AppContainer) {
 private fun AppShell(container: AppContainer) {
     val viewModel: MapViewModel = viewModel(factory = mapViewModelFactory(container))
     val searchViewModel: SearchViewModel = viewModel(factory = searchViewModelFactory(container))
+    val liveViewModel: LiveViewModel = viewModel()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
 
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val prefs = container.locationPermissionPrefs
+    val cameraPrefs = container.cameraPermissionPrefs
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
         viewModel.onPermissionStateChanged(LocationPermissions.evaluate(activity, prefs))
+    }
+
+    // Camera permission is requested only when the user actually opens Live, never on launch.
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        liveViewModel.onCameraPermissionChanged(CameraPermissions.evaluate(activity, cameraPrefs))
     }
 
     // Visibility gates GPS usage; permission is re-read on every resume (the user may have
@@ -88,6 +101,9 @@ private fun AppShell(container: AppContainer) {
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onAppVisibilityChanged(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.onPermissionStateChanged(LocationPermissions.evaluate(activity, prefs))
+        // Re-read on resume: the user may have granted or revoked camera access in Settings while
+        // the app was backgrounded.
+        liveViewModel.onCameraPermissionChanged(CameraPermissions.evaluate(activity, cameraPrefs))
     }
 
     LaunchedEffect(viewModel) {
@@ -103,6 +119,18 @@ private fun AppShell(container: AppContainer) {
                 // nothing to launch and nothing to recover from here. Deliberately a no-op — the
                 // visible cue is the OffRoute state on the banner itself.
                 MapUiEvent.RerouteFailed -> Unit
+            }
+        }
+    }
+
+    LaunchedEffect(liveViewModel) {
+        liveViewModel.events.collect { event ->
+            when (event) {
+                LiveUiEvent.RequestCameraPermission -> {
+                    cameraPrefs.markRequested()
+                    cameraPermissionLauncher.launch(CameraPermissions.REQUEST)
+                }
+                LiveUiEvent.OpenAppSettings -> context.openAppSettings()
             }
         }
     }
@@ -126,7 +154,14 @@ private fun AppShell(container: AppContainer) {
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
-            LiveScreen(onModeSelected = viewModel::onModeSelected)
+            // Live only *reads* navigation: hudState is derived from the one MapViewModel, so
+            // Map <-> Live never starts, stops or copies a trip.
+            LiveScreen(
+                viewModel = liveViewModel,
+                hudState = LiveHud.state(state.navigationState, state.selectedDestination?.name),
+                isNavigating = state.isNavigating,
+                onModeSelected = viewModel::onModeSelected,
+            )
         }
 
         AnimatedVisibility(

@@ -1,8 +1,8 @@
 # OpenMaps Architecture
 
-OpenMaps is a United States-only, Android-first navigation app. This document describes what exists after **Phase 3 (routing engine)**. Turn-by-turn guidance, AR, parking, computer vision, AI and authentication do not exist yet.
+OpenMaps is a United States-only, Android-first navigation app. This document describes what exists after **Phase 5 (Live camera mode)**. AR anchoring, parking, computer vision, AI and authentication do not exist yet.
 
-> **Verification status.** Phases 1-3 have all been built, unit-tested, and manually validated end-to-end on a Pixel 8 API 35 emulator — Phase 3's pass included a live route request/response against the routing provider, a rendered route line, distance/ETA, camera fit, route replacement and route clearing. See [SETUP.md](SETUP.md#verification-checklist).
+> **Verification status.** Phases 1-5 have all been built, unit-tested, and manually validated end-to-end on a Pixel 8 API 35 emulator — Phase 5's pass included a live rear-camera preview, the permission prompt/grant/deny/revoke flow, the navigation HUD over the camera feed, a live reroute while in Live, arrival in Live, and repeated Map <-> Live switching. See [SETUP.md](SETUP.md#verification-checklist).
 
 ## Stack
 
@@ -11,6 +11,7 @@ OpenMaps is a United States-only, Android-first navigation app. This document de
 | Language / UI | Kotlin 2.0.21, Jetpack Compose (BOM 2024.12.01), Material 3 |
 | Build | Gradle Kotlin DSL, version catalog (`gradle/libs.versions.toml`), AGP 8.7.3 |
 | Map renderer | MapLibre Native Android `org.maplibre.gl:android-sdk:11.13.5` |
+| Camera | CameraX `androidx.camera` 1.4.2 (`camera-core`, `camera-camera2`, `camera-lifecycle`, `camera-view`), preview use case only |
 | Map data | OpenStreetMap-derived vector tiles via a configurable style URL |
 | Geocoding | OSM Nominatim (`nominatim.openstreetmap.org`), development-only — see [Geocoding](#geocoding) |
 | Routing | Valhalla demo instance (`valhalla1.openstreetmap.de`), development-only — see [Routing](#routing) |
@@ -43,12 +44,22 @@ com.openmaps.app
 │   │   ├── RecentSearchList             pure dedup/cap policy for recents                         (pure Kotlin)
 │   │   ├── RecentSearchStore            interface
 │   │   └── SharedPreferencesRecentSearchStore  SharedPreferences-backed implementation
-│   └── routing                          Phase 3 routing layer
-│       ├── RoutingModels                Coordinate, RouteResult, RouteBounds, RoutingException   (pure Kotlin)
-│       ├── RoutingRepository            interface                                                (pure Kotlin)
-│       ├── ValhallaRoutingRepository    HTTP + JSON implementation (java.net + org.json)
-│       ├── ValhallaResponseParser       pure response-parsing logic, unit-tested without network
-│       └── PolylineDecoder              pure polyline6 decoder, unit-tested against a captured response
+│   ├── routing                          Phase 3 routing layer
+│   │   ├── RoutingModels                Coordinate, RouteResult, RouteBounds, RoutingException   (pure Kotlin)
+│   │   ├── ManeuverModels               ManeuverType, RouteManeuver (Phase 4)                    (pure Kotlin)
+│   │   ├── RoutingRepository            interface                                                (pure Kotlin)
+│   │   ├── ValhallaRoutingRepository    HTTP + JSON implementation (java.net + org.json)
+│   │   ├── ValhallaResponseParser       pure response-parsing logic, unit-tested without network
+│   │   └── PolylineDecoder              pure polyline6 decoder, unit-tested against a captured response
+│   ├── navigation                       Phase 4 turn-by-turn layer                                (pure Kotlin)
+│   │   ├── RouteProgress                progress snapshot                                        (pure Kotlin)
+│   │   ├── RouteProgressTracker         snaps a location onto route geometry
+│   │   ├── OffRouteDetector             multi-sample hysteresis before a reroute
+│   │   ├── NavigationCamera             follow-camera target (ahead on the route, bearing)
+│   │   └── NavigationSession            per-trip state: tracker + detector + camera
+│   └── camera                           Phase 5 camera permission model
+│       ├── CameraModels                 CameraPermissionState                                    (pure Kotlin)
+│       └── CameraPermissions            OS permission -> CameraPermissionState (+ "already asked" flag)
 ├── map                                  the ONLY package that knows about MapLibre
 │   ├── MapModels                        CameraState, MapCommand, MapEvent, MapMode, MapError    (pure Kotlin)
 │   ├── MapStyleProvider                 MapStyleSource + provider interface                     (pure Kotlin)
@@ -56,15 +67,19 @@ com.openmaps.app
 │   ├── MapEngine                        interface the app talks to
 │   ├── MapLibreMapEngine                MapLibre implementation
 │   └── MapLibreHost                     Compose host (AndroidView + lifecycle + flow wiring)
+├── camera                               the ONLY package that knows about CameraX
+│   ├── CameraModels                     RearCameraEngine, RearCameraState, CameraFailure          (pure Kotlin)
+│   ├── CameraXRearEngine                CameraX implementation (preview use case only)
+│   └── RearCameraHost                   Compose host (AndroidView + lifecycle)
 └── feature
-    ├── map       MapViewModel, MapUiState, RouteState, MapScreen, MapControls
-    ├── live      LiveScreen (placeholder, no camera/AR)
+    ├── map       MapViewModel, MapUiState, RouteState, NavigationState, MapScreen, MapControls, NavigationControls
+    ├── live      LiveViewModel, LiveUiState, LiveHud (pure NavigationState -> HUD mapping), LiveScreen
     ├── search    SearchViewModel, SearchUiState, SearchScreen (real geocoding search)
     ├── settings  SettingsScreen
     └── splash    SplashScreen
 ```
 
-Dependency direction: `feature -> map (interface + models), core`. `MapViewModel`, `MapUiState`, `SearchViewModel` and `SearchUiState` import **no** Android framework and **no** MapLibre types, which is why they can be unit-tested on the JVM. `core.geocoding.SearchResult` and `core.routing.RouteResult` are used directly as `MapEngine.setDestination`/`setRoute`'s parameter types, exactly mirroring how `core.location.UserLocation` is already used for `setUserLocation` — `map` depending on `core.*` pure-Kotlin models is an established pattern, not a new exception.
+Dependency direction: `feature -> map (interface + models), camera (interface + models), core`. `MapViewModel`, `MapUiState`, `SearchViewModel`, `SearchUiState`, `LiveViewModel` and `LiveUiState` import **no** Android framework and **no** MapLibre or CameraX types, which is why they can be unit-tested on the JVM. `core.geocoding.SearchResult` and `core.routing.RouteResult` are used directly as `MapEngine.setDestination`/`setRoute`'s parameter types, exactly mirroring how `core.location.UserLocation` is already used for `setUserLocation` — `map` depending on `core.*` pure-Kotlin models is an established pattern, not a new exception.
 
 ## MapLibre integration
 
@@ -77,7 +92,71 @@ Dependency direction: `feature -> map (interface + models), core`. `MapViewModel
 - **Route in** (Phase 3): `setRoute(RouteResult?)` — shows/hides/replaces the route line.
 - **Insets in**: `setBottomInset(px)` keeps the required map attribution above the bottom panel.
 
-Planned extension points, deliberately not declared yet: AR/map synchronisation (expose camera and projection), active-navigation camera tracking (Phase 4+).
+Planned extension points, deliberately not declared yet: AR/map synchronisation (expose camera and projection) — now the live Phase 6 requirement. Active-navigation camera tracking shipped in Phase 4.
+
+## Live camera mode (Phase 5)
+
+### CameraX architecture
+
+`camera.RearCameraEngine` is the seam, and is deliberately the same shape as `map.MapEngine`: the app depends on the interface and on engine-neutral types, and only `CameraXRearEngine` imports CameraX.
+
+- **In**: `createView(Context)` (once), `bind(LifecycleOwner)`, `release()`.
+- **Out**: `events: Flow<CameraEngineEvent>` carrying a `RearCameraState` — `Idle | Starting | Ready | Unavailable(CameraFailure)`.
+- **`CameraFailure`**: `NoRearCamera | BindingFailed | InUse | Unknown`. Every CameraX throw is classified into one of these; **no exception ever reaches the UI**, and no CameraX type appears above this package.
+
+**Preview only.** There is deliberately no `ImageAnalysis` use case: Phase 6 adds AR localisation, and attaching an analyzer now would push every preview frame through a pipeline with nothing consuming it.
+
+Two binding decisions worth knowing:
+
+- **Binding is lifecycle-owner driven**, not started/stopped by hand. CameraX closes the camera when the owner stops and reopens it on start, so backgrounding cannot leave the camera held. Verified on-device: home/foreground cycles keep the same PID and a live preview.
+- **`release()` is explicit and idempotent**, called from `RearCameraHost`'s `DisposableEffect`. That is what makes repeated Map -> Live -> Map cycles safe — each departure unbinds, and the next `bind` rebinds cleanly. Confirmed with `dumpsys media.camera`: no client holds the camera once Live is closed.
+
+`PreviewView` uses `FILL_CENTER` (fills and crops, keeping the road ahead visible under a full-bleed HUD; `FIT_CENTER` would letterbox and shrink it) and `ImplementationMode.COMPATIBLE` (TextureView) so the preview composites cleanly with Compose overlays. CameraX rotates the feed to the display rotation, so portrait needs no manual matrix work.
+
+### Live screen ownership
+
+**Live does not own navigation.** There is one `MapViewModel` and one `MapUiState.navigationState`; `AppShell` derives the HUD from it and passes it down:
+
+```
+MapUiState.navigationState + selectedDestination.name
+        └─► LiveHud.state(...)  ──►  LiveHudState  ──►  LiveScreen renders it
+```
+
+`LiveViewModel` holds only **camera permission and camera health**. Nothing on the Live path starts, stops, copies or mutates a trip — which is precisely why Map <-> Live preserves navigation with no extra bookkeeping, and why switching modes never restarts routing. A second navigation session owned by Live would have been the easiest way to break that.
+
+`LiveHud.state` is a **pure function**, which is what makes Phase 5 testable without a camera: it is the entire guidance-logic surface, unit-tested against `NavigationState` alone, and the HUD composable depends on this one small derived value rather than the whole UI state (so a location tick does not recompose the camera preview).
+
+One correctness note carried forward from Phase 4 and fixed here: the primary HUD line pairs the **current** maneuver with `distanceToNextManeuverMeters`. That distance is measured to `currentManeuver.endShapeIndex`, and a Valhalla maneuver's instruction is the action performed at the end of its own segment, so pairing the *next* maneuver with it (as the Map banner did) mislabelled every turn. The following maneuver is the secondary "Then …" line. Both surfaces now agree.
+
+### Camera permission flow
+
+```
+Live opened ──► CameraPermissions.evaluate() ──► LiveViewModel.onCameraPermissionChanged()
+                                                              │
+                    NotRequested/Denied ──► RequestCameraPermission ──► OS dialog ──┐
+                    PermanentlyDenied ────► OpenAppSettings                            │
+                    Granted ─────────────► CameraXRearEngine.bind()  ◄────────────────┘
+```
+
+Modelled exactly like `LocationPermissionState` (`Unknown | NotRequested | Granted | Denied | PermanentlyDenied`), including the same workaround: the OS cannot distinguish "never asked" from "don't ask again", so a persisted `camera_permission_requested` flag combines with `shouldShowRequestPermissionRationale`. Camera uses its own prefs key and its own launcher, and is **only requested when Live is actually opened** — never on launch.
+
+Re-evaluated on `ON_RESUME`, so a user who changed it in Settings is picked up.
+
+**The camera gate is checked before the navigation HUD, not inside it.** An earlier revision only showed the permission panel when `hudState == Idle`, which meant an *active* trip rendered turn-by-turn text over a black screen with no way to grant the camera. Guidance is only actionable when the road is visible, so `!isCameraUsable` now short-circuits the whole HUD and shows the permission/failure panel with a retry and a way back to the map.
+
+### Touch handling
+
+Live is layered over an always-composed Map, and the MapLibre view underneath is a **native view**, which receives touches regardless of Compose z-order. A screen-sized `pointerInput` sink on the Live *container* therefore blocked Live's own buttons as well (they never became clickable). The sink now lives on a transparent layer placed **above the preview but below every control**, so HUD buttons win the hit test while stray gestures cannot reach the map.
+
+### HUD structure
+
+- **Top bar** — wordmark, a "Navigating" status pill when a trip is active, an X that returns to the map, and the Map/Live toggle. A direct close control sits next to the toggle so returning is always one tap.
+- **Maneuver row** — arrow (rotated by `ManeuverType`), "in 382 ft", the current instruction, and the following maneuver as a secondary line.
+- **Bottom summary** — destination name plus remaining distance and time, straight from `RouteProgress` (never recomputed).
+- **Transient states** — "Rerouting…" and "Off route" replace the maneuver row; the bottom summary is suppressed while off route, because those figures are stale.
+- **Arrival** — its own card with a single "Back to map" action. Arrival is a resting state, not an error: the camera stays stable and the app does not close.
+
+Readability over a live feed is the constraint that shapes it all: text sits on a **directional scrim** (strongest behind the text, fading out) rather than blurred glass. No panel uses backdrop blur — it reads as generic glassmorphism and costs real GPU time every frame.
 
 ### Destination marker
 
@@ -97,7 +176,7 @@ Camera fit: on a successful route, `MapViewModel` sends one `MapCommand.FitBound
 - `MapLibreHost` registers a `LifecycleEventObserver`. Lifecycle replay brings the view up to the current state; `MapLibreMapEngine` maps events to `MapView.onCreate/onStart/onResume/onPause/onStop/onDestroy` with a small stage guard so calls are never duplicated or out of order, and `release()` walks the view down if the composable leaves while the activity lives.
 - `onLowMemory` is forwarded through `ComponentCallbacks2`.
 - **Search, Settings and Live are layered over an always-composed Map** rather than being navigation destinations. A navigation library would dispose the map composition on every screen change and force a style reload. Adopt one when the screen count justifies it and the map can be hoisted.
-- While Live (an opaque placeholder) is showing, the map keeps running underneath. Pausing it is a later-phase concern when Live becomes real.
+- While Live is showing, the map keeps running underneath (it is an overlay, not a destination). The camera is released on the way out; the map is intentionally left running so returning is instant. Pausing the map while Live is foregrounded is a possible battery optimisation, not yet done.
 
 ## Map style configuration
 
@@ -246,6 +325,23 @@ The live bearing during a rotate gesture is exposed as a separate `compassBearin
 - Camera-move events are throttled to bearing changes of at least 0.5 degrees.
 - The engine uses MapLibre's default `SurfaceView`. If overlay z-ordering or animation artefacts appear over the map on a device, try `textureMode(true)` (slower but composites like a normal view).
 
+## Phase 6 prerequisites
+
+Phase 6 adds AR localisation to the Live screen. Everything it needs already exists, and nothing in Phase 5 needs to be rewritten to accommodate it:
+
+| Requirement | Already available |
+| --- | --- |
+| Camera feed | `RearCameraEngine` / `CameraXRearEngine`; an `ImageAnalysis` use case attaches to the same `ProcessCameraProvider` bind |
+| Current location | `MapUiState.currentLocation` (single location source, unchanged) |
+| Device heading | `UserLocation.bearingDegrees`, already consumed by `NavigationCamera` |
+| Route geometry | `RouteResult.geometry` / `RouteManeuvers` (Phase 4) |
+| Current maneuver + progress | `LiveHudState.Maneuver` and `RouteProgress` |
+| Navigation-active state | `MapUiState.navigationState` / `isNavigating` |
+| Lifecycle hooks | `RearCameraHost` already binds to the composition lifecycle and releases on dispose |
+| Overlay seam | The HUD is a pure state -> UI mapping, so an AR overlay layer composes beside it without touching the mapping |
+
+**Not yet provided (Phase 6 work):** a camera-frame -> screen-coordinate projection seam (`latLngToScreen`-style), which Phase 5 deliberately did not declare — with no consumer it would be speculative API. ARCore, geospatial anchors and road-anchored arrows are all out of scope here.
+
 ## Error handling
 
 - **Map unavailable**: a style load failure (`OnDidFailLoadingMap` before the style first loads) sets `error`, which shows "Map unavailable" with Retry. Search and Settings stay reachable. Retry reloads the style.
@@ -253,6 +349,7 @@ The live bearing during a rotate gesture is exposed as a separate `compassBearin
 - **Location**: see the table above. Nothing throws; every state has UI.
 - **Geocoding**: `SearchViewModel` never lets a `GeocodingException` reach the UI as raw text; it maps each to a `SearchError` with its own short, user-facing string (`search_error_no_network`, `_timeout`, `_rate_limited`, `_server`, `_malformed`). A blank or too-short query (`< SearchViewModel.MIN_QUERY_LENGTH`) never fires a request and is not treated as an error — it just shows nothing (or the recent list, if blank). A successful empty result list shows "No results found," not an error.
 - **Routing**: `MapViewModel` maps every `RoutingException` to a `RouteError` the same way (`route_error_no_network`, `_timeout`, `_server`, `_malformed`, `_no_route`), shown as a short line in the bottom panel in place of distance/ETA. Missing origin is not an error either — `RouteState.WaitingForLocation` gets its own quiet copy ("Waiting for your location…") and resolves itself the moment a fix arrives. Missing destination never reaches `requestRoute` at all (it returns immediately if `selectedDestination` is null).
+- **Camera (Phase 5)**: every CameraX failure is classified into a `CameraFailure` and rendered as a short explanation over an opaque backdrop — never a crash and never a bare black screen. `NoRearCamera`, `BindingFailed` and `InUse` each get their own copy, with retry and a way back to the map. Camera permission states get their own panel. The user can always return to Map: the X control is in the top bar regardless of camera state.
 
 ## Migrating to PMTiles / self-hosted tiles
 

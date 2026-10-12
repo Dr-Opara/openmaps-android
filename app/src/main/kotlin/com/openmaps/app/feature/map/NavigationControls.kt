@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -61,7 +61,7 @@ import kotlin.math.roundToInt
 @Composable
 private fun ManeuverGlyph(type: ManeuverType, tint: Color, modifier: Modifier = Modifier) {
     Icon(
-        Icons.Filled.ArrowForward,
+        Icons.AutoMirrored.Filled.ArrowForward,
         contentDescription = null, // decorative; the instruction text beside it carries the meaning
         tint = tint,
         modifier = modifier.graphicsLayer { rotationZ = type.arrowRotationDegrees },
@@ -134,7 +134,12 @@ fun NavigationBanner(
     modifier: Modifier = Modifier,
 ) {
     val progress = navigationState.progressOrNull() ?: return
-    val nextManeuver = progress.nextManeuver ?: progress.currentManeuver
+    // Primary row pairs the CURRENT maneuver with the distance travelled to reach it.
+    // `distanceToNextManeuverMeters` is measured to `currentManeuver.endShapeIndex`, and a
+    // Valhalla maneuver's instruction is the action taken at the END of its own segment — so
+    // showing `nextManeuver` here (as this did previously) put the *following* turn's instruction
+    // next to the *current* turn's distance.
+    val currentManeuver = progress.currentManeuver
     // Filled, saturated backgrounds: this sits on top of a map, so it must read at a glance.
     // Warning is a light amber, so it takes navy type rather than white — white on #FFB84D is
     // ~1.9:1 and effectively unreadable on a phone in daylight.
@@ -155,7 +160,7 @@ fun NavigationBanner(
             is NavigationState.Arrived -> ArrivedRow(foreground)
             is NavigationState.OffRoute -> OffRouteRow(foreground)
             else -> ManeuverRow(
-                maneuver = nextManeuver,
+                maneuver = currentManeuver,
                 distanceToManeuverMeters = progress.distanceToNextManeuverMeters,
                 progress = progress,
                 followSuspended = followSuspended,

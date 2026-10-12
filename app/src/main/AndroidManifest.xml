@@ -5,10 +5,21 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Phase 5: rear-camera preview for Live. Requested at runtime, only when Live is opened. -->
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <!-- GPS is preferred but not required: the map is fully usable without a fix. -->
     <uses-feature
         android:name="android.hardware.location.gps"
+        android:required="false" />
+
+    <!--
+      Camera is likewise optional: without it the map, search, routing and turn-by-turn all still
+      work, and Live degrades to an explanation. Marking it required would hide OpenMaps from
+      devices with no camera at all (including some tablets), which is not what we want yet.
+    -->
+    <uses-feature
+        android:name="android.hardware.camera.any"
         android:required="false" />
 
     <application

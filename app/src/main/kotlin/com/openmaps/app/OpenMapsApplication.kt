@@ -5,6 +5,7 @@ import com.openmaps.app.core.geocoding.GeocodingRepository
 import com.openmaps.app.core.geocoding.NominatimGeocodingRepository
 import com.openmaps.app.core.geocoding.RecentSearchStore
 import com.openmaps.app.core.geocoding.SharedPreferencesRecentSearchStore
+import com.openmaps.app.core.camera.CameraPermissionPrefs
 import com.openmaps.app.core.location.AndroidLocationRepository
 import com.openmaps.app.core.location.LocationPermissionPrefs
 import com.openmaps.app.core.location.LocationRepository
@@ -17,6 +18,7 @@ import com.openmaps.app.map.MapStyleProvider
 class AppContainer(application: Application) {
     val locationRepository: LocationRepository = AndroidLocationRepository(application)
     val locationPermissionPrefs: LocationPermissionPrefs = LocationPermissionPrefs(application)
+    val cameraPermissionPrefs: CameraPermissionPrefs = CameraPermissionPrefs(application)
     val mapStyleProvider: MapStyleProvider = BuildConfigMapStyleProvider()
     val geocodingRepository: GeocodingRepository = NominatimGeocodingRepository(
         userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
