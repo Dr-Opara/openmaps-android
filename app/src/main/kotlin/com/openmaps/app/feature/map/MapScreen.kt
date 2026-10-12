@@ -59,6 +59,9 @@ fun MapScreen(
     val routeFlow = remember(viewModel) {
         viewModel.uiState.map { (it.routeState as? RouteState.Ready)?.route }.distinctUntilChanged()
     }
+    val placesFlow = remember(viewModel) {
+        viewModel.uiState.map { it.visiblePlaces }.distinctUntilChanged()
+    }
     // Its own StateFlow rather than derived from `commands`: that flow is a Channel, so a second
     // collector would compete for messages with the one MapLibreHost already uses and silently
     // swallow camera/style commands.
@@ -77,6 +80,7 @@ fun MapScreen(
             onEvent = viewModel::onMapEvent,
             modifier = Modifier.fillMaxSize(),
             routeProgress = routeProgressFlow,
+            places = placesFlow,
         )
 
         // Failure state sits above the map but below the controls, so search and settings
@@ -102,9 +106,14 @@ fun MapScreen(
                 MapModeToggle(selected = state.selectedMapMode, onSelected = viewModel::onModeSelected)
             }
             // Navigation replaces the search affordance for the duration of a trip: the banner is
-            // the driver's primary instruction, and search is a trip-ending action anyway.
+            // the driver's primary instruction, and search is a trip-ending action anyway. The
+            // category toggles go with it — Live/active-trip chrome should not grow, not shrink.
             if (!state.isNavigating) {
                 MapSearchBar(onSearchClick = onSearchClick, onSettingsClick = onSettingsClick)
+                PlaceCategoryFilterRow(
+                    selected = state.placeCategoryFilters,
+                    onSelectedChanged = viewModel::onCategoryFilterChanged,
+                )
             } else {
                 NavigationBanner(
                     navigationState = state.navigationState,
@@ -138,19 +147,30 @@ fun MapScreen(
                     modifier = Modifier.align(Alignment.Start),
                 )
             }
-            BottomPanel(
-                destination = state.selectedDestination,
-                routeState = state.routeState,
-                onClearDestination = viewModel::onDestinationCleared,
-            )
-            NavigationControls(
-                canStart = state.canStartNavigation,
-                isNavigating = state.isNavigating,
-                navigationError = (state.navigationState as? NavigationState.Error)?.reason,
-                onStart = viewModel::startNavigation,
-                onStop = viewModel::stopNavigation,
-                modifier = Modifier.align(Alignment.End),
-            )
+            val selectedPlace = state.selectedPlace
+            if (selectedPlace != null) {
+                // Place details take over the panel region rather than stacking beside it — a
+                // compact presentation, not a second destination summary competing for attention.
+                PlaceDetailsSheet(
+                    place = selectedPlace,
+                    onNavigate = { viewModel.onNavigateToPlace(selectedPlace) },
+                    onDismiss = viewModel::onPlaceDetailsDismissed,
+                )
+            } else {
+                BottomPanel(
+                    destination = state.selectedDestination,
+                    routeState = state.routeState,
+                    onClearDestination = viewModel::onDestinationCleared,
+                )
+                NavigationControls(
+                    canStart = state.canStartNavigation,
+                    isNavigating = state.isNavigating,
+                    navigationError = (state.navigationState as? NavigationState.Error)?.reason,
+                    onStart = viewModel::startNavigation,
+                    onStop = viewModel::stopNavigation,
+                    modifier = Modifier.align(Alignment.End),
+                )
+            }
         }
     }
 }

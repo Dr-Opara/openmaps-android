@@ -6,11 +6,15 @@ import com.openmaps.app.camera.CameraFailure
 import com.openmaps.app.camera.RearCameraEngine
 import com.openmaps.app.camera.RearCameraState
 import com.openmaps.app.core.camera.CameraPermissionState
+import com.openmaps.app.core.places.Place
+import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.spatial.FakeSpatialLocalization
 import com.openmaps.app.core.spatial.LimitedReason
+import com.openmaps.app.core.spatial.LocalizationQuality
 import com.openmaps.app.core.spatial.SpatialAvailability
 import com.openmaps.app.core.spatial.SpatialFailure
 import com.openmaps.app.core.spatial.SpatialLocalizationState
+import com.openmaps.app.core.spatial.SpatialPose
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -407,6 +411,76 @@ class LiveViewModelTest {
         override fun cameraTransform(): com.openmaps.app.core.anchor.WorldTransform? = null
         override fun isAvailable(): Boolean = true
     }
+
+    // endregion
+
+    // region Contextual places (Phase 9)
+
+    @Test
+    fun updateLivePlaces_withoutATrackedPose_producesNoLabels() = runTest(dispatcher) {
+        viewModel.updateLivePlaces(
+            places = listOf(testPlace("p1")),
+            spatialState = SpatialLocalizationState.Limited(LimitedReason.PoorGeolocation),
+            viewportWidthPx = 1000,
+            viewportHeightPx = 2000,
+        )
+        assertTrue("no pose means no labels, never a guessed position", viewModel.livePlaceLabels.value.isEmpty())
+    }
+
+    @Test
+    fun updateLivePlaces_trackingWithoutAPoseYet_producesNoLabels() = runTest(dispatcher) {
+        // ARCore can report TRACKING before the first geospatial pose arrives.
+        viewModel.updateLivePlaces(
+            places = listOf(testPlace("p1")),
+            spatialState = SpatialLocalizationState.Tracking(pose = null),
+            viewportWidthPx = 1000,
+            viewportHeightPx = 2000,
+        )
+        assertTrue(viewModel.livePlaceLabels.value.isEmpty())
+    }
+
+    @Test
+    fun updateLivePlaces_withATrackedPose_projectsPlacesAhead() = runTest(dispatcher) {
+        viewModel.updateLivePlaces(
+            places = listOf(testPlace("ahead", latitude = 0.001, longitude = 0.0)),
+            spatialState = SpatialLocalizationState.Tracking(testPose()),
+            viewportWidthPx = 1000,
+            viewportHeightPx = 2000,
+        )
+        assertEquals(listOf("ahead"), viewModel.livePlaceLabels.value.map { it.place.id })
+    }
+
+    @Test
+    fun updateLivePlaces_capsAtTheLiveLimit() = runTest(dispatcher) {
+        // Live must stay visually restrained ("very low" density) even with many candidates.
+        val places = (1..10).map { i -> testPlace("p$i", latitude = 0.0001 * i, longitude = 0.0) }
+        viewModel.updateLivePlaces(
+            places = places,
+            spatialState = SpatialLocalizationState.Tracking(testPose()),
+            viewportWidthPx = 1000,
+            viewportHeightPx = 2000,
+        )
+        assertEquals(3, viewModel.livePlaceLabels.value.size)
+    }
+
+    private fun testPlace(id: String, latitude: Double = 0.001, longitude: Double = 0.0) = Place(
+        id = id,
+        name = id,
+        category = PlaceCategory.Coffee,
+        latitude = latitude,
+        longitude = longitude,
+    )
+
+    private fun testPose() = SpatialPose(
+        latitude = 0.0,
+        longitude = 0.0,
+        altitudeMeters = null,
+        headingDegrees = 0.0,
+        horizontalAccuracyMeters = 2.0,
+        verticalAccuracyMeters = null,
+        headingAccuracyDegrees = 2.0,
+        quality = LocalizationQuality.Good,
+    )
 
     // endregion
 

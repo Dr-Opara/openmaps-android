@@ -12,7 +12,15 @@ import com.openmaps.app.core.location.isGranted
 import com.openmaps.app.core.navigation.NavigationSession
 import com.openmaps.app.core.navigation.OffRouteDecision
 import com.openmaps.app.core.navigation.RouteProgress
+import com.openmaps.app.core.places.Place
+import com.openmaps.app.core.places.PlaceCategory
+import com.openmaps.app.core.places.PlaceCategoryMapper
+import com.openmaps.app.core.places.PlaceException
+import com.openmaps.app.core.places.PlaceRanking
+import com.openmaps.app.core.places.PlaceRepository
+import com.openmaps.app.core.places.RouteCorridor
 import com.openmaps.app.core.routing.Coordinate
+import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.routing.RoutingException
 import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.map.CameraState
@@ -47,6 +55,7 @@ import kotlin.math.max
 class MapViewModel(
     private val locationRepository: LocationRepository,
     private val routingRepository: RoutingRepository,
+    private val placesRepository: PlaceRepository,
     private val fixTimeoutMillis: Long = DEFAULT_FIX_TIMEOUT_MILLIS,
 ) : ViewModel() {
 
@@ -88,6 +97,15 @@ class MapViewModel(
 
     /** Invoked once the destination is reached, so derived AR content (anchors, arrows) can clear. */
     var onNavigationEnded: () -> Unit = {}
+
+    // region Contextual places (Phase 9)
+
+    private var placesJob: Job? = null
+
+    /** Where the last *nearby* (not along-route) fetch was centered, for the move-threshold check. */
+    private var lastPlacesFetchLocation: UserLocation? = null
+
+    // endregion
 
     // region Navigation session (Phase 4)
 
@@ -153,6 +171,7 @@ class MapViewModel(
                 _compassBearing.value = normalizeBearing(event.camera.bearing)
                 _uiState.update { if (it.cameraState == event.camera) it else it.copy(cameraState = event.camera) }
             }
+            is MapEvent.PlaceTapped -> onPlaceTapped(event.placeId)
         }
     }
 
@@ -288,10 +307,159 @@ class MapViewModel(
             ).onSuccess { route ->
                 _uiState.update { it.copy(routeState = RouteState.Ready(route)) }
                 route.bounds?.let { bounds -> commandChannel.trySend(MapCommand.FitBounds(bounds)) }
+                fetchPlacesAlongRoute(route)
             }.onFailure { cause ->
                 _uiState.update { it.copy(routeState = RouteState.Error(cause.toRouteError())) }
             }
         }
+    }
+
+    // endregion
+
+    // region Contextual places (Phase 9)
+
+    /**
+     * User-facing category toggles (see "User controls" in ARCHITECTURE.md). Deliberately
+     * client-side only: the repository is always queried for every supported category (see
+     * [fetchPlaces]), so toggling a filter is instant and never triggers a new network request.
+     */
+    fun onCategoryFilterChanged(categories: Set<PlaceCategory>) {
+        _uiState.update { it.copy(placeCategoryFilters = categories) }
+        recomputeVisiblePlaces()
+    }
+
+    /** A place marker (Map) or label (Live) was selected for the compact details sheet. */
+    fun onPlaceSelected(place: Place?) {
+        _uiState.update { it.copy(selectedPlace = place) }
+    }
+
+    fun onPlaceDetailsDismissed() {
+        _uiState.update { it.copy(selectedPlace = null) }
+    }
+
+    private fun onPlaceTapped(placeId: String) {
+        val place = _uiState.value.visiblePlaces.firstOrNull { it.id == placeId } ?: return
+        onPlaceSelected(place)
+    }
+
+    /**
+     * A place becomes the destination exactly like a search result does (see "Navigation
+     * integration" in ARCHITECTURE.md) — reusing [onDestinationSelected] rather than a second
+     * routing path.
+     */
+    fun onNavigateToPlace(place: Place) {
+        onPlaceSelected(null)
+        onDestinationSelected(place.toSearchResult())
+    }
+
+    /**
+     * Not navigating: nearby places around the user, refetched only once the user has moved far
+     * enough (see [NEARBY_REFETCH_DISTANCE_METERS]) — never on every fix. A no-op while navigating:
+     * that case is driven by the route instead (see [fetchPlacesAlongRoute]).
+     */
+    private fun maybeFetchNearbyPlaces(location: UserLocation) {
+        if (_uiState.value.isNavigating) return
+        val last = lastPlacesFetchLocation
+        val movedEnough = last == null || RouteCorridor.metersBetween(
+            Coordinate(last.latitude, last.longitude),
+            Coordinate(location.latitude, location.longitude),
+        ) >= NEARBY_REFETCH_DISTANCE_METERS
+        if (!movedEnough) return
+        lastPlacesFetchLocation = location
+        fetchPlaces {
+            placesRepository.nearbyPlaces(
+                center = Coordinate(location.latitude, location.longitude),
+                radiusMeters = NEARBY_RADIUS_METERS,
+                categories = PlaceCategoryMapper.supportedCategories,
+            )
+        }
+    }
+
+    /**
+     * Fetched once per route (initial or reroute) rather than refreshed as the trip progresses —
+     * Phase 9 deliberately has no sophisticated detour routing, and the corridor query already
+     * covers the whole route's bounding box (capped — see `OverpassPlaceRepository`).
+     */
+    private fun fetchPlacesAlongRoute(route: RouteResult) {
+        fetchPlaces {
+            placesRepository.placesAlongRoute(
+                routeGeometry = route.geometry,
+                corridorMeters = ROUTE_CORRIDOR_METERS,
+                categories = PlaceCategoryMapper.supportedCategories,
+            )
+        }
+    }
+
+    /**
+     * Shared fetch plumbing: cancels any in-flight request first (only the latest call's result
+     * can land), and a failure never clears a result that is already showing — places are additive
+     * context, never a core dependency (see "Network/failure handling" in ARCHITECTURE.md).
+     */
+    private fun fetchPlaces(request: suspend () -> Result<List<Place>>) {
+        placesJob?.cancel()
+        if (_uiState.value.placesState !is PlacesState.Ready) {
+            _uiState.update { it.copy(placesState = PlacesState.Loading) }
+        }
+        placesJob = viewModelScope.launch {
+            request()
+                .onSuccess { places ->
+                    _uiState.update { it.copy(placesState = PlacesState.Ready(places)) }
+                    recomputeVisiblePlaces()
+                }
+                .onFailure { cause ->
+                    _uiState.update {
+                        if (it.placesState is PlacesState.Ready) it else it.copy(placesState = PlacesState.Error(cause.toPlacesError()))
+                    }
+                }
+        }
+    }
+
+    /**
+     * Filters by category, ranks (ahead-of-the-driver classification only while navigating — see
+     * [PlaceRanking]) and caps the result. Explicit rather than a derived `MapUiState` getter: this
+     * walks the route geometry via [RouteCorridor.isAhead], so it must run only when an input
+     * actually changed, never on every recomposition.
+     */
+    private fun recomputeVisiblePlaces() {
+        val state = _uiState.value
+        val ready = (state.placesState as? PlacesState.Ready)?.places
+        if (ready == null) {
+            _uiState.update { it.copy(visiblePlaces = emptyList()) }
+            return
+        }
+        val filtered = ready.filter { it.category in state.placeCategoryFilters }
+        val isNav = state.isNavigating
+        val geometry = (state.routeState as? RouteState.Ready)?.route?.geometry
+        val progress = state.navigationProgress
+        val aheadIds = if (isNav && geometry != null && progress != null) {
+            filtered.filter { RouteCorridor.isAhead(it, geometry, progress.snappedShapeIndex) }
+                .map { it.id }
+                .toSet()
+        } else {
+            emptySet()
+        }
+        val ranked = PlaceRanking.rank(filtered, PlaceRanking.Context(isNavigating = isNav, aheadPlaceIds = aheadIds))
+        val cap = if (isNav) MAX_VISIBLE_PLACES_NAVIGATING else MAX_VISIBLE_PLACES_BROWSING
+        _uiState.update { it.copy(visiblePlaces = ranked.take(cap)) }
+    }
+
+    private fun Place.toSearchResult(): SearchResult = SearchResult(
+        id = id,
+        name = name,
+        displayName = address ?: name,
+        latitude = latitude,
+        longitude = longitude,
+        category = category.name,
+        address = address,
+    )
+
+    private fun Throwable.toPlacesError(): PlacesError = when (this) {
+        is PlaceException.NoNetwork -> PlacesError.NoNetwork
+        is PlaceException.Timeout -> PlacesError.Timeout
+        is PlaceException.Server -> PlacesError.ServerError
+        is PlaceException.RateLimited -> PlacesError.RateLimited
+        is PlaceException.Malformed -> PlacesError.Malformed
+        else -> PlacesError.Malformed
     }
 
     // endregion
@@ -338,6 +506,9 @@ class MapViewModel(
             followCameraWith(seeded)
             publishRouteProgress(seeded)
         }
+        // Ranking/caps differ once navigating (ahead-of-driver, utility categories) — see
+        // `recomputeVisiblePlaces`.
+        recomputeVisiblePlaces()
     }
 
     /** Ends the trip and returns the map to plain route browsing. Never touches the route itself. */
@@ -349,6 +520,7 @@ class MapViewModel(
             it.copy(navigationState = NavigationState.Idle, navigationFollowSuspended = false)
         }
         _routeProgressView.value = null
+        recomputeVisiblePlaces()
     }
 
     /**
@@ -424,6 +596,8 @@ class MapViewModel(
                         publishRouteProgress(it)
                         followCameraWith(it)
                     }
+                    // The old route's corridor places are stale now; fetch against the new one.
+                    fetchPlacesAlongRoute(route)
                 }
                 .onFailure {
                     rerouteInFlight = false
@@ -536,6 +710,8 @@ class MapViewModel(
                 if (_uiState.value.routeState == RouteState.WaitingForLocation) requestRoute()
                 // Navigation advances from every fix, but only once a trip is actually underway.
                 if (_uiState.value.isNavigating) onNavigationTick(update.location)
+                // Nearby places are location-driven only while not navigating (see Phase 9 region).
+                maybeFetchNearbyPlaces(update.location)
             }
             LocationUpdate.ServicesDisabled -> {
                 timeoutJob?.cancel()
@@ -585,6 +761,23 @@ class MapViewModel(
         const val INITIAL_USER_ZOOM = 15.0
         const val RECENTER_MIN_ZOOM = 14.0
         const val DESTINATION_ZOOM = 15.0
+
+        // Phase 9: contextual places.
+
+        /** Nearby-fetch radius while browsing (not navigating). */
+        const val NEARBY_RADIUS_METERS = 1_500.0
+
+        /** Minimum movement before a nearby refetch — avoids refetching the same area continuously. */
+        const val NEARBY_REFETCH_DISTANCE_METERS = 400.0
+
+        /** How far off the active route a place can sit and still be surfaced. */
+        const val ROUTE_CORRIDOR_METERS = 250.0
+
+        /** Map-mode density cap while just browsing ("Map: moderate" — see ARCHITECTURE.md). */
+        const val MAX_VISIBLE_PLACES_BROWSING = 40
+
+        /** Map-mode density cap while navigating: fewer, more relevant places. */
+        const val MAX_VISIBLE_PLACES_NAVIGATING = 20
 
         /**
          * Camera step while following. Short and non-animated: the target updates on every GPS

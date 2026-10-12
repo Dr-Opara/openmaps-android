@@ -691,6 +691,290 @@ diagnostic**, and should specifically check: that `usingAnchors` is true while d
 `RouteAnchorManager.size` stays near 12 and `createdCount` grows slowly, that arrows do not slide when
 the phone turns, and that they do not float or sink on a gradient (expected — see the altitude note).
 
+## Contextual places (Phase 9)
+
+Restaurants, coffee, hotels, grocery, pharmacies, parking, gas and EV charging — surfaced near the
+user (Map, not navigating) or near the active route (either mode, once a route exists), in both Map
+and Live, with Live kept deliberately quieter than Map.
+
+### Architecture
+
+`core/places` is a new, self-contained layer, the same shape as `core/geocoding` and
+`core/routing`: provider-neutral interfaces and models that the feature layer depends on, with the
+provider-specific implementation swappable behind them.
+
+```
+core/places
+├── PlaceModels              Place, PlaceCategory, PlaceMetadata, PlaceException   (pure Kotlin)
+├── PlaceRepository          interface: nearbyPlaces(...), placesAlongRoute(...)    (pure Kotlin)
+├── PlaceCategoryMapper      OSM tag <-> PlaceCategory, Overpass QL selectors       (pure Kotlin)
+├── OverpassResponseParser   pure response-parsing logic, unit-tested without network
+├── OverpassPlaceRepository  HTTP + JSON implementation (java.net + org.json)
+├── PlaceCache               TTL cache keyed on a bucketed center + radius + categories (pure Kotlin)
+├── RouteCorridor            nearest-segment distance, ahead/behind, corridor filter (pure Kotlin)
+├── PlaceRanking             deterministic scoring (no ML)                          (pure Kotlin)
+└── LivePlaceProjector       Live's geographic -> screen seam, reusing GeoProjector  (pure Kotlin)
+```
+
+`Place` (`id`, `name`, `category`, `latitude`, `longitude`, `address?`, `distanceMeters?`,
+`routeDetourMeters?`, `openNow?`, `metadata`) is the only places-provider shape anything outside
+`core/places` ever sees, exactly mirroring how `RouteResult`/`SearchResult` are the only shapes
+their providers expose. `PlaceMetadata` holds the category-specific fields (`parkingType`,
+`isPublicAccess`, `feeApplies`, `brand`, `connectors`) as nullable/empty-default fields on one flat
+type rather than a per-category subtype hierarchy — most fields are absent most of the time, and a
+`Place` is one shape regardless of category.
+
+### Place data provider
+
+`OverpassPlaceRepository` queries the public Overpass API (`overpass-api.de/api/interpreter`)
+directly against OpenStreetMap data — free, open, no API key, the same OSM lineage already used for
+the basemap (OpenFreeMap), geocoding (Nominatim) and routing (Valhalla). It POSTs an Overpass QL
+query built from `PlaceCategoryMapper.overpassSelectors(categories)`, an `around:radius,lat,lon`
+filter, and `out body center $MAX_ELEMENTS` — the request-side bound on how many POIs can come back,
+so Places can never fetch an unbounded set. Both `node` and `way` elements are queried (a parking
+lot or hotel is often mapped as a way, not a point; `out center` returns its centroid).
+
+**Overture Maps was considered and rejected for this phase.** Overture distributes places as
+cloud-hosted Parquet (S3/Azure blob storage) rather than a queryable nearby-search HTTP API, so
+using it from an Android client at request time would mean standing up and operating a server-side
+tile/query index first — real infrastructure, not a Phase 9 decision. Overpass already is a
+request/response nearby-search API over the same open dataset the rest of the app depends on.
+
+**Development-only constraints**, same category as the tile source, Nominatim and Valhalla: the
+public instance has no SLA and a documented soft rate limit, and a descriptive `User-Agent` is sent
+on every request per its usage expectations. **Do not ship to the public on it.** Before production,
+move to a self-hosted Overpass instance or a contracted places provider — only `PlaceRepository`'s
+implementation needs to change.
+
+HTTP: `java.net.HttpURLConnection`, 10s connect/read timeout, POST with a form-encoded `data=`
+body (Overpass QL queries can get long; GET with a query string risks URL-length limits a POST body
+does not have). Failures are classified the same way as geocoding/routing: `NoNetwork`, `Timeout`,
+`Server(code)`, `RateLimited` (429 and 504, Overpass's own "too busy" code), `Malformed`. A response
+that is not valid JSON throws inside `OverpassResponseParser` and is mapped to `Malformed`; a
+response with no matching elements is `Result.success(emptyList())`, never a failure.
+
+**Partial / per-element failures never fail the whole parse.** `OverpassResponseParser` skips (not
+throws for) any element with no tags, no resolvable coordinates, or a category
+`PlaceCategoryMapper` does not recognize — one malformed or unsupported element cannot take the
+whole response down. This is the actual shape "partial category failure" takes with Overpass: every
+requested category comes back in one combined query/response, so a per-category HTTP failure isn't
+possible, but a per-element data problem within that response is, and is handled at the parser.
+
+### Category mapping
+
+`PlaceCategoryMapper` holds the only OSM tag names outside the parser: a small table of
+(`key`, `value`, `PlaceCategory`) rows, because OSM models one real-world category under more than
+one tag value (`amenity=restaurant` and `amenity=fast_food` are both "restaurant"). `categoryFor`
+returns null for anything unmapped — an **unsupported category**, which callers skip rather than
+guess at. `overpassSelectors(categories)` builds the query-side tag filters for a requested
+category set, deduplicated and in a stable (and therefore cache-friendly) order.
+
+| `PlaceCategory` | OSM tags |
+| --- | --- |
+| `Restaurant` | `amenity=restaurant`, `amenity=fast_food` |
+| `Coffee` | `amenity=cafe` |
+| `Hotel` | `tourism=hotel`, `tourism=motel`, `tourism=guest_house` |
+| `Grocery` | `shop=supermarket`, `shop=convenience`, `shop=grocery` |
+| `Pharmacy` | `amenity=pharmacy` |
+| `Parking` | `amenity=parking` |
+| `Gas` | `amenity=fuel` |
+| `EvCharging` | `amenity=charging_station` |
+
+### Caching
+
+`PlaceCache` is an in-memory TTL cache (default 5 minutes), keyed on center bucketed to ~550 m,
+radius bucketed to 250 m, and the exact category set — so two queries a few tens of metres apart (a
+user drifting slightly, two camera-idle/location ticks in a row) hit the same entry instead of each
+firing a fresh request. No database, no persistence across process death: the same "Phase-sized
+concern kept Phase-sized" reasoning that keeps `RecentSearchStore` a flat `SharedPreferences` list.
+A failed refresh never evicts a good cached/`Ready` result — see "Network/failure handling" below.
+
+### Nearby / route-aware filtering
+
+`MapViewModel` always requests **every** `PlaceCategoryMapper.supportedCategories` from the
+repository; `MapUiState.placeCategoryFilters` (defaulting to all categories) is a pure client-side
+display filter applied in `recomputeVisiblePlaces`. This means toggling a category chip is instant
+and **never** triggers a new network request — only a different query (center/radius/route) does.
+
+Two fetch triggers, deliberately not more:
+
+- **Not navigating**: `maybeFetchNearbyPlaces` fetches around the user's location, refetching only
+  once they have moved more than `NEARBY_REFETCH_DISTANCE_METERS` (400 m) from the last fetch
+  center — never on every fix, which is how "avoid refetching the same area continuously" is
+  actually enforced.
+- **A route exists** (selected or replaced by a reroute): `fetchPlacesAlongRoute` fetches once
+  against `RouteCorridor.boundingQuery(route.geometry, corridorMeters, maxRadiusMeters)` — a center
+  and radius covering the whole route's bounding box plus a corridor margin, capped at 8 km so a
+  very long route can't trigger an unbounded-radius query — then filters the result to
+  `ROUTE_CORRIDOR_METERS` (250 m) of the actual polyline via `RouteCorridor.filterToCorridor`, which
+  also stamps `Place.routeDetourMeters`. This is a **corridor approximation**, not per-segment
+  detour routing: one query per route, not a scrolling window re-queried as the trip progresses.
+
+`RouteCorridor` uses the same local flat-earth (equirectangular) nearest-point-on-segment math as
+`RouteProgressTracker`, so a place's distance to the route never disagrees with how the tracker
+itself measures progress along it. `RouteCorridor.isAhead(place, geometry, snappedShapeIndex)`
+classifies a place as ahead of or behind the driver by comparing its nearest-segment index to the
+driver's own snapped index — reused by ranking below, not by the fetch (fetching does not filter on
+direction; ranking does).
+
+### Ranking
+
+`PlaceRanking.rank(places, context)` is deterministic and explainable — no ML, by design. Score per
+place: a category weight, minus a distance penalty (using `routeDetourMeters` when known, else
+`distanceMeters`), minus a fixed penalty when navigating and the place is not in `aheadPlaceIds`.
+Utility categories (parking/gas/EV) get a higher category weight than general categories **only**
+while navigating; browsing weighs every category equally. `MapViewModel.recomputeVisiblePlaces`
+computes `aheadPlaceIds` via `RouteCorridor.isAhead` only when navigating (there is no meaningful
+"ahead" without a snapped position), ranks, then caps: `MAX_VISIBLE_PLACES_BROWSING` (40) or
+`MAX_VISIBLE_PLACES_NAVIGATING` (20, deliberately lower — fewer, more relevant places mid-trip).
+
+This is computed explicitly, not as a `MapUiState` derived property: ranking walks the route
+geometry, so it must run only when an input actually changed (a fetch resolved, the category filter
+changed, navigation started/stopped) — never on every recomposition or every GPS tick.
+
+### Map mode rendering
+
+`MapEngine.setPlaces(places: List<Place>)` is the extension point this codebase's docs already
+flagged ("POI overlays -> `setPlaces(list)`, symbol layers") before Phase 9 existed.
+`MapLibreMapEngine.setPlaces` renders a `GeoJsonSource` + `CircleLayer`, the same
+"whole-collection-replace" approach as the destination marker and route line — never more than one
+places layer, and an empty list clears it. Each feature carries `id` and `category` properties; the
+circle's color comes from a **data-driven `Expression.match` on `category`**, one color per
+`PlaceCategory`, smaller and less saturated than the destination marker so the destination still
+reads as "the" pin.
+
+**Deliberately a `CircleLayer`, not a `SymbolLayer` with per-category icons** — see
+[Destination marker](#destination-marker)'s documented limitation: a programmatically added custom
+icon consistently rendered nothing on this project's test emulator. Eight category icons would hit
+the identical issue for the identical reason, so markers are color-coded circles instead, same as
+the existing marker.
+
+The places layer is added **below `ROUTE_TRAVELED_LAYER_ID`** (which `syncRoute` always creates,
+even with no route loaded yet), so the destination marker and route line always render on top of
+contextual places — navigation content stays visually dominant, per the Phase 9 density rule
+below. Tap-to-select uses `MapLibreMap.queryRenderedFeatures` against just the places layer inside
+`addOnMapClickListener`, so a tap on the map, the destination, or the route is never misread as a
+place tap; a hit emits `MapEvent.PlaceTapped(placeId)`, mirroring how every other engine signal
+already reaches `MapViewModel` through `MapEvent`.
+
+**Density limiting, not pixel clustering**: Map already ranks and caps the list before it ever
+reaches the engine (see Ranking above), which is the "clustering or density limiting if needed"
+requirement in a form that is simple, deterministic and already unit-tested, rather than a second,
+heavier algorithm doing the same job of "don't show too many."
+
+### Live mode rendering
+
+Live stays visually restrained by design: `LiveViewModel.updateLivePlaces` only ever produces
+labels while `SpatialLocalizationEngine.state` is `Tracking` **with a non-null pose** — the CameraX
+fallback (no AR) and `Tracking(null)` (AR running, pose not yet arrived) both simply show no place
+labels, rather than guessing a position from GPS movement bearing or any other proxy. This is the
+same "do not fake precision" reasoning Phase 6 applied to localization quality and Phase 7 applied
+to the arrow/projection seam.
+
+`LivePlaceProjector.project(places, pose, viewport…, maxVisible)` reuses `GeoProjector` — the pure,
+GL-free geographic-to-screen seam Phase 6 built — rather than a parallel AR localization or
+anchoring system. This is a deliberate choice of the **simpler screen-space fallback** over a
+world-locked GL overlay: a place label is informational context (name, category, approximate
+distance), not a safety-critical path cue, so a 2D screen-space position is enough, and it keeps
+Live's contextual-places code entirely on the CPU side, unit-testable on the JVM with no GL and no
+ARCore dependency — exactly like `GeoProjector` itself. Results are capped at `MAX_LIVE_PLACE_LABELS`
+(3, "very low" density per the rule below), nearest first.
+
+`LiveScreen`'s `ArPreviewSurface` recomputes the label set whenever the candidate list, the spatial
+state, or the viewport size changes (not per frame) and renders them as small pill labels — name,
+category dot, approximate distance, no giant cards — positioned at each label's projected point and
+staggered vertically by rank so near-simultaneous labels do not stack exactly on top of each other
+(a presentation offset, not a precision claim; `GeoProjector`'s vertical placement is a constant
+horizon line, it has no pitch/elevation model). The maneuver HUD, maneuver arrow and trip summary
+are unaffected — this overlay draws beneath them in composition order and never competes for the
+top/bottom scrim regions they occupy.
+
+### Parking
+
+`PlaceCategory.Parking` captures, **only when OSM actually states it**: `parkingType` (OSM's
+`parking` tag — surface/underground/multi-storey/street_side/...), `isPublicAccess` (from `access`),
+and `feeApplies` (from `fee`). **No availability or occupancy is ever shown or implied** — OSM has no
+such data, and Phase 9 does not invent it. A parking lot with no `parking`/`access`/`fee` tags at all
+still appears (named, if OSM has a name; "Parking" as a fallback label otherwise) with that metadata
+simply absent from the details sheet.
+
+### Gas
+
+Shows name, location, distance and `brand` (from OSM's `brand` or `operator` tag) when present.
+**No fuel price is ever shown** — Phase 9 has no pricing data source, and the plan explicitly
+forbids showing a price "unless backed by a real source."
+
+### EV charging
+
+Shows name, location, distance, and — only when OSM states them — `brand` (`operator`/`network`)
+and `connectors` (every `socket:*` tag present, e.g. `socket:type2`, `socket:ccs`, sorted).
+**No live occupancy, charger availability or charging speed is ever shown**; none of that is in the
+OSM data this provider reads.
+
+### Place details and navigation integration
+
+`PlaceDetailsSheet` (Map mode) is a compact card — category dot + label, name, a distance line
+(`routeDetourMeters` phrased as "off route" when known, else `distanceMeters` as "away"), one
+metadata line built only from fields the provider actually supplied, and a single "Navigate"
+action — deliberately not a Yelp-style profile. Tapping "Navigate" calls
+`MapViewModel.onNavigateToPlace`, which converts the `Place` to a `SearchResult` and calls the
+existing `onDestinationSelected` — **the same destination/route path Search already uses**, not a
+second routing system. `PlaceCategoryFilterRow` is the "lightweight toggles" this phase calls for:
+one chip per category (not a grouped taxonomy), client-side only (see Nearby/route-aware filtering
+above).
+
+### Visual density
+
+The ordering this phase enforces end to end: **navigation arrows > maneuver guidance > critical
+utility POIs > general POIs.** Concretely — the destination marker and route line always render
+above places on the map; the Live maneuver HUD and trip summary are unaffected by place labels;
+utility categories (parking/gas/EV) only outrank general categories while actually navigating; and
+the two density caps are deliberately asymmetric (Map 40 browsing / 20 navigating; Live 3 always).
+
+### Network / failure handling
+
+`MapViewModel.fetchPlaces` cancels any in-flight places request before starting a new one (only the
+latest call's result can land, the same pattern `requestRoute`/`requestReroute` already use), and
+**a failure never clears a `Ready` result that is already showing** — it only becomes `PlacesState.Error`
+when there was nothing good to fall back on yet. Every `PlaceException` maps to a `PlacesError`
+(`NoNetwork`, `Timeout`, `ServerError`, `RateLimited`, `Malformed`) the same way routing/geocoding
+errors do. Navigation, location and routing are completely unaffected by any places failure — Places
+is additive context, never a core dependency, and nothing it does can block a trip.
+
+### Privacy
+
+Place queries send only the coordinates and radius needed for that one request — no continuous
+location stream reaches the provider, and (as with geocoding/routing) nothing about a place query is
+logged. `PlaceCache` holds results in memory only, never persisted, and is cleared when the process
+dies.
+
+### Verification status
+
+58 new unit tests (233 total on this branch); `assembleDebug`, `testDebugUnitTest` and `lint` all
+pass clean (0 lint issues). **Not yet run on an emulator or a physical device** — the fetch -> Map
+marker -> tap -> details -> Navigate flow, the category filter chips, and Live's label
+placement/readability while moving are all unverified manually. Treat this the same as Phase 6's
+"unverified on a physical device" note: the code paths are tested in isolation, but the end-to-end
+experience has not been watched run.
+
+## Phase 10 output contract
+
+What Phase 10 (traffic, road hazards, weather, lane guidance — per ROADMAP.md) can rely on, exactly
+as it stands at the end of Phase 9:
+
+| Requirement | Provided by | Notes |
+| --- | --- | --- |
+| Provider-neutral contextual-object pattern | `core/places` (`PlaceRepository`, `Place`, caching, corridor filtering, ranking) | The template to follow for a second contextual-data domain, not a dependency Phase 10 needs to reuse directly |
+| Route-corridor filtering | `RouteCorridor.boundingQuery` / `filterToCorridor` / `isAhead` | Already generalized over "a list of geographic things near a route"; a hazard feed can reuse it as-is |
+| Deterministic ranking/priority model | `PlaceRanking` | Same shape (category weight, distance penalty, ahead/behind) would extend to hazard severity vs. distance |
+| Map rendering seam | `MapEngine.setPlaces` | A second `MapEngine` method (e.g. `setHazards`) follows the identical "whole-collection-replace `GeoJsonSource`+layer" pattern |
+| Live rendering seam | `LivePlaceProjector` (wraps `GeoProjector`) | The same CPU-side projection works for any geographic point; a hazard icon/label would reuse it directly |
+| Visual-density discipline | Map 40/20 caps, Live 3-label cap, layer ordering below route/destination | The precedent for "never let secondary context crowd out navigation," which a traffic/hazard layer must also respect |
+
+**Still Phase 10 work, not present:** any live traffic/incident data source, weather data, lane-level
+guidance, and speed-limit intelligence beyond already-existing static UI. None of Phase 9's code
+assumes or blocks any particular choice there.
+
 ## Error handling
 
 - **Map unavailable**: a style load failure (`OnDidFailLoadingMap` before the style first loads) sets `error`, which shows "Map unavailable" with Retry. Search and Settings stay reachable. Retry reloads the style.
@@ -700,6 +984,7 @@ the phone turns, and that they do not float or sink on a gradient (expected — 
 - **Routing**: `MapViewModel` maps every `RoutingException` to a `RouteError` the same way (`route_error_no_network`, `_timeout`, `_server`, `_malformed`, `_no_route`), shown as a short line in the bottom panel in place of distance/ETA. Missing origin is not an error either — `RouteState.WaitingForLocation` gets its own quiet copy ("Waiting for your location…") and resolves itself the moment a fix arrives. Missing destination never reaches `requestRoute` at all (it returns immediately if `selectedDestination` is null).
 - **Camera (Phase 5)**: every CameraX failure is classified into a `CameraFailure` and rendered as a short explanation over an opaque backdrop — never a crash and never a bare black screen. `NoRearCamera`, `BindingFailed` and `InUse` each get their own copy, with retry and a way back to the map. Camera permission states get their own panel. The user can always return to Map: the X control is in the top bar regardless of camera state.
 - **AR / spatial (Phase 6)**: every ARCore exception is mapped to a `SpatialLocalizationState` (`Unsupported`, `NotInstalled`, `PermissionRequired`, `Failed(reason)`) or a `Limited(reason)`; none is ever allowed to escape as a crash, and all of them fall back to the CameraX preview. Map mode never touches the AR engine, so the map, search, routing and navigation remain available no matter what AR does.
+- **Contextual places (Phase 9)**: every `PlaceException` maps to a `PlacesError` the same way routing does; a failed fetch never clears an already-showing `Ready` result (see "Network/failure handling" under Contextual places). Navigation, location and routing are completely unaffected by any places failure.
 
 ## Migrating to PMTiles / self-hosted tiles
 
@@ -723,3 +1008,6 @@ Nothing in the Map screen needs to change; only the provider does.
 - **Routing provider**: the public Valhalla demo instance is development-only (see [Routing](#routing)), same category of open question as the tile source and geocoding provider — needs a production decision before shipping.
 - **Costing is hardcoded to `"auto"`** (driving); no mode picker exists. Revisit once the product needs walking/cycling.
 - **No re-routing on GPS drift**: a route is requested once per destination selection (or once the first location fix arrives after one). It does not refresh as the user's position updates. That is an active-navigation concern, explicitly out of Phase 3's scope ("no active turn-by-turn navigation yet") and a Phase 4 prerequisite.
+- **Places provider**: the public Overpass API instance is development-only (see [Place data provider](#place-data-provider)), same category of open question as the tile source, geocoding and routing providers — needs a production decision before shipping.
+- **Places along a route are fetched once**, not re-queried as the trip progresses; a very long route's corridor query is capped at an 8 km radius, so places far along a long route may simply never be queried. Revisit if a product need for "scrolling window" corridor refresh emerges.
+- **No real-time parking/EV availability**: Phase 9 shows only what OSM's static tags state (type, access, fee; network, connectors). A live availability feed is a distinct, larger integration, not attempted here.

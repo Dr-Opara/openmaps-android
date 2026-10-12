@@ -5,6 +5,7 @@ import android.view.View
 import androidx.lifecycle.Lifecycle
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.routing.RouteResult
 import kotlinx.coroutines.flow.Flow
 
@@ -13,10 +14,9 @@ import kotlinx.coroutines.flow.Flow
  * engine-neutral types in MapModels.kt; only [MapLibreMapEngine] imports MapLibre.
  *
  * Responsibilities today: view creation + lifecycle, style loading, camera commands/events,
- * current-location puck, destination marker, route line.
+ * current-location puck, destination marker, route line, contextual place markers (Phase 9).
  *
  * Planned extension points (intentionally NOT declared yet, to avoid speculative API):
- *  - POI overlays      -> e.g. `setPlaces(list)`, symbol layers
  *  - AR/map sync       -> expose camera + projection (`latLngToScreen`) once Live needs it
  *  - active navigation camera tracking (Phase 4+)
  */
@@ -45,6 +45,13 @@ interface MapEngine {
 
     /** Show the route line for [route], or hide it when null. Replaces any previous one. */
     fun setRoute(route: RouteResult?)
+
+    /**
+     * Show contextual place markers (Phase 9), replacing any previous set wholesale — same
+     * "whole-collection replace" contract as [setDestination]/[setRoute], so there is never a
+     * stale marker left behind from an earlier fetch or filter change.
+     */
+    fun setPlaces(places: List<Place>)
 
     /**
      * Mark the first [RouteProgressView.traveledShapeIndex] points of the current route as already

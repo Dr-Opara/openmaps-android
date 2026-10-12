@@ -185,6 +185,8 @@ private fun AppShell(container: AppContainer) {
                 // a reroute reaches the anchors and arrows through exactly one state update.
                 route = (state.routeState as? RouteState.Ready)?.route,
                 navigationState = state.navigationState,
+                // Phase 9: the same ranked/capped list Map mode renders markers for.
+                places = state.visiblePlaces,
             )
         }
 

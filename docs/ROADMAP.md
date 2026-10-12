@@ -138,6 +138,19 @@ Phase 8's **spatial placement seam** — and only that seam — was re-pointed a
   alignment, anchor stability while walking, turn continuity and drift are all unobserved in the real
   world.
 
+## Phase 9: Contextual places + parking + fuel/EV, Done (needs device check beyond the emulator)
+
+- `core/places`: provider-neutral `Place`/`PlaceCategory`/`PlaceMetadata`/`PlaceException` models, a `PlaceRepository` seam (`nearbyPlaces`, `placesAlongRoute`) — same shape as `GeocodingRepository`/`RoutingRepository`
+- `OverpassPlaceRepository`: public Overpass API over OSM data, development-only (no SLA — see [ARCHITECTURE.md#place-data-provider](ARCHITECTURE.md#place-data-provider)); Overture Maps was evaluated and rejected (Parquet-over-blob-storage, not a request/response nearby-search API)
+- `PlaceCategoryMapper`: OSM tag <-> 8 categories (restaurant, coffee, hotel, grocery, pharmacy, parking, gas, EV charging); unsupported tags/categories are skipped, never guessed
+- `PlaceCache` (TTL + location bucketing) and `RouteCorridor` (nearest-segment distance, ahead/behind, corridor filter/approximation) — both pure Kotlin, both unit-tested
+- `PlaceRanking`: deterministic category-weight/distance/ahead-or-behind scoring, no ML; utility categories (parking/gas/EV) weighted higher only while navigating
+- Map rendering: `MapEngine.setPlaces` + a category-colored `CircleLayer` (not `SymbolLayer` — the same icon-rendering limitation documented for the destination marker applies to 8 category icons too) below the route/destination layers; tap-to-select via `queryRenderedFeatures`
+- Live rendering: `LivePlaceProjector` reuses the Phase 6 `GeoProjector` seam for a restrained, capped (3) set of screen-space labels — only while AR is `Tracking` with a pose; no labels in the CameraX fallback, by design ("do not fake precision")
+- Place details sheet + category filter chips (client-side filter only, never re-triggers a fetch) + "Navigate" reusing the existing `onDestinationSelected` path — no second routing system
+- Parking (type/access/fee), gas (brand), EV charging (operator/network, connectors) — every field only shown when OSM's tags actually state it; no invented availability, pricing or occupancy
+- 58 new unit tests. `assembleDebug`, `testDebugUnitTest` and `lint` all pass clean (0 lint issues) on top of Phase 7/8's own suite — see the total below. **Needs a physical device** for Live label placement/readability while moving and a real emulator/device run of the fetch -> marker -> tap -> navigate flow, same open item as Phase 6/7's AR path.
+
 ## Next, not started (awaiting approval)
 
 Tentative order; each needs its own scope decision.
@@ -148,18 +161,39 @@ Tentative order; each needs its own scope decision.
 3. **Production geocoding**: move off the public Nominatim instance (self-hosted Nominatim/Photon or a contracted provider) before shipping.
 4. **Production routing**: move off the public Valhalla demo instance (self-hosted Valhalla or a contracted provider) before shipping.
 5. **Turn-by-turn guidance**: done in Phase 4; voice guidance is still open.
-6. **Later layers**: traffic, parking, richer place intelligence.
+6. **Production places**: move off the public Overpass instance (self-hosted Overpass or a contracted places provider) before shipping — done in Phase 9, production provider still open.
+7. **Later layers**: traffic, road hazards, weather, lane guidance, speed-limit intelligence (Phase 10).
+
+## Phase 10 prerequisites
+
+Traffic, road hazards, weather and lane guidance. Available now: the `core/places` pattern itself
+(provider-neutral model, caching, corridor filtering, ranking) as a template for a second
+contextual-data domain; `RouteCorridor` already generalizes over "geographic things near a route";
+`MapEngine.setPlaces` and `LivePlaceProjector` are the Map/Live rendering precedents a hazard/traffic
+layer would follow (a parallel `setHazards`-style seam, not a shared one — different data, different
+priority rules). Still needed: any live traffic/incident/weather data source, lane-level geometry,
+and a priority model that can rank a hazard against a maneuver, not just against another POI.
 
 ## Phase 9 prerequisites
 
-Not started. Available now: the `ArOverlayRenderer` extension point on `ArCoreSpatialLocalization`
-(any overlay can draw after the camera without the AR engine knowing what it is), the
-`MapViewModel.onRouteReplaced` / `onNavigationEnded` trip-lifecycle callbacks, and the
-`RouteAnchorManager` / `ARArrowPipeline` derived-state pattern that a new overlay would follow.
+**Historical note:** this section originally read "Not started" when written at the end of Phase 8.
+Phase 9 is now **done** — see the "Phase 9: Contextual places + parking + fuel/EV" entry above. Kept
+here, unedited otherwise, as the as-of-Phase-8 planning record (same convention as the "Historical
+note" under Phase 7 prerequisites below).
 
-Still needed for place-type overlays: a place repository, a `MapUiState` extension, and a projection
-seam that works without a route (anchors are route-relative today; a point-of-interest overlay needs
-either free-standing anchors or the same projection as the fallback path).
+Available at the start of Phase 9: the `ArOverlayRenderer` extension point on
+`ArCoreSpatialLocalization` (any overlay can draw after the camera without the AR engine knowing what
+it is), the `MapViewModel.onRouteReplaced` / `onNavigationEnded` trip-lifecycle callbacks, and the
+`RouteAnchorManager` / `ARArrowPipeline` derived-state pattern. Phase 9 ended up **not** using the
+`ArOverlayRenderer`/anchor path for places: place labels are plain Compose overlays positioned via
+the Phase 6 `GeoProjector` seam (2D screen-space, not world-anchored) — simpler, and sufficient for
+informational text/distance labels rather than safety-critical world-locked content. It did reuse
+`onRouteReplaced`/`onNavigationEnded`-style lifecycle wiring in spirit (`MapViewModel` drives
+`fetchPlacesAlongRoute` from the same route-ready/reroute points).
+
+What was actually needed and built: a place repository (`core/places/PlaceRepository`), a
+`MapUiState` extension (`placesState`/`placeCategoryFilters`/`selectedPlace`/`visiblePlaces`), and a
+projection seam that works without full AR anchoring (`LivePlaceProjector`, wrapping `GeoProjector`).
 
 ## Phase 7 prerequisites
 
@@ -207,3 +241,6 @@ Before turn-by-turn can start, these Phase 3 decisions need to be either confirm
 - Do we want a persisted camera across process death (currently restored only across configuration changes)?
 - Should recent searches sync across devices/accounts, or stay per-device (current behaviour)?
 - Should a route auto-refresh if the user's location updates significantly while one is `Ready` (currently it does not re-request after the initial fetch)?
+- Which production places provider, and at what volume (same category of question as tile/geocoding/routing)?
+- Should places along a long route refresh as the trip progresses, or is the one-time, capped-radius corridor query (current behaviour) sufficient in practice?
+- Should category filter preferences persist across sessions (currently reset to "all categories" on each app start)?

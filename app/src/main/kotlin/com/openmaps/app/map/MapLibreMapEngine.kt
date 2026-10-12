@@ -9,8 +9,11 @@ import android.view.Gravity
 import android.view.View
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
+import com.google.gson.JsonObject
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.places.Place
+import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.routing.RouteResult
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
@@ -29,6 +32,7 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
@@ -76,6 +80,7 @@ class MapLibreMapEngine(
     private var destination: SearchResult? = null
     private var route: RouteResult? = null
     private var routeProgress: RouteProgressView? = null
+    private var places: List<Place> = emptyList()
     private var bottomInsetPx = 0
     private var density = 1f
     private var lastReportedBearing = Double.NaN
@@ -137,6 +142,22 @@ class MapLibreMapEngine(
             _events.tryEmit(MapEvent.CameraIdle(camera))
         }
 
+        // Phase 9: tap-to-select on place markers. queryRenderedFeatures against just the places
+        // layer means a tap elsewhere on the map (or on the destination/route layers) is never
+        // misread as a place tap; returning false lets any other click handling still run.
+        readyMap.addOnMapClickListener { latLng ->
+            val screenPoint = readyMap.projection.toScreenLocation(latLng)
+            val placeId = readyMap.queryRenderedFeatures(screenPoint, PLACES_LAYER_ID)
+                .firstOrNull()
+                ?.getStringProperty(PLACE_FEATURE_ID_KEY)
+            if (placeId != null) {
+                _events.tryEmit(MapEvent.PlaceTapped(placeId))
+                true
+            } else {
+                false
+            }
+        }
+
         pendingMove?.let { move ->
             pendingMove = null
             applyMove(readyMap, move.copy(animated = false))
@@ -157,6 +178,10 @@ class MapLibreMapEngine(
             syncUserLocation()
             syncDestination()
             syncRoute()
+            // After syncRoute(): that call unconditionally creates ROUTE_TRAVELED_LAYER_ID (even
+            // with no route yet), which is the layer the places layer is anchored below — see
+            // ensurePlacesLayer.
+            syncPlaces()
         }
     }
 
@@ -386,6 +411,75 @@ class MapLibreMapEngine(
         }
     }
 
+    override fun setPlaces(places: List<Place>) {
+        this.places = places
+        syncPlaces()
+    }
+
+    /**
+     * Contextual place markers (Phase 9) as a GeoJSON source + circle layer, same "whole-collection
+     * replace" approach as the destination marker and route line. A `CircleLayer` with a
+     * data-driven color expression (keyed on each feature's `category` property), **not** a
+     * `SymbolLayer` with per-category icons — see [ensureDestinationLayer]'s known limitation: a
+     * programmatically added custom icon consistently failed to render anything on this project's
+     * test emulator, while a plain `CircleLayer` renders correctly. Eight icons would hit the exact
+     * same issue, so markers are color-coded circles instead.
+     */
+    private fun syncPlaces() {
+        val readyMap = map ?: return
+        if (!styleLoaded) return // Re-applied from the style-loaded callback.
+        val style = readyMap.style ?: return
+        ensurePlacesLayer(style)
+        val source = style.getSourceAs<GeoJsonSource>(PLACES_SOURCE_ID) ?: return
+        source.setGeoJson(
+            FeatureCollection.fromFeatures(
+                places.map { place ->
+                    val properties = JsonObject().apply {
+                        addProperty(PLACE_FEATURE_ID_KEY, place.id)
+                        addProperty(PLACE_FEATURE_CATEGORY_KEY, place.category.name)
+                    }
+                    Feature.fromGeometry(Point.fromLngLat(place.longitude, place.latitude), properties)
+                }.toTypedArray(),
+            ),
+        )
+    }
+
+    /**
+     * Added below [ROUTE_TRAVELED_LAYER_ID] (which always exists once [syncRoute] has run once —
+     * see the style-loaded callback), so the destination marker and route line always render on
+     * top of contextual places: navigation content stays visually dominant (Phase 9 "visual
+     * density" rule).
+     */
+    private fun ensurePlacesLayer(style: Style) {
+        if (style.getLayer(PLACES_LAYER_ID) != null) return
+        style.addSource(GeoJsonSource(PLACES_SOURCE_ID))
+        val layer = CircleLayer(PLACES_LAYER_ID, PLACES_SOURCE_ID).withProperties(
+            PropertyFactory.circleRadius(PLACE_MARKER_RADIUS),
+            PropertyFactory.circleColor(placeCategoryColorExpression()),
+            PropertyFactory.circleStrokeColor(Color.WHITE),
+            PropertyFactory.circleStrokeWidth(PLACE_MARKER_STROKE_WIDTH),
+        )
+        if (style.getLayer(ROUTE_TRAVELED_LAYER_ID) != null) {
+            style.addLayerBelow(layer, ROUTE_TRAVELED_LAYER_ID)
+        } else {
+            style.addLayer(layer)
+        }
+    }
+
+    /** Maps each [com.openmaps.app.core.places.PlaceCategory] to a distinguishable marker color. */
+    private fun placeCategoryColorExpression(): Expression = Expression.match(
+        Expression.get(PLACE_FEATURE_CATEGORY_KEY),
+        Expression.literal(PlaceCategory.Restaurant.name), Expression.color(PLACE_COLOR_RESTAURANT),
+        Expression.literal(PlaceCategory.Coffee.name), Expression.color(PLACE_COLOR_COFFEE),
+        Expression.literal(PlaceCategory.Hotel.name), Expression.color(PLACE_COLOR_HOTEL),
+        Expression.literal(PlaceCategory.Grocery.name), Expression.color(PLACE_COLOR_GROCERY),
+        Expression.literal(PlaceCategory.Pharmacy.name), Expression.color(PLACE_COLOR_PHARMACY),
+        Expression.literal(PlaceCategory.Parking.name), Expression.color(PLACE_COLOR_PARKING),
+        Expression.literal(PlaceCategory.Gas.name), Expression.color(PLACE_COLOR_GAS),
+        Expression.literal(PlaceCategory.EvCharging.name), Expression.color(PLACE_COLOR_EV),
+        Expression.color(PLACE_COLOR_DEFAULT),
+    )
+
     override fun setBottomInset(pixels: Int) {
         bottomInsetPx = pixels
         applyAttributionMargins()
@@ -490,5 +584,25 @@ class MapLibreMapEngine(
 
         /** Muted slate for road already driven, so the accent line ahead reads as "what's next". */
         val ROUTE_TRAVELED_COLOR: Int = Color.parseColor("#8A94A6")
+
+        // Phase 9: contextual place markers.
+        const val PLACES_SOURCE_ID = "openmaps-places-source"
+        const val PLACES_LAYER_ID = "openmaps-places-layer"
+        const val PLACE_FEATURE_ID_KEY = "id"
+        const val PLACE_FEATURE_CATEGORY_KEY = "category"
+
+        /** Smaller than the destination marker so the destination always reads as "the" pin. */
+        const val PLACE_MARKER_RADIUS = 6f
+        const val PLACE_MARKER_STROKE_WIDTH = 1.5f
+
+        val PLACE_COLOR_RESTAURANT: Int = Color.parseColor("#FF8A3D")
+        val PLACE_COLOR_COFFEE: Int = Color.parseColor("#A9713A")
+        val PLACE_COLOR_HOTEL: Int = Color.parseColor("#9B6BFF")
+        val PLACE_COLOR_GROCERY: Int = Color.parseColor("#3DBA6B")
+        val PLACE_COLOR_PHARMACY: Int = Color.parseColor("#FF5C7A")
+        val PLACE_COLOR_PARKING: Int = Color.parseColor("#5C7A99")
+        val PLACE_COLOR_GAS: Int = Color.parseColor("#E8C340")
+        val PLACE_COLOR_EV: Int = Color.parseColor("#3DD6C6")
+        val PLACE_COLOR_DEFAULT: Int = Color.parseColor("#B9C6DD")
     }
 }

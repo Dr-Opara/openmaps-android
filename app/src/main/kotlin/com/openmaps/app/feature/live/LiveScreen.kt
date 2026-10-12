@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -42,6 +43,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -61,11 +63,15 @@ import com.openmaps.app.camera.RearCameraState
 import com.openmaps.app.core.camera.CameraPermissionState
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.OpenMapsWordmark
+import com.openmaps.app.core.places.LivePlaceProjector
+import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.spatial.LiveLocalizationStatus
 import com.openmaps.app.core.spatial.LiveLocalizationStatusMapper
 import com.openmaps.app.core.spatial.SpatialLocalizationState
 import com.openmaps.app.feature.map.MapModeToggle
+import com.openmaps.app.feature.map.displayName
+import com.openmaps.app.feature.map.markerColor
 import com.openmaps.app.map.MapMode
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -99,6 +105,8 @@ fun LiveScreen(
     route: RouteResult? = null,
     navigationState: NavigationState = NavigationState.Idle,
     modifier: Modifier = Modifier,
+    /** Ranked, capped contextual places (Phase 9) — the same list Map mode renders markers for. */
+    places: List<Place> = emptyList(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     // Reactive: flips from Spatial to CameraX mid-session if AR fails, which is what guarantees a
@@ -121,6 +129,7 @@ fun LiveScreen(
                         route = route,
                         navigationState = navigationState,
                         isNavigating = isNavigating,
+                        places = places,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
@@ -334,6 +343,7 @@ private fun ArPreviewSurface(
     route: RouteResult?,
     navigationState: NavigationState,
     isNavigating: Boolean,
+    places: List<Place>,
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -377,60 +387,142 @@ private fun ArPreviewSurface(
         onDispose { arEngine.overlayRenderer = null }
     }
 
-    AndroidView(factory = { glView }, update = { }, modifier = modifier)
+    Box(modifier) {
+        // AndroidView requires `update`; the GL surface is fully owned by the AR engine, so there
+        // is nothing to push — an empty block keeps the view out of Compose's recomposition path.
+        // The AR arrow renderer draws into this surface directly (via `arEngine.overlayRenderer`),
+        // so it stays the dominant navigational layer; place labels below are a separate, later
+        // Compose overlay and never touch the GL draw path.
+        AndroidView(factory = { glView }, update = { }, modifier = Modifier.fillMaxSize())
 
-    val spatialState by viewModel.spatialLocalization.state
-        .collectAsState(initial = SpatialLocalizationState.Idle)
+        val spatialState by viewModel.spatialLocalization.state
+            .collectAsState(initial = SpatialLocalizationState.Idle)
 
-    LaunchedEffect(arEngine, lifecycleOwner) {
-        viewModel.startSpatialLocalization(lifecycleOwner)
-    }
-
-    // Anchors are created/destroyed here, on state change — NOT per frame. Creating an ARCore anchor
-    // is a real cost (a server-refined object) and must never sit in the render loop.
-    val progress = when (val nav = navigationState) {
-        is NavigationState.Active -> nav.progress
-        is NavigationState.OffRoute -> nav.progress
-        is NavigationState.Arrived -> nav.progress
-        else -> null
-    }
-
-    LaunchedEffect(route, navigationState, spatialState) {
-        val manager = viewModel.routeAnchorManager
-        val anchored = if (route != null && manager != null) {
-            manager.update(
-                routeKey = routeKeyFor(route),
-                geometry = route.geometry,
-                startIndex = progress?.snappedShapeIndex ?: 0,
-                distanceToNextManeuverMeters = progress?.distanceToNextManeuverMeters ?: Double.MAX_VALUE,
-                remainingDistanceMeters = progress?.remainingDistanceMeters ?: Double.MAX_VALUE,
-                routeDistanceAtIndex = routeDistanceAtIndex,
-                spatialState = spatialState,
-                isNavigating = isNavigating,
-            )
-        } else {
-            emptyList()
+        LaunchedEffect(arEngine, lifecycleOwner) {
+            viewModel.startSpatialLocalization(lifecycleOwner)
         }
-        viewModel.arrowPipeline.update(
-            route = route,
-            progress = progress,
-            pose = (spatialState as? SpatialLocalizationState.Tracking)?.pose,
-            spatialState = spatialState,
-            viewportWidthPx = glView.width,
-            viewportHeightPx = glView.height,
-            isNavigating = isNavigating,
-            anchoredPoints = anchored,
-            cameraTransform = anchorManager.backendCameraTransform(),
-        )
-        // Hide the overlay entirely when nothing is drawn, rather than paying for a cleared GL
-        // pass every frame while empty.
-        arEngine.setOverlayAlpha(if (viewModel.arrowPipeline.arrowCount() > 0) 1f else 0f)
-    }
 
-    DisposableEffect(arEngine) {
-        onDispose { viewModel.stopSpatialLocalization() }
+        // Anchors are created/destroyed here, on state change — NOT per frame. Creating an ARCore anchor
+        // is a real cost (a server-refined object) and must never sit in the render loop.
+        val progress = when (val nav = navigationState) {
+            is NavigationState.Active -> nav.progress
+            is NavigationState.OffRoute -> nav.progress
+            is NavigationState.Arrived -> nav.progress
+            else -> null
+        }
+
+        LaunchedEffect(route, navigationState, spatialState) {
+            val manager = viewModel.routeAnchorManager
+            val anchored = if (route != null && manager != null) {
+                manager.update(
+                    routeKey = routeKeyFor(route),
+                    geometry = route.geometry,
+                    startIndex = progress?.snappedShapeIndex ?: 0,
+                    distanceToNextManeuverMeters = progress?.distanceToNextManeuverMeters ?: Double.MAX_VALUE,
+                    remainingDistanceMeters = progress?.remainingDistanceMeters ?: Double.MAX_VALUE,
+                    routeDistanceAtIndex = routeDistanceAtIndex,
+                    spatialState = spatialState,
+                    isNavigating = isNavigating,
+                )
+            } else {
+                emptyList()
+            }
+            viewModel.arrowPipeline.update(
+                route = route,
+                progress = progress,
+                pose = (spatialState as? SpatialLocalizationState.Tracking)?.pose,
+                spatialState = spatialState,
+                viewportWidthPx = glView.width,
+                viewportHeightPx = glView.height,
+                isNavigating = isNavigating,
+                anchoredPoints = anchored,
+                cameraTransform = anchorManager.backendCameraTransform(),
+            )
+            // Hide the overlay entirely when nothing is drawn, rather than paying for a cleared GL
+            // pass every frame while empty.
+            arEngine.setOverlayAlpha(if (viewModel.arrowPipeline.arrowCount() > 0) 1f else 0f)
+        }
+
+        DisposableEffect(arEngine) {
+            onDispose { viewModel.stopSpatialLocalization() }
+        }
+
+        // Phase 9: contextual place labels — a separate, capped, lightweight overlay layered above
+        // the AR surface but never replacing or covering the arrow renderer (arrows are baked into
+        // the GL surface above; this is plain Compose content). Recomputed when the candidate list
+        // or the spatial state changes, not per frame. Deliberately keyed off the AR pose path only:
+        // in the CameraX fallback there is no tracked device heading to project against (see
+        // `LiveViewModel.updateLivePlaces`), so Live simply shows no place labels there rather than
+        // guessing a position.
+        LaunchedEffect(places, spatialState, glView) {
+            viewModel.updateLivePlaces(
+                places = places,
+                spatialState = spatialState,
+                viewportWidthPx = glView.width,
+                viewportHeightPx = glView.height,
+            )
+        }
+        val labels by viewModel.livePlaceLabels.collectAsState()
+        LivePlaceLabels(labels = labels, modifier = Modifier.fillMaxSize())
     }
 }
+
+/**
+ * Restrained contextual labels (Phase 9) — name, category, approximate distance, no giant cards.
+ * Positioned at each label's projected screen point ([LivePlaceProjector.LivePlaceLabel.x]/`y`),
+ * staggered vertically by rank so near-simultaneous labels do not stack exactly on top of each
+ * other; this is a presentation offset only, not a precision claim.
+ */
+@Composable
+private fun LivePlaceLabels(labels: List<LivePlaceProjector.LivePlaceLabel>, modifier: Modifier = Modifier) {
+    Box(modifier) {
+        labels.forEachIndexed { index, label ->
+            LivePlaceChip(
+                label = label,
+                modifier = Modifier.offset {
+                    IntOffset(label.x.roundToInt(), label.y.roundToInt() + index * LABEL_VERTICAL_STAGGER_PX)
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun LivePlaceChip(label: LivePlaceProjector.LivePlaceLabel, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .clip(MaterialTheme.shapes.large)
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.68f))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(label.place.category.markerColor()),
+        )
+        Column {
+            Text(
+                text = label.place.name,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "${label.place.category.displayName()} · ${formatLiveDistance(label.distanceMeters)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = OpenMapsColors.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+private const val LABEL_VERTICAL_STAGGER_PX = 72
 
 /** Camera preview plus whatever the camera itself needs to say. */
 @Composable

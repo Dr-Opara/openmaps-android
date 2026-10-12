@@ -5,6 +5,9 @@ import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.navigation.RouteProgress
+import com.openmaps.app.core.places.Place
+import com.openmaps.app.core.places.PlaceCategory
+import com.openmaps.app.core.places.PlaceCategoryMapper
 import com.openmaps.app.map.CameraState
 import com.openmaps.app.map.MapError
 import com.openmaps.app.map.MapMode
@@ -39,6 +42,20 @@ data class MapUiState(
      * out of sync with what actually happened.
      */
     val navigationFollowSuspended: Boolean = false,
+    /** Lifecycle of the current contextual-places fetch (Phase 9). See [PlacesState]. */
+    val placesState: PlacesState = PlacesState.Idle,
+    /** Which categories the user wants surfaced. All supported categories are shown by default. */
+    val placeCategoryFilters: Set<PlaceCategory> = PlaceCategoryMapper.supportedCategories,
+    /** The place shown in the compact details sheet, or null when none is selected. */
+    val selectedPlace: Place? = null,
+    /**
+     * Ranked, capped places to actually render (Map markers; Live derives its own further-capped
+     * subset from this same list — see [com.openmaps.app.core.places.LivePlaceProjector]).
+     * Recomputed explicitly by `MapViewModel.recomputeVisiblePlaces` whenever [placesState],
+     * [placeCategoryFilters] or navigation state changes — not a per-access derived property,
+     * because ranking walks the route geometry and must not re-run on every recomposition.
+     */
+    val visiblePlaces: List<Place> = emptyList(),
 ) {
     /** The progress snapshot to render, or null when navigation isn't reporting one. */
     val navigationProgress: RouteProgress?

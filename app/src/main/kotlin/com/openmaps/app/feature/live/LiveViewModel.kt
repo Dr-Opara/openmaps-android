@@ -8,6 +8,8 @@ import com.openmaps.app.camera.CameraFailure
 import com.openmaps.app.camera.RearCameraEngine
 import com.openmaps.app.camera.RearCameraState
 import com.openmaps.app.core.camera.CameraPermissionState
+import com.openmaps.app.core.places.LivePlaceProjector
+import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.spatial.NoopSpatialLocalization
 import com.openmaps.app.core.spatial.SpatialAvailability
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
@@ -197,6 +199,42 @@ class LiveViewModel(
 
     // endregion
 
+    // region Contextual places (Phase 9)
+
+    private val _livePlaceLabels = MutableStateFlow<List<LivePlaceProjector.LivePlaceLabel>>(emptyList())
+
+    /** The capped, projected set Live actually draws. See [LivePlaceProjector]. */
+    val livePlaceLabels: StateFlow<List<LivePlaceProjector.LivePlaceLabel>> = _livePlaceLabels.asStateFlow()
+
+    /**
+     * Recomputes the visible Live place labels. Called when the candidate list, the spatial
+     * state, or the viewport size changes — not per frame; projection is cheap, but there is no
+     * reason to run it faster than its inputs actually change.
+     *
+     * Only produces labels while [spatialState] is [SpatialLocalizationState.Tracking] *with* a
+     * pose: without a tracked device heading there is no reliable basis to place a label on
+     * screen, and Live must not fake that precision (see ARCHITECTURE.md "AR / Live positioning").
+     * In every other state (including the CameraX fallback, which has no AR pose at all) this
+     * simply clears the set rather than guessing.
+     */
+    fun updateLivePlaces(
+        places: List<Place>,
+        spatialState: SpatialLocalizationState,
+        viewportWidthPx: Int,
+        viewportHeightPx: Int,
+    ) {
+        val pose = (spatialState as? SpatialLocalizationState.Tracking)?.pose
+        _livePlaceLabels.value = LivePlaceProjector.project(
+            places = places,
+            pose = pose,
+            viewportWidthPx = viewportWidthPx,
+            viewportHeightPx = viewportHeightPx,
+            maxVisible = MAX_LIVE_PLACE_LABELS,
+        )
+    }
+
+    // endregion
+
     /** True when the camera should be started at all. */
     val canStartCamera: Boolean
         get() = _uiState.value.cameraPermission == CameraPermissionState.Granted && cameraEngine != null
@@ -205,6 +243,11 @@ class LiveViewModel(
         eventChannel.close()
         spatialEngine.stop()
         cameraEngine?.release()
+    }
+
+    private companion object {
+        /** Live must stay visually restrained — "very low" density (ARCHITECTURE.md). */
+        const val MAX_LIVE_PLACE_LABELS = 3
     }
 
     private inline fun MutableStateFlow<LiveUiState>.update(transform: (LiveUiState) -> LiveUiState) {

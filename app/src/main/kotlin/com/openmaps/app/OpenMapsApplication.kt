@@ -9,6 +9,8 @@ import com.openmaps.app.core.camera.CameraPermissionPrefs
 import com.openmaps.app.core.location.AndroidLocationRepository
 import com.openmaps.app.core.location.LocationPermissionPrefs
 import com.openmaps.app.core.location.LocationRepository
+import com.openmaps.app.core.places.OverpassPlaceRepository
+import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.core.routing.ValhallaRoutingRepository
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
@@ -27,6 +29,11 @@ class AppContainer(application: Application) {
     )
     val recentSearchStore: RecentSearchStore = SharedPreferencesRecentSearchStore(application)
     val routingRepository: RoutingRepository = ValhallaRoutingRepository(
+        userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+    )
+
+    /** Phase 9 contextual places (restaurants, parking, gas, EV charging, ...). See ARCHITECTURE.md. */
+    val placesRepository: PlaceRepository = OverpassPlaceRepository(
         userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
     )
 

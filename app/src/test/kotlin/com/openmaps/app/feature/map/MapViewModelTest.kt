@@ -7,6 +7,10 @@ import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.LocationUpdate
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.navigation.OffRouteDetector
+import com.openmaps.app.core.places.Place
+import com.openmaps.app.core.places.PlaceCategory
+import com.openmaps.app.core.places.PlaceException
+import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.routing.RouteBounds
@@ -44,12 +48,13 @@ class MapViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
     private val repository = FakeLocationRepository()
     private val routingRepository = FakeRoutingRepository()
+    private val placesRepository = FakePlaceRepository()
     private lateinit var viewModel: MapViewModel
 
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
-        viewModel = MapViewModel(repository, routingRepository, fixTimeoutMillis = TIMEOUT)
+        viewModel = MapViewModel(repository, routingRepository, placesRepository, fixTimeoutMillis = TIMEOUT)
     }
 
     @After
@@ -775,6 +780,113 @@ class MapViewModelTest {
 
     // endregion
 
+    // region Contextual places (Phase 9)
+
+    @Test
+    fun nearbyFetch_firstFixFetches_smallMovementDoesNotRefetch_bigMovementDoes() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        assertEquals(1, placesRepository.nearbyCenters.size)
+
+        // ~11 m away: well under the refetch threshold.
+        repository.emit(LocationUpdate.Fix(at(40.0001, -74.0)))
+        assertEquals("small movement must not refetch", 1, placesRepository.nearbyCenters.size)
+
+        // ~1.1 km away: comfortably over MapViewModel.NEARBY_REFETCH_DISTANCE_METERS.
+        repository.emit(LocationUpdate.Fix(at(40.01, -74.0)))
+        assertEquals("large movement must refetch", 2, placesRepository.nearbyCenters.size)
+    }
+
+    @Test
+    fun nearbyFetch_doesNotRunWhileNavigating() = runTest(dispatcher) {
+        startWithPermission()
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        viewModel.startNavigation()
+        val fetchesSoFar = placesRepository.nearbyCenters.size
+
+        // A big move while navigating must not trigger the nearby path; the route-corridor fetch
+        // (already fired once from the route becoming Ready) is what drives Places during a trip.
+        repository.emit(LocationUpdate.Fix(at(0.01, 0.01)))
+        assertEquals(fetchesSoFar, placesRepository.nearbyCenters.size)
+    }
+
+    @Test
+    fun routeReady_fetchesPlacesAlongTheRouteGeometry() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0))) // an origin, so requestRoute() fires immediately
+        val readyRoute = navigableRoute()
+        routingRepository.result = Result.success(readyRoute)
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        assertEquals(1, placesRepository.alongRouteCalls.size)
+        assertEquals(readyRoute.geometry, placesRepository.alongRouteCalls.single())
+    }
+
+    @Test
+    fun categoryFilterChanged_filtersClientSideOnly_neverRefetches() = runTest(dispatcher) {
+        placesRepository.nearbyResult = Result.success(
+            listOf(testPlace("gas", PlaceCategory.Gas), testPlace("cafe", PlaceCategory.Coffee)),
+        )
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        assertEquals(setOf("gas", "cafe"), viewModel.uiState.value.visiblePlaces.map { it.id }.toSet())
+        val fetchesSoFar = placesRepository.nearbyCenters.size
+
+        viewModel.onCategoryFilterChanged(setOf(PlaceCategory.Gas))
+        assertEquals(listOf("gas"), viewModel.uiState.value.visiblePlaces.map { it.id })
+        assertEquals("a filter toggle must never trigger a network fetch", fetchesSoFar, placesRepository.nearbyCenters.size)
+    }
+
+    @Test
+    fun placeSelected_thenNavigate_becomesTheDestinationAndRequestsARoute() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0))) // an origin, so requestRoute() actually calls out
+        routingRepository.result = Result.success(route())
+        val target = testPlace("gas-1", PlaceCategory.Gas, latitude = 40.5, longitude = -74.5)
+
+        viewModel.onPlaceSelected(target)
+        assertEquals(target, viewModel.uiState.value.selectedPlace)
+
+        viewModel.onNavigateToPlace(target)
+        assertNull("navigating away clears the details sheet", viewModel.uiState.value.selectedPlace)
+        assertEquals(40.5, viewModel.uiState.value.selectedDestination!!.latitude, EPS)
+        assertEquals(-74.5, viewModel.uiState.value.selectedDestination!!.longitude, EPS)
+        assertTrue(routingRepository.destinationsReceived.any { it.latitude == 40.5 && it.longitude == -74.5 })
+    }
+
+    @Test
+    fun placesProviderError_keepsPreviousReadyPlaces_navigationUnaffected() = runTest(dispatcher) {
+        placesRepository.nearbyResult = Result.success(listOf(testPlace("gas", PlaceCategory.Gas)))
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        assertTrue(viewModel.uiState.value.placesState is PlacesState.Ready)
+
+        placesRepository.nearbyResult = Result.failure(PlaceException.NoNetwork)
+        repository.emit(LocationUpdate.Fix(at(40.01, -74.0))) // far enough to refetch
+        assertTrue("a failed refresh must not clear good data", viewModel.uiState.value.placesState is PlacesState.Ready)
+        assertEquals(listOf("gas"), viewModel.uiState.value.visiblePlaces.map { it.id })
+        // The rest of the map keeps working: a Places failure is additive, never a core dependency.
+        assertEquals(LocationStatus.Available, viewModel.uiState.value.locationStatus)
+    }
+
+    @Test
+    fun visiblePlaces_capsAreLowerWhileNavigating() = runTest(dispatcher) {
+        val many = (1..25).map { testPlace("p$it", PlaceCategory.Coffee) }
+        placesRepository.nearbyResult = Result.success(many)
+        placesRepository.alongRouteResult = Result.success(many)
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        assertEquals(25, viewModel.uiState.value.visiblePlaces.size)
+
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        assertEquals(MapViewModel.MAX_VISIBLE_PLACES_NAVIGATING, viewModel.uiState.value.visiblePlaces.size)
+    }
+
+    // endregion
+
     // region helpers
 
     private fun startWithPermission() {
@@ -800,6 +912,14 @@ class MapViewModelTest {
         displayName = "Place $id, USA",
         latitude = lat,
         longitude = lon,
+    )
+
+    private fun testPlace(id: String, category: PlaceCategory, latitude: Double = 0.0, longitude: Double = 0.0) = Place(
+        id = id,
+        name = "Test $id",
+        category = category,
+        latitude = latitude,
+        longitude = longitude,
     )
 
     private fun route(distanceMeters: Double = 1000.0, durationSeconds: Double = 120.0) = RouteResult(
@@ -862,6 +982,31 @@ class MapViewModelTest {
             originsReceived += origin
             destinationsReceived += destination
             return result
+        }
+    }
+
+    private class FakePlaceRepository : PlaceRepository {
+        var nearbyResult: Result<List<Place>> = Result.success(emptyList())
+        var alongRouteResult: Result<List<Place>> = Result.success(emptyList())
+        val nearbyCenters = mutableListOf<Coordinate>()
+        val alongRouteCalls = mutableListOf<List<Coordinate>>()
+
+        override suspend fun nearbyPlaces(
+            center: Coordinate,
+            radiusMeters: Double,
+            categories: Set<PlaceCategory>,
+        ): Result<List<Place>> {
+            nearbyCenters += center
+            return nearbyResult
+        }
+
+        override suspend fun placesAlongRoute(
+            routeGeometry: List<Coordinate>,
+            corridorMeters: Double,
+            categories: Set<PlaceCategory>,
+        ): Result<List<Place>> {
+            alongRouteCalls += routeGeometry
+            return alongRouteResult
         }
     }
 

@@ -71,6 +71,9 @@ sealed interface MapEvent {
 
     /** The camera stopped moving. */
     data class CameraIdle(val camera: CameraState) : MapEvent
+
+    /** A contextual-place marker was tapped (Phase 9). [placeId] is [com.openmaps.app.core.places.Place.id]. */
+    data class PlaceTapped(val placeId: String) : MapEvent
 }
 
 /** User-visible map failures. */
