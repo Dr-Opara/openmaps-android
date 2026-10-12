@@ -59,6 +59,11 @@ fun MapScreen(
     val routeFlow = remember(viewModel) {
         viewModel.uiState.map { (it.routeState as? RouteState.Ready)?.route }.distinctUntilChanged()
     }
+    // Its own StateFlow rather than derived from `commands`: that flow is a Channel, so a second
+    // collector would compete for messages with the one MapLibreHost already uses and silently
+    // swallow camera/style commands.
+    // Already a StateFlow, so it de-duplicates on its own; distinctUntilChanged would be a no-op.
+    val routeProgressFlow = remember(viewModel) { viewModel.routeProgressView }
     var bottomInsetPx by remember { mutableIntStateOf(0) }
     LaunchedEffect(engine, bottomInsetPx) { engine.setBottomInset(bottomInsetPx) }
 
@@ -71,6 +76,7 @@ fun MapScreen(
             route = routeFlow,
             onEvent = viewModel::onMapEvent,
             modifier = Modifier.fillMaxSize(),
+            routeProgress = routeProgressFlow,
         )
 
         // Failure state sits above the map but below the controls, so search and settings
@@ -95,7 +101,16 @@ fun MapScreen(
                 OpenMapsWordmark(Modifier.padding(start = 4.dp))
                 MapModeToggle(selected = state.selectedMapMode, onSelected = viewModel::onModeSelected)
             }
-            MapSearchBar(onSearchClick = onSearchClick, onSettingsClick = onSettingsClick)
+            // Navigation replaces the search affordance for the duration of a trip: the banner is
+            // the driver's primary instruction, and search is a trip-ending action anyway.
+            if (!state.isNavigating) {
+                MapSearchBar(onSearchClick = onSearchClick, onSettingsClick = onSettingsClick)
+            } else {
+                NavigationBanner(
+                    navigationState = state.navigationState,
+                    followSuspended = state.navigationFollowSuspended,
+                )
+            }
         }
 
         // Bottom: controls, then the location card, then the collapsed panel.
@@ -127,6 +142,14 @@ fun MapScreen(
                 destination = state.selectedDestination,
                 routeState = state.routeState,
                 onClearDestination = viewModel::onDestinationCleared,
+            )
+            NavigationControls(
+                canStart = state.canStartNavigation,
+                isNavigating = state.isNavigating,
+                navigationError = (state.navigationState as? NavigationState.Error)?.reason,
+                onStart = viewModel::startNavigation,
+                onStop = viewModel::stopNavigation,
+                modifier = Modifier.align(Alignment.End),
             )
         }
     }

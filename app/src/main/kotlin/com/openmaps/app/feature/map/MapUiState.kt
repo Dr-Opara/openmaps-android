@@ -4,6 +4,7 @@ import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.navigation.RouteProgress
 import com.openmaps.app.map.CameraState
 import com.openmaps.app.map.MapError
 import com.openmaps.app.map.MapMode
@@ -30,7 +31,39 @@ data class MapUiState(
     val selectedDestination: SearchResult? = null,
     /** The route to [selectedDestination], as one lifecycle value (see [RouteState]). */
     val routeState: RouteState = RouteState.Idle,
+    /** Turn-by-turn navigation over [routeState]'s route (see [NavigationState]). */
+    val navigationState: NavigationState = NavigationState.Idle,
+    /**
+     * True while the user has panned the camera away during a trip, so the banner can offer
+     * recenter. Derived from engine events rather than stored separately, so it can never drift
+     * out of sync with what actually happened.
+     */
+    val navigationFollowSuspended: Boolean = false,
 ) {
+    /** The progress snapshot to render, or null when navigation isn't reporting one. */
+    val navigationProgress: RouteProgress?
+        get() = when (val state = navigationState) {
+            is NavigationState.Active -> state.progress
+            is NavigationState.OffRoute -> state.progress
+            is NavigationState.Arrived -> state.progress
+            NavigationState.Idle,
+            NavigationState.Ready,
+            NavigationState.Rerouting,
+            is NavigationState.Error,
+            -> null
+        }
+
+    /** True while a trip is underway: following, off route, rerouting, or arrived. */
+    val isNavigating: Boolean
+        get() = when (navigationState) {
+            NavigationState.Idle, NavigationState.Ready, is NavigationState.Error -> false
+            is NavigationState.Active, is NavigationState.OffRoute, NavigationState.Rerouting, is NavigationState.Arrived -> true
+        }
+
+    /** "Start" is offered once a route and a location fix both exist, and not mid-trip. */
+    val canStartNavigation: Boolean
+        get() = routeState is RouteState.Ready && currentLocation != null && navigationState is NavigationState.Idle
+
     val isLocationLoading: Boolean
         get() = locationStatus == LocationStatus.Loading
 
@@ -68,4 +101,11 @@ sealed interface MapUiEvent {
     data object RequestLocationPermission : MapUiEvent
     data object OpenAppSettings : MapUiEvent
     data object OpenLocationSettings : MapUiEvent
+
+    /**
+     * A reroute attempted during navigation failed. The old route is still active and the user is
+     * free to keep driving or correct course; this is a transient "we couldn't fix the route
+     * right now" notice, not a dead end.
+     */
+    data object RerouteFailed : MapUiEvent
 }

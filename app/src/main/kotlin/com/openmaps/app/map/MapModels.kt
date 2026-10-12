@@ -27,6 +27,15 @@ data class CameraState(
     }
 }
 
+/**
+ * How much of the active route has already been driven, for the traveled/remaining visual split.
+ * [traveledShapeIndex] is an index into `RouteResult.geometry`; points up to and including it are
+ * drawn as traveled, the rest as remaining. Null means "no split" — the whole route is remaining.
+ */
+data class RouteProgressView(
+    val traveledShapeIndex: Int,
+)
+
 /** Commands from the ViewModel to the map engine. */
 sealed interface MapCommand {
     data class MoveCamera(

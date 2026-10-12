@@ -17,6 +17,7 @@ data class RouteResult(
     val distanceMeters: Double,
     val durationSeconds: Double,
     val bounds: RouteBounds? = null,
+    val maneuvers: List<RouteManeuver> = emptyList(),
 )
 
 /**

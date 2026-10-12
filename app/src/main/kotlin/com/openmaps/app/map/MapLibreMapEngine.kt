@@ -75,6 +75,7 @@ class MapLibreMapEngine(
     private var userLocation: UserLocation? = null
     private var destination: SearchResult? = null
     private var route: RouteResult? = null
+    private var routeProgress: RouteProgressView? = null
     private var bottomInsetPx = 0
     private var density = 1f
     private var lastReportedBearing = Double.NaN
@@ -169,6 +170,7 @@ class MapLibreMapEngine(
                 val readyMap = map
                 if (readyMap != null) loadStyle(readyMap) else mapView?.getMapAsync { onMapReady(it) }
             }
+            // Route progress arrives via MapEngine.setRouteProgress, not as a command.
             is MapCommand.FitBounds -> {
                 val readyMap = map ?: return
                 val bounds = LatLngBounds.from(
@@ -283,7 +285,22 @@ class MapLibreMapEngine(
 
     override fun setRoute(route: RouteResult?) {
         this.route = route
+        // A new route invalidates the previous route's progress split.
+        if (this.routeProgress?.traveledShapeIndex != null && routeProgressIsStale()) {
+            routeProgress = null
+        }
         syncRoute()
+    }
+
+    override fun setRouteProgress(progress: RouteProgressView?) {
+        routeProgress = progress
+        syncRoute()
+    }
+
+    private fun routeProgressIsStale(): Boolean {
+        val currentRoute = route ?: return true
+        val index = routeProgress?.traveledShapeIndex ?: return false
+        return index >= currentRoute.geometry.size
     }
 
     /**
@@ -293,22 +310,64 @@ class MapLibreMapEngine(
      * previous geometry wholesale, so there is never more than one route line, and passing
      * `null` clears it (e.g. when the destination is cleared or replaced while a new route is
      * still loading).
+     *
+     * While navigating the line is drawn twice: the already-driven portion from [ROUTE_TRAVELED_*]
+     * (desaturated, behind) and the road still ahead from [ROUTE_SOURCE_ID] (accent blue, over it).
+     * The remaining segment always includes the point at the split index, so the two halves meet at
+     * exactly one point instead of leaving a visible gap at the user's position.
      */
     private fun syncRoute() {
         val readyMap = map ?: return
         if (!styleLoaded) return // Re-applied from the style-loaded callback.
         val style = readyMap.style ?: return
         ensureRouteLayer(style)
+        ensureRouteTraveledLayer(style)
         val source = style.getSourceAs<GeoJsonSource>(ROUTE_SOURCE_ID) ?: return
+        val traveledSource = style.getSourceAs<GeoJsonSource>(ROUTE_TRAVELED_SOURCE_ID)
         val currentRoute = route
+        if (currentRoute == null || currentRoute.geometry.isEmpty()) {
+            source.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
+            traveledSource?.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
+            return
+        }
+
+        val splitIndex = routeProgress?.traveledShapeIndex?.takeIf { it in 0 until currentRoute.geometry.size }
+        val remaining = if (splitIndex == null) currentRoute.geometry else currentRoute.geometry.drop(splitIndex)
         source.setGeoJson(
-            if (currentRoute == null || currentRoute.geometry.isEmpty()) {
-                FeatureCollection.fromFeatures(emptyArray())
+            if (remaining.size >= 2) {
+                FeatureCollection.fromFeature(
+                    Feature.fromGeometry(LineString.fromLngLats(remaining.map { Point.fromLngLat(it.longitude, it.latitude) })),
+                )
             } else {
-                val points = currentRoute.geometry.map { Point.fromLngLat(it.longitude, it.latitude) }
-                FeatureCollection.fromFeature(Feature.fromGeometry(LineString.fromLngLats(points)))
+                FeatureCollection.fromFeatures(emptyArray())
             },
         )
+        traveledSource?.setGeoJson(
+            if (splitIndex != null && splitIndex >= 1) {
+                FeatureCollection.fromFeature(
+                    Feature.fromGeometry(
+                        LineString.fromLngLats(
+                            currentRoute.geometry.take(splitIndex + 1).map { Point.fromLngLat(it.longitude, it.latitude) },
+                        ),
+                    ),
+                )
+            } else {
+                FeatureCollection.fromFeatures(emptyArray())
+            },
+        )
+    }
+
+    private fun ensureRouteTraveledLayer(style: Style) {
+        if (style.getLayer(ROUTE_TRAVELED_LAYER_ID) != null) return
+        style.addSource(GeoJsonSource(ROUTE_TRAVELED_SOURCE_ID))
+        val layer = LineLayer(ROUTE_TRAVELED_LAYER_ID, ROUTE_TRAVELED_SOURCE_ID).withProperties(
+            PropertyFactory.lineColor(ROUTE_TRAVELED_COLOR),
+            PropertyFactory.lineWidth(ROUTE_LINE_WIDTH),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        )
+        // Directly below the remaining line so the accent stroke stays legible on top of it.
+        if (style.getLayer(ROUTE_LAYER_ID) != null) style.addLayerBelow(layer, ROUTE_LAYER_ID) else style.addLayer(layer)
     }
 
     private fun ensureRouteLayer(style: Style) {
@@ -426,5 +485,10 @@ class MapLibreMapEngine(
         const val ROUTE_SOURCE_ID = "openmaps-route-source"
         const val ROUTE_LAYER_ID = "openmaps-route-layer"
         const val ROUTE_LINE_WIDTH = 5f
+        const val ROUTE_TRAVELED_SOURCE_ID = "openmaps-route-traveled-source"
+        const val ROUTE_TRAVELED_LAYER_ID = "openmaps-route-traveled-layer"
+
+        /** Muted slate for road already driven, so the accent line ahead reads as "what's next". */
+        val ROUTE_TRAVELED_COLOR: Int = Color.parseColor("#8A94A6")
     }
 }

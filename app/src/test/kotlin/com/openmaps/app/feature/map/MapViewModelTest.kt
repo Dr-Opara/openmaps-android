@@ -6,8 +6,11 @@ import com.openmaps.app.core.location.LocationRepository
 import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.LocationUpdate
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.navigation.OffRouteDetector
 import com.openmaps.app.core.routing.Coordinate
+import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.routing.RouteBounds
+import com.openmaps.app.core.routing.RouteManeuver
 import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.routing.RoutingException
 import com.openmaps.app.core.routing.RoutingRepository
@@ -28,6 +31,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -380,6 +385,354 @@ class MapViewModelTest {
 
     // endregion
 
+    // region Navigation (Phase 4)
+
+    @Test
+    fun startNavigation_withoutARoute_doesNothing() = runTest(dispatcher) {
+        viewModel.startNavigation()
+        assertEquals(NavigationState.Idle, viewModel.uiState.value.navigationState)
+    }
+
+    @Test
+    fun startNavigation_withAFixButNoRoute_staysIdle() = runTest(dispatcher) {
+        // A location alone is not enough: there is no route to navigate.
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0005)))
+
+        viewModel.startNavigation()
+
+        assertEquals(NavigationState.Idle, viewModel.uiState.value.navigationState)
+        assertFalse(viewModel.uiState.value.isNavigating)
+    }
+
+    @Test
+    fun startNavigation_withARouteAndFix_becomesActive() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0005)))
+        routingRepository.result = Result.success(navigableRoute())
+
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+
+        assertTrue(viewModel.uiState.value.isNavigating)
+        val progress = viewModel.uiState.value.navigationProgress
+        assertNotNull("navigation must report progress immediately", progress)
+        assertFalse(progress!!.currentManeuver.instruction.isBlank())
+    }
+
+    @Test
+    fun startNavigation_routeWithoutManeuvers_reportsRouteUnavailable() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0005)))
+        routingRepository.result = Result.success(route()) // Phase 3 route: no maneuvers
+
+        viewModel.onDestinationSelected(place("dest", 41.0, -75.0))
+        viewModel.startNavigation()
+
+        val error = viewModel.uiState.value.navigationState as NavigationState.Error
+        assertEquals(NavigationError.RouteUnavailable, error.reason)
+    }
+
+    @Test
+    fun navigating_forwardProgress_decreasesRemainingDistanceAndTime() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+
+        val startRemaining = viewModel.uiState.value.navigationProgress!!.remainingDistanceMeters
+        val startDuration = viewModel.uiState.value.navigationProgress!!.remainingDurationSeconds
+
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.004)))
+
+        val progress = viewModel.uiState.value.navigationProgress!!
+        assertTrue("distance must decrease", progress.remainingDistanceMeters < startRemaining)
+        assertTrue("time must decrease", progress.remainingDurationSeconds < startDuration)
+        assertTrue(progress.progressFraction > 0.0)
+    }
+
+    @Test
+    fun navigating_publishesTraveledProgressForTheRenderer() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        // Starting seeds progress from the last fix, so a split already exists (at the start).
+        assertEquals(0, viewModel.routeProgressView.value?.traveledShapeIndex)
+
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.004)))
+
+        assertEquals("the split must advance as the driver moves", 4, viewModel.routeProgressView.value?.traveledShapeIndex)
+    }
+
+    @Test
+    fun stopNavigation_clearsTheTraveledSplit() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.004)))
+        assertNotNull(viewModel.routeProgressView.value)
+
+        viewModel.stopNavigation()
+
+        assertNull("no traveled overlay after the trip ends", viewModel.routeProgressView.value)
+    }
+
+    @Test
+    fun stopNavigation_returnsToIdleAndClearsTheSplit() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.004)))
+        assertNotNull(viewModel.routeProgressView.value)
+
+        viewModel.stopNavigation()
+
+        assertEquals(NavigationState.Idle, viewModel.uiState.value.navigationState)
+        assertNull(viewModel.routeProgressView.value)
+        // The route itself survives stopping: browsing back to it should not need a refetch.
+        assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+    }
+
+    @Test
+    fun stoppedNavigation_ignoresLaterLocationFixes() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        viewModel.stopNavigation()
+        val snapshot = viewModel.uiState.value.navigationProgress
+
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.006)))
+
+        assertEquals(snapshot, viewModel.uiState.value.navigationProgress)
+    }
+
+    @Test
+    fun clearingDestination_endsTheTrip() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+
+        viewModel.onDestinationCleared()
+
+        assertEquals(NavigationState.Idle, viewModel.uiState.value.navigationState)
+    }
+
+    @Test
+    fun navigating_toTheDestination_reportsArrival() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.009)))
+
+        assertTrue(viewModel.uiState.value.navigationState is NavigationState.Arrived)
+        assertNull("the traveled split is cleared on arrival", viewModel.routeProgressView.value)
+    }
+
+    @Test
+    fun briefDeviation_doesNotReroute() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        val requestsBefore = routingRepository.destinationsReceived.size
+
+        // A single fix 100 m off the line (a wrong turn, or urban GPS drift) must not cost a request.
+        repository.emit(LocationUpdate.Fix(at(0.001, 0.003)))
+
+        assertEquals(
+            "a single deviation must never trigger a reroute",
+            requestsBefore,
+            routingRepository.destinationsReceived.size,
+        )
+        assertTrue(viewModel.uiState.value.navigationState is NavigationState.Active)
+    }
+
+    @Test
+    fun persistentDeviation_triggersExactlyOneReroute() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        val requestsBefore = routingRepository.destinationsReceived.size
+
+        repeat(OffRouteDetector.DEFAULT_REROUTE_SAMPLES) {
+            repository.emit(LocationUpdate.Fix(at(0.002, 0.003)))
+        }
+
+        assertEquals(1, routingRepository.destinationsReceived.size - requestsBefore)
+        // The reroute keeps driving the same destination.
+        assertEquals(Coordinate(0.009, 0.0), routingRepository.destinationsReceived.last())
+    }
+
+    @Test
+    fun failedReroute_keepsTheOldRouteAndStaysNavigable() = runTest(dispatcher) {
+        val events = collectEvents()
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+
+        routingRepository.result = Result.failure(RoutingException.NoNetwork)
+        repeat(OffRouteDetector.DEFAULT_REROUTE_SAMPLES) {
+            repository.emit(LocationUpdate.Fix(at(0.002, 0.003)))
+        }
+
+        // A network blip mid-trip must not dead-end the trip.
+        assertEquals(listOf<MapUiEvent>(MapUiEvent.RerouteFailed), events)
+        assertTrue(viewModel.uiState.value.navigationState is NavigationState.OffRoute)
+        assertTrue("the original route is still displayed", viewModel.uiState.value.routeState is RouteState.Ready)
+    }
+
+    @Test
+    fun successfulReroute_swapsInTheNewRouteAndResumesProgress() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+
+        val replacement = navigableRoute(distanceMeters = 555.0)
+        routingRepository.result = Result.success(replacement)
+        repeat(OffRouteDetector.DEFAULT_REROUTE_SAMPLES) {
+            repository.emit(LocationUpdate.Fix(at(0.002, 0.003)))
+        }
+
+        val ready = viewModel.uiState.value.routeState as RouteState.Ready
+        assertEquals(555.0, ready.route.distanceMeters, EPS)
+        assertTrue(viewModel.uiState.value.navigationState is NavigationState.Active)
+    }
+
+    @Test
+    fun navigation_followsTheCamera_untillTheUserTakesOver() = runTest(dispatcher) {
+        val commands = collectCommands()
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        commands.clear()
+
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.003)))
+        assertTrue("follow must move the camera", commands.isNotEmpty())
+
+        // A user pan suspends follow...
+        viewModel.onMapEvent(MapEvent.UserGestureStarted)
+        commands.clear()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.006)))
+        assertTrue("a panned camera must not be yanked back", commands.isEmpty())
+        assertTrue(viewModel.uiState.value.navigationFollowSuspended)
+    }
+
+    @Test
+    fun recenter_duringNavigation_resumesFollow() = runTest(dispatcher) {
+        val commands = collectCommands()
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        viewModel.onMapEvent(MapEvent.UserGestureStarted)
+        commands.clear()
+
+        viewModel.onRecenterClicked()
+
+        assertFalse(viewModel.uiState.value.navigationFollowSuspended)
+        assertTrue(commands.isNotEmpty())
+        // And follow continues on the next fix rather than freezing where the user panned to.
+        commands.clear()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.007)))
+        assertTrue("follow must resume after recenter", commands.isNotEmpty())
+    }
+
+    @Test
+    fun notNavigating_recenterKeepsThePhase1BehaviourAndNeverSetsFollowFlags() = runTest(dispatcher) {
+        val commands = collectCommands()
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        commands.clear()
+
+        viewModel.onRecenterClicked()
+
+        val move = commands.single() as MapCommand.MoveCamera
+        assertEquals(40.0, move.target.latitude, EPS)
+        assertEquals(-74.0, move.target.longitude, EPS)
+        // "At least the minimum zoom": the camera was already at INITIAL_USER_ZOOM, so recenter
+        // keeps it rather than forcing a zoom change. (Phase 1 behaviour, unchanged.)
+        assertEquals(MapViewModel.INITIAL_USER_ZOOM, move.target.zoom, EPS)
+        assertTrue(move.target.zoom >= MapViewModel.RECENTER_MIN_ZOOM)
+        assertFalse(viewModel.uiState.value.navigationFollowSuspended)
+    }
+
+    @Test
+    fun userGestureWhileNotNavigating_doesNotArmFollowSuspension() = runTest(dispatcher) {
+        startWithPermission()
+        viewModel.onMapEvent(MapEvent.UserGestureStarted)
+        assertFalse("Phase 1 pans must not arm the navigation flag", viewModel.uiState.value.navigationFollowSuspended)
+    }
+
+    @Test
+    fun navigating_thenPanning_thenStartingANewTrip_startsInFollow() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        viewModel.onMapEvent(MapEvent.UserGestureStarted)
+        viewModel.stopNavigation()
+
+        // The suspension must not leak into the next trip.
+        assertFalse(viewModel.uiState.value.navigationFollowSuspended)
+    }
+
+    @Test
+    fun modeToggle_duringNavigation_doesNotDisturbTheTrip() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+
+        viewModel.onModeSelected(MapMode.Live)
+
+        assertEquals(MapMode.Live, viewModel.uiState.value.selectedMapMode)
+        assertTrue("switching modes must not end the trip", viewModel.uiState.value.isNavigating)
+    }
+
+    @Test
+    fun canStartNavigation_requiresBothARouteAndAFix() = runTest(dispatcher) {
+        assertFalse("no route", viewModel.uiState.value.canStartNavigation)
+
+        startWithPermission()
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        assertFalse("route but no fix", viewModel.uiState.value.canStartNavigation)
+
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        assertTrue(viewModel.uiState.value.canStartNavigation)
+
+        viewModel.startNavigation()
+        assertFalse("cannot start twice", viewModel.uiState.value.canStartNavigation)
+    }
+
+    // endregion
+
     // region helpers
 
     private fun startWithPermission() {
@@ -413,6 +766,39 @@ class MapViewModelTest {
         durationSeconds = durationSeconds,
         bounds = RouteBounds(south = 40.0, west = -75.0, north = 41.0, east = -74.0),
     )
+
+    /**
+     * A north-bound (increasing longitude) route at the equator with evenly spaced maneuvers, so a
+     * fix's longitude maps directly onto how far along the route the driver is.
+     */
+    private fun navigableRoute(
+        points: Int = 10,
+        maneuvers: Int = 3,
+        stepDegrees: Double = 0.001,
+        distanceMeters: Double = (points - 1) * stepDegrees * 111_320.0,
+    ): RouteResult {
+        val geometry = (0 until points).map { Coordinate(0.0, it * stepDegrees) }
+        val perManeuver = (points - 1) / maneuvers
+        val routeManeuvers = (0 until maneuvers).map { index ->
+            val begin = index * perManeuver
+            val end = if (index == maneuvers - 1) points - 1 else begin + perManeuver - 1
+            RouteManeuver(
+                instruction = if (index == maneuvers - 1) "You have arrived." else "Continue on Route $index.",
+                verbalInstruction = null,
+                type = if (index == maneuvers - 1) ManeuverType.Destination else ManeuverType.Continue,
+                streetName = null,
+                distanceMeters = (end - begin) * stepDegrees * 111_320.0,
+                beginShapeIndex = begin,
+                endShapeIndex = end,
+            )
+        }
+        return RouteResult(
+            geometry = geometry,
+            distanceMeters = distanceMeters,
+            durationSeconds = 600.0,
+            maneuvers = routeManeuvers,
+        )
+    }
 
     private class FakeLocationRepository : LocationRepository {
         private val flow = MutableSharedFlow<LocationUpdate>(extraBufferCapacity = 16)

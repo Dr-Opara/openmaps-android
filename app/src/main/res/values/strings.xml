@@ -63,6 +63,24 @@
     <string name="route_error_malformed">We couldn\'t read that response. Try again.</string>
     <string name="route_error_no_route">No route found to this destination.</string>
 
+    <!-- Navigation (Phase 4) -->
+    <string name="nav_start">Start</string>
+    <string name="nav_stop">End</string>
+    <string name="cd_start_navigation">Start navigation</string>
+    <string name="cd_stop_navigation">End navigation</string>
+    <string name="nav_rerouting">Rerouting…</string>
+    <string name="nav_off_route">Off route</string>
+    <string name="nav_off_route_hint">Finding a new route to your destination.</string>
+    <string name="nav_arrived_title">You\'ve arrived</string>
+    <string name="nav_arrived_body">You\'ve reached your destination.</string>
+    <string name="nav_remaining_format">%1$s · %2$s left</string>
+    <string name="nav_maneuver_in_format">in %1$s</string>
+    <string name="nav_next_maneuver">Then %1$s</string>
+    <string name="nav_following">Following</string>
+    <string name="nav_follow_suspended">Tap recenter to resume</string>
+    <string name="nav_error_no_location">We need your location to start navigation.</string>
+    <string name="nav_error_no_route">This route doesn\'t have turn-by-turn directions yet.</string>
+
     <!-- Settings -->
     <string name="settings_title">Settings</string>
     <string name="settings_section_location">Location</string>

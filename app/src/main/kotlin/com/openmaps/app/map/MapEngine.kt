@@ -47,6 +47,13 @@ interface MapEngine {
     fun setRoute(route: RouteResult?)
 
     /**
+     * Mark the first [RouteProgressView.traveledShapeIndex] points of the current route as already
+     * driven, so the renderer can draw them differently from the road still ahead. Null clears the
+     * split. Must be called after [setRoute] for the route in question.
+     */
+    fun setRouteProgress(progress: RouteProgressView?)
+
+    /**
      * Space covered by overlays at the bottom of the map. Keeps required attribution visible
      * above the bottom panel (and, later, lets camera fitting avoid the panel).
      */

@@ -99,6 +99,10 @@ private fun AppShell(container: AppContainer) {
                 }
                 MapUiEvent.OpenAppSettings -> context.openAppSettings()
                 MapUiEvent.OpenLocationSettings -> context.startSafely(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                // Purely informational: the old route is still active and usable, so there is
+                // nothing to launch and nothing to recover from here. Deliberately a no-op — the
+                // visible cue is the OffRoute state on the banner itself.
+                MapUiEvent.RerouteFailed -> Unit
             }
         }
     }
