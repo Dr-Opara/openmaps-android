@@ -9,6 +9,7 @@ import android.view.Gravity
 import android.view.View
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
+import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +27,12 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
 import kotlin.math.abs
 
 /**
@@ -61,6 +68,7 @@ class MapLibreMapEngine(
     private var styleLoaded = false
     private var pendingMove: MapCommand.MoveCamera? = null
     private var userLocation: UserLocation? = null
+    private var destination: SearchResult? = null
     private var bottomInsetPx = 0
     private var density = 1f
     private var lastReportedBearing = Double.NaN
@@ -140,6 +148,7 @@ class MapLibreMapEngine(
             styleLoaded = true
             _events.tryEmit(MapEvent.StyleLoaded)
             syncUserLocation()
+            syncDestination()
         }
     }
 
@@ -204,6 +213,54 @@ class MapLibreMapEngine(
         }
         component.isLocationComponentEnabled = true
         component.forceLocationUpdate(location.toAndroidLocation())
+    }
+
+    override fun setDestination(destination: SearchResult?) {
+        this.destination = destination
+        syncDestination()
+    }
+
+    /**
+     * Destination marker as a GeoJSON source + circle layer (the extension point this codebase
+     * already documented for POI-style overlays), not the separate annotation plugin, so no new
+     * MapLibre dependency is needed. [GeoJsonSource.setGeoJson] always replaces the previous
+     * data wholesale, so there is never more than one destination feature.
+     *
+     * Deliberately a plain circle, not a custom pin icon: a `SymbolLayer` with a programmatically
+     * added image (both via `Style.addImage(String, Drawable)` and a manually rasterized
+     * `Bitmap`, with icon-size/anchor/overlap properties explicitly set and the icon content
+     * verified non-transparent) consistently failed to render anything on this project's test
+     * emulator (MapLibre 11.13.5, 16 KB page size, OpenGL backend) — no exceptions, correct
+     * layer/property/visibility state, simply no pixels drawn. A `CircleLayer` with the same
+     * source and camera position renders correctly, so that is what is used here.
+     */
+    private fun syncDestination() {
+        val readyMap = map ?: return
+        if (!styleLoaded) return // Re-applied from the style-loaded callback.
+        val style = readyMap.style ?: return
+        ensureDestinationLayer(style)
+        val source = style.getSourceAs<GeoJsonSource>(DESTINATION_SOURCE_ID) ?: return
+        val point = destination
+        source.setGeoJson(
+            if (point == null) {
+                FeatureCollection.fromFeatures(emptyArray())
+            } else {
+                FeatureCollection.fromFeature(Feature.fromGeometry(Point.fromLngLat(point.longitude, point.latitude)))
+            },
+        )
+    }
+
+    private fun ensureDestinationLayer(style: Style) {
+        if (style.getLayer(DESTINATION_LAYER_ID) != null) return
+        style.addSource(GeoJsonSource(DESTINATION_SOURCE_ID))
+        style.addLayer(
+            CircleLayer(DESTINATION_LAYER_ID, DESTINATION_SOURCE_ID).withProperties(
+                PropertyFactory.circleRadius(DESTINATION_MARKER_RADIUS),
+                PropertyFactory.circleColor(ACCENT_BLUE),
+                PropertyFactory.circleStrokeColor(Color.WHITE),
+                PropertyFactory.circleStrokeWidth(DESTINATION_MARKER_STROKE_WIDTH),
+            ),
+        )
     }
 
     override fun setBottomInset(pixels: Int) {
@@ -298,5 +355,9 @@ class MapLibreMapEngine(
         const val ATTRIBUTION_MARGIN_DP = 8
         const val PROVIDER_TAG = "openmaps"
         val ACCENT_BLUE: Int = Color.parseColor("#2F7BFF")
+        const val DESTINATION_SOURCE_ID = "openmaps-destination-source"
+        const val DESTINATION_LAYER_ID = "openmaps-destination-layer"
+        const val DESTINATION_MARKER_RADIUS = 9f
+        const val DESTINATION_MARKER_STROKE_WIDTH = 3f
     }
 }

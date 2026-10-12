@@ -12,6 +12,7 @@
     <string name="cd_compass">Reset map to north</string>
     <string name="cd_dismiss">Dismiss</string>
     <string name="cd_back">Back</string>
+    <string name="cd_clear_destination">Clear destination</string>
     <string name="panel_title">Explore what\'s around you</string>
 
     <!-- Map error -->
@@ -44,7 +45,14 @@
     <string name="search_title">Search destinations</string>
     <string name="search_recent_header">Recent</string>
     <string name="search_recent_empty">Places you search for will appear here.</string>
-    <string name="search_not_available">Destination search isn\'t available yet.</string>
+    <string name="cd_clear_query">Clear search</string>
+    <string name="search_loading">Searching…</string>
+    <string name="search_no_results">No results found. Try a different search.</string>
+    <string name="search_error_no_network">You\'re offline. Check your connection and try again.</string>
+    <string name="search_error_timeout">That took too long. Try again.</string>
+    <string name="search_error_rate_limited">Too many searches at once. Wait a moment and try again.</string>
+    <string name="search_error_server">Something went wrong on our end. Try again.</string>
+    <string name="search_error_malformed">We couldn\'t read that response. Try again.</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>

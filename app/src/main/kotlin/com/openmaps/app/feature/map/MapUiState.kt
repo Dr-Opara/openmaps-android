@@ -1,5 +1,6 @@
 package com.openmaps.app.feature.map
 
+import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.UserLocation
@@ -25,6 +26,8 @@ data class MapUiState(
     val error: MapError? = null,
     /** The prompt the user dismissed, if any. Re-shows automatically if the situation changes. */
     val dismissedPrompt: LocationPrompt? = null,
+    /** The destination marker shown on the map, or null when none is selected. */
+    val selectedDestination: SearchResult? = null,
 ) {
     val isLocationLoading: Boolean
         get() = locationStatus == LocationStatus.Loading

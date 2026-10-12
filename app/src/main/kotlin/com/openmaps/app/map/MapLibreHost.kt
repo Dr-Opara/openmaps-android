@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
 import kotlinx.coroutines.flow.Flow
 
@@ -27,6 +28,7 @@ fun MapLibreHost(
     engine: MapEngine,
     commands: Flow<MapCommand>,
     userLocation: Flow<UserLocation?>,
+    destination: Flow<SearchResult?>,
     onEvent: (MapEvent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -63,4 +65,5 @@ fun MapLibreHost(
     LaunchedEffect(engine) { engine.events.collect { currentOnEvent(it) } }
     LaunchedEffect(engine, commands) { commands.collect { engine.execute(it) } }
     LaunchedEffect(engine, userLocation) { userLocation.collect { engine.setUserLocation(it) } }
+    LaunchedEffect(engine, destination) { destination.collect { engine.setDestination(it) } }
 }

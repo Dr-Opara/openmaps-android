@@ -39,6 +39,8 @@ import com.openmaps.app.feature.map.MapUiEvent
 import com.openmaps.app.feature.map.MapViewModel
 import com.openmaps.app.feature.map.mapViewModelFactory
 import com.openmaps.app.feature.search.SearchScreen
+import com.openmaps.app.feature.search.SearchViewModel
+import com.openmaps.app.feature.search.searchViewModelFactory
 import com.openmaps.app.feature.settings.SettingsScreen
 import com.openmaps.app.feature.splash.SplashScreen
 import com.openmaps.app.map.MapMode
@@ -66,6 +68,7 @@ fun OpenMapsApp(container: AppContainer) {
 @Composable
 private fun AppShell(container: AppContainer) {
     val viewModel: MapViewModel = viewModel(factory = mapViewModelFactory(container))
+    val searchViewModel: SearchViewModel = viewModel(factory = searchViewModelFactory(container))
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
 
@@ -127,7 +130,14 @@ private fun AppShell(container: AppContainer) {
             enter = fadeIn() + slideInVertically { it / 12 },
             exit = fadeOut() + slideOutVertically { it / 12 },
         ) {
-            SearchScreen(onBack = { overlay = Overlay.None })
+            SearchScreen(
+                viewModel = searchViewModel,
+                onBack = { overlay = Overlay.None },
+                onResultSelected = { result ->
+                    viewModel.onDestinationSelected(result)
+                    overlay = Overlay.None
+                },
+            )
         }
 
         AnimatedVisibility(

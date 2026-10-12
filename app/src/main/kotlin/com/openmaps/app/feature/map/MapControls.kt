@@ -50,6 +50,7 @@ import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.glass
+import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.map.MapMode
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.abs
@@ -178,11 +179,16 @@ fun CompassButton(
 private const val COMPASS_VISIBLE_THRESHOLD_DEGREES = 1f
 
 /**
- * Collapsed bottom panel placeholder. Intentionally shows no ETA, distance or route: nothing
- * is fabricated before routing exists.
+ * Collapsed bottom panel. Shows a compact destination summary once one is selected, otherwise
+ * the Phase 1 placeholder. Intentionally shows no ETA, distance or route: nothing is fabricated
+ * before routing exists.
  */
 @Composable
-fun BottomPanel(modifier: Modifier = Modifier) {
+fun BottomPanel(
+    destination: SearchResult?,
+    onClearDestination: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -198,12 +204,39 @@ fun BottomPanel(modifier: Modifier = Modifier) {
                 .drawBehind { drawRect(Color.White.copy(alpha = 0.28f)) },
         )
         Spacer(Modifier.height(10.dp))
-        Text(
-            text = stringResource(R.string.panel_title),
-            style = MaterialTheme.typography.titleMedium,
-            color = OpenMapsColors.TextPrimary,
-            modifier = Modifier.padding(bottom = 6.dp),
-        )
+        if (destination == null) {
+            Text(
+                text = stringResource(R.string.panel_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = OpenMapsColors.TextPrimary,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = destination.name.ifBlank { destination.displayName },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = OpenMapsColors.TextPrimary,
+                    )
+                    Text(
+                        text = destination.subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OpenMapsColors.TextSecondary,
+                    )
+                }
+                IconButton(onClick = onClearDestination) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = stringResource(R.string.cd_clear_destination),
+                        tint = OpenMapsColors.TextSecondary,
+                    )
+                }
+            }
+        }
     }
 }
 

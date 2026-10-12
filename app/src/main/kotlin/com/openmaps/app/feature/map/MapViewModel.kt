@@ -2,6 +2,7 @@ package com.openmaps.app.feature.map
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.location.LocationRepository
 import com.openmaps.app.core.location.LocationStatus
@@ -156,6 +157,17 @@ class MapViewModel(
         _uiState.update { it.copy(dismissedPrompt = it.locationPrompt) }
     }
 
+    /** A search result (fresh or recent) was picked: show its marker and fly the camera to it. */
+    fun onDestinationSelected(result: SearchResult) {
+        _uiState.update { it.copy(selectedDestination = result) }
+        moveCamera(CameraState(result.latitude, result.longitude, DESTINATION_ZOOM), durationMillis = 900)
+    }
+
+    /** Clears the destination marker and summary. */
+    fun onDestinationCleared() {
+        _uiState.update { it.copy(selectedDestination = null) }
+    }
+
     // endregion
 
     // region Location pipeline
@@ -258,6 +270,7 @@ class MapViewModel(
         const val DEFAULT_FIX_TIMEOUT_MILLIS = 20_000L
         const val INITIAL_USER_ZOOM = 15.0
         const val RECENTER_MIN_ZOOM = 14.0
+        const val DESTINATION_ZOOM = 15.0
 
         /** Maps any bearing to [-180, 180) so "rotated" checks and the compass needle are symmetric. */
         fun normalizeBearing(degrees: Double): Float = (((degrees % 360.0) + 540.0) % 360.0 - 180.0).toFloat()

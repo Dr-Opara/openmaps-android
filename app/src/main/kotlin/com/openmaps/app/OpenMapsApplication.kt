@@ -1,6 +1,10 @@
 package com.openmaps.app
 
 import android.app.Application
+import com.openmaps.app.core.geocoding.GeocodingRepository
+import com.openmaps.app.core.geocoding.NominatimGeocodingRepository
+import com.openmaps.app.core.geocoding.RecentSearchStore
+import com.openmaps.app.core.geocoding.SharedPreferencesRecentSearchStore
 import com.openmaps.app.core.location.AndroidLocationRepository
 import com.openmaps.app.core.location.LocationPermissionPrefs
 import com.openmaps.app.core.location.LocationRepository
@@ -12,6 +16,10 @@ class AppContainer(application: Application) {
     val locationRepository: LocationRepository = AndroidLocationRepository(application)
     val locationPermissionPrefs: LocationPermissionPrefs = LocationPermissionPrefs(application)
     val mapStyleProvider: MapStyleProvider = BuildConfigMapStyleProvider()
+    val geocodingRepository: GeocodingRepository = NominatimGeocodingRepository(
+        userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+    )
+    val recentSearchStore: RecentSearchStore = SharedPreferencesRecentSearchStore(application)
 }
 
 class OpenMapsApplication : Application() {

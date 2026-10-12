@@ -1,5 +1,6 @@
 package com.openmaps.app.feature.map
 
+import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.location.LocationRepository
 import com.openmaps.app.core.location.LocationStatus
@@ -232,6 +233,42 @@ class MapViewModelTest {
         assertEquals(MapMode.Live, viewModel.uiState.value.selectedMapMode)
     }
 
+    @Test
+    fun destinationSelected_setsMarkerState_andFliesCameraToIt() = runTest(dispatcher) {
+        val commands = collectCommands()
+        val destination = place("empire-state", 40.7484, -73.9857)
+
+        viewModel.onDestinationSelected(destination)
+
+        assertEquals(destination, viewModel.uiState.value.selectedDestination)
+        val move = commands.single() as MapCommand.MoveCamera
+        assertTrue(move.animated)
+        assertEquals(40.7484, move.target.latitude, EPS)
+        assertEquals(-73.9857, move.target.longitude, EPS)
+    }
+
+    @Test
+    fun selectingAnotherDestination_replacesThePrevious_noDuplicateState() = runTest(dispatcher) {
+        val commands = collectCommands()
+        val first = place("a", 1.0, 1.0)
+        val second = place("b", 2.0, 2.0)
+
+        viewModel.onDestinationSelected(first)
+        viewModel.onDestinationSelected(second)
+
+        assertEquals(second, viewModel.uiState.value.selectedDestination)
+        assertEquals(2, commands.size)
+        val lastMove = commands.last() as MapCommand.MoveCamera
+        assertEquals(2.0, lastMove.target.latitude, EPS)
+    }
+
+    @Test
+    fun destinationCleared_removesMarkerState() = runTest(dispatcher) {
+        viewModel.onDestinationSelected(place("a", 1.0, 1.0))
+        viewModel.onDestinationCleared()
+        assertNull(viewModel.uiState.value.selectedDestination)
+    }
+
     // region helpers
 
     private fun startWithPermission() {
@@ -250,6 +287,14 @@ class MapViewModelTest {
         }
 
     private fun at(lat: Double, lon: Double) = UserLocation(lat, lon, accuracyMeters = 8f)
+
+    private fun place(id: String, lat: Double, lon: Double) = SearchResult(
+        id = id,
+        name = "Place $id",
+        displayName = "Place $id, USA",
+        latitude = lat,
+        longitude = lon,
+    )
 
     private class FakeLocationRepository : LocationRepository {
         private val flow = MutableSharedFlow<LocationUpdate>(extraBufferCapacity = 16)

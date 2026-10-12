@@ -96,4 +96,8 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Unit tests run against the Android stub jar, where org.json methods return defaults
+    // instead of parsing. This test-only dependency shadows the stub with a real implementation
+    // so NominatimResponseParser (production code, uses the platform org.json) is testable here.
+    testImplementation(libs.json)
 }
