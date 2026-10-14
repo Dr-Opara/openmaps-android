@@ -130,6 +130,7 @@ class AndroidLocationRepository(context: Context) : LocationRepository {
         accuracyMeters = if (hasAccuracy()) accuracy else null,
         bearingDegrees = if (hasBearing()) bearing else null,
         timestampMillis = time,
+        speedMetersPerSecond = if (hasSpeed()) speed else null,
     )
 
     private companion object {

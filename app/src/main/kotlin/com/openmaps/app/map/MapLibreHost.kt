@@ -15,6 +15,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.places.Place
+import com.openmaps.app.core.roadintelligence.RoadEvent
 import com.openmaps.app.core.routing.RouteResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -39,6 +40,7 @@ fun MapLibreHost(
     // lint enforces Modifier coming first among optional params.
     routeProgress: Flow<RouteProgressView?> = emptyFlow(),
     places: Flow<List<Place>> = emptyFlow(),
+    roadEvents: Flow<List<RoadEvent>> = emptyFlow(),
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -77,4 +79,5 @@ fun MapLibreHost(
     LaunchedEffect(engine, route) { route.collect { engine.setRoute(it) } }
     LaunchedEffect(engine, routeProgress) { routeProgress.collect { engine.setRouteProgress(it) } }
     LaunchedEffect(engine, places) { places.collect { engine.setPlaces(it) } }
+    LaunchedEffect(engine, roadEvents) { roadEvents.collect { engine.setRoadEvents(it) } }
 }

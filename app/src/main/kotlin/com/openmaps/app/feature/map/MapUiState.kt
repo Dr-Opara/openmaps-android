@@ -8,6 +8,7 @@ import com.openmaps.app.core.navigation.RouteProgress
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PlaceCategoryMapper
+import com.openmaps.app.core.roadintelligence.RoadIntelligenceState
 import com.openmaps.app.map.CameraState
 import com.openmaps.app.map.MapError
 import com.openmaps.app.map.MapMode
@@ -56,6 +57,8 @@ data class MapUiState(
      * because ranking walks the route geometry and must not re-run on every recomposition.
      */
     val visiblePlaces: List<Place> = emptyList(),
+    /** Hazards, weather, speed limit, lane guidance and prioritized alerts (Phase 10). */
+    val roadIntelligenceState: RoadIntelligenceState = RoadIntelligenceState(),
 ) {
     /** The progress snapshot to render, or null when navigation isn't reporting one. */
     val navigationProgress: RouteProgress?

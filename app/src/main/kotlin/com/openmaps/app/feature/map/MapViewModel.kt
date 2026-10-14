@@ -19,6 +19,12 @@ import com.openmaps.app.core.places.PlaceException
 import com.openmaps.app.core.places.PlaceRanking
 import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.places.RouteCorridor
+import com.openmaps.app.core.roadintelligence.RoadAlertActivation
+import com.openmaps.app.core.roadintelligence.RoadAlertHysteresis
+import com.openmaps.app.core.roadintelligence.RoadAlertPriority
+import com.openmaps.app.core.roadintelligence.RoadEventSeverity
+import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
+import com.openmaps.app.core.roadintelligence.RouteAlert
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.routing.RoutingException
@@ -56,6 +62,7 @@ class MapViewModel(
     private val locationRepository: LocationRepository,
     private val routingRepository: RoutingRepository,
     private val placesRepository: PlaceRepository,
+    private val roadIntelligenceRepository: RoadIntelligenceRepository,
     private val fixTimeoutMillis: Long = DEFAULT_FIX_TIMEOUT_MILLIS,
 ) : ViewModel() {
 
@@ -104,6 +111,25 @@ class MapViewModel(
 
     /** Where the last *nearby* (not along-route) fetch was centered, for the move-threshold check. */
     private var lastPlacesFetchLocation: UserLocation? = null
+
+    // endregion
+
+    // region Road intelligence (Phase 10)
+
+    private var hazardsJob: Job? = null
+    private var weatherJob: Job? = null
+    private var speedLimitJob: Job? = null
+
+    /** Where the last weather/speed-limit fetch was centered, for each's own move-threshold check. */
+    private var lastWeatherFetchLocation: UserLocation? = null
+    private var lastSpeedLimitFetchLocation: UserLocation? = null
+
+    /**
+     * Debounces which [RouteAlert]s are actually active across ticks (section 15 of the Phase 10
+     * brief). Per-trip state, like [session] — reset on reroute and on navigation stop so a new
+     * trip never inherits a stale confirm/exit streak from the one before it.
+     */
+    private val roadAlertHysteresis = RoadAlertHysteresis()
 
     // endregion
 
@@ -308,6 +334,7 @@ class MapViewModel(
                 _uiState.update { it.copy(routeState = RouteState.Ready(route)) }
                 route.bounds?.let { bounds -> commandChannel.trySend(MapCommand.FitBounds(bounds)) }
                 fetchPlacesAlongRoute(route)
+                fetchRoadEventsAlongRoute(route)
             }.onFailure { cause ->
                 _uiState.update { it.copy(routeState = RouteState.Error(cause.toRouteError())) }
             }
@@ -464,6 +491,118 @@ class MapViewModel(
 
     // endregion
 
+    // region Road intelligence (Phase 10)
+
+    /**
+     * Fetched once per route (initial or reroute), the same cadence `fetchPlacesAlongRoute` uses
+     * and for the same reason: Phase 10 has no scrolling-window corridor refresh, and the corridor
+     * query already covers the whole route. A failure is silent and never clears a result already
+     * showing — see "Network/failure handling" in ARCHITECTURE.md's Road intelligence section; no
+     * road-intelligence source may become a navigation dependency.
+     */
+    private fun fetchRoadEventsAlongRoute(route: RouteResult) {
+        hazardsJob?.cancel()
+        hazardsJob = viewModelScope.launch {
+            roadIntelligenceRepository.roadEventsAlongRoute(route.geometry, ROAD_HAZARD_CORRIDOR_METERS)
+                .onSuccess { events ->
+                    _uiState.update { it.copy(roadIntelligenceState = it.roadIntelligenceState.copy(events = events)) }
+                    recomputeRoadAlerts()
+                }
+            // onFailure: deliberately no-op. The previous (possibly empty) event list stays shown,
+            // exactly like a failed places fetch never clears an already-showing `Ready` result.
+        }
+    }
+
+    /**
+     * Weather changes over tens of minutes, not metres (section 19: "slower cadence"), so this
+     * refetches only once the user has moved [WEATHER_REFETCH_DISTANCE_METERS] from the last fetch
+     * — a much coarser threshold than places' nearby refetch distance, deliberately.
+     */
+    private fun maybeFetchWeather(location: UserLocation) {
+        val last = lastWeatherFetchLocation
+        val movedEnough = last == null || RouteCorridor.metersBetween(
+            Coordinate(last.latitude, last.longitude),
+            Coordinate(location.latitude, location.longitude),
+        ) >= WEATHER_REFETCH_DISTANCE_METERS
+        if (!movedEnough) return
+        lastWeatherFetchLocation = location
+        weatherJob?.cancel()
+        weatherJob = viewModelScope.launch {
+            roadIntelligenceRepository.weatherNear(Coordinate(location.latitude, location.longitude))
+                .onSuccess { weather ->
+                    _uiState.update { it.copy(roadIntelligenceState = it.roadIntelligenceState.copy(weather = weather)) }
+                    recomputeRoadAlerts()
+                }
+        }
+    }
+
+    /**
+     * Speed limits are tied to the road segment, not the clock (section 19: "cacheable"), so this
+     * refetches on a tight distance threshold — frequent enough to catch a posted-limit change at
+     * the next intersection, still far short of "every GPS tick."
+     */
+    private fun maybeFetchSpeedLimit(location: UserLocation) {
+        val last = lastSpeedLimitFetchLocation
+        val movedEnough = last == null || RouteCorridor.metersBetween(
+            Coordinate(last.latitude, last.longitude),
+            Coordinate(location.latitude, location.longitude),
+        ) >= SPEED_LIMIT_REFETCH_DISTANCE_METERS
+        if (!movedEnough) return
+        lastSpeedLimitFetchLocation = location
+        speedLimitJob?.cancel()
+        speedLimitJob = viewModelScope.launch {
+            roadIntelligenceRepository.speedLimitNear(Coordinate(location.latitude, location.longitude))
+                .onSuccess { speedLimit ->
+                    _uiState.update { it.copy(roadIntelligenceState = it.roadIntelligenceState.copy(speedLimit = speedLimit)) }
+                    recomputeRoadAlerts()
+                }
+        }
+    }
+
+    /**
+     * Rebuilds `MapUiState.roadIntelligenceState.activeAlerts`: candidate alerts from whatever data
+     * is currently known, deterministically prioritized ([RoadAlertPriority.sorted]), then
+     * stabilized through [roadAlertHysteresis] (section 15 — never flickers on raw candidate
+     * membership alone). Pure in-memory work over a small list — no network call here, so calling
+     * this on every location tick (see [onLocationUpdate]) is cheap by construction, never a
+     * per-frame cost and never a reason navigation could stall.
+     *
+     * Hazard/lane alerts need [MapUiState.navigationProgress] (an "ahead" distance only means
+     * something relative to where the driver is on the route) and are simply absent while not
+     * navigating; weather/speed-limit/congestion are position-driven, not progress-driven, and show
+     * regardless.
+     */
+    private fun recomputeRoadAlerts() {
+        val state = _uiState.value
+        val roadState = state.roadIntelligenceState
+        val progress = state.navigationProgress
+        val candidates = mutableListOf<RouteAlert>()
+
+        if (progress != null) {
+            val active = RoadAlertActivation.activeHazards(roadState.events, progress.distanceTraveledMeters)
+            for ((event, aheadMeters) in active) {
+                candidates += if (event.severity >= RoadEventSeverity.High) {
+                    RouteAlert.Hazard(event, aheadMeters)
+                } else {
+                    RouteAlert.Informational(event)
+                }
+            }
+        }
+        roadState.weather?.let { weather ->
+            if (weather.severity >= RoadEventSeverity.Moderate) candidates += RouteAlert.Weather(weather)
+        }
+        roadState.laneGuidance?.let { candidates += RouteAlert.Lane(it) }
+        roadState.speedLimit?.let { candidates += RouteAlert.SpeedLimit(it) }
+        roadState.traffic?.let { candidates += RouteAlert.Congestion(it) }
+
+        val stabilized = roadAlertHysteresis.update(RoadAlertPriority.sorted(candidates)).take(MAX_ACTIVE_ALERTS)
+        _uiState.update {
+            it.copy(roadIntelligenceState = it.roadIntelligenceState.copy(activeAlerts = stabilized))
+        }
+    }
+
+    // endregion
+
     // region Navigation (Phase 4)
 
     /**
@@ -509,6 +648,8 @@ class MapViewModel(
         // Ranking/caps differ once navigating (ahead-of-driver, utility categories) — see
         // `recomputeVisiblePlaces`.
         recomputeVisiblePlaces()
+        // Hazard "ahead" distances only mean something once there is a progress to measure from.
+        recomputeRoadAlerts()
     }
 
     /** Ends the trip and returns the map to plain route browsing. Never touches the route itself. */
@@ -521,6 +662,10 @@ class MapViewModel(
         }
         _routeProgressView.value = null
         recomputeVisiblePlaces()
+        // A new trip must not inherit stale confirm/exit streaks, and route-relative hazard alerts
+        // have no "ahead" distance to show once there is no progress to measure from.
+        roadAlertHysteresis.reset()
+        recomputeRoadAlerts()
     }
 
     /**
@@ -596,8 +741,13 @@ class MapViewModel(
                         publishRouteProgress(it)
                         followCameraWith(it)
                     }
-                    // The old route's corridor places are stale now; fetch against the new one.
+                    // The old route's corridor places/hazards are stale now; fetch against the new one.
                     fetchPlacesAlongRoute(route)
+                    // The old route's matched distances are meaningless against new geometry, and a
+                    // fresh trip must not inherit the old one's confirm/exit streaks.
+                    roadAlertHysteresis.reset()
+                    fetchRoadEventsAlongRoute(route)
+                    recomputeRoadAlerts()
                 }
                 .onFailure {
                     rerouteInFlight = false
@@ -704,7 +854,17 @@ class MapViewModel(
         when (update) {
             is LocationUpdate.Fix -> {
                 timeoutJob?.cancel()
-                _uiState.update { it.copy(currentLocation = update.location, locationStatus = LocationStatus.Available) }
+                _uiState.update {
+                    it.copy(
+                        currentLocation = update.location,
+                        locationStatus = LocationStatus.Available,
+                        // A direct reading, never derived from consecutive fixes — see
+                        // `UserLocation.speedMetersPerSecond`'s doc comment.
+                        roadIntelligenceState = it.roadIntelligenceState.copy(
+                            currentSpeedMetersPerSecond = update.location.speedMetersPerSecond,
+                        ),
+                    )
+                }
                 centerOnFirstFix(update.location)
                 // A route that was only missing an origin can proceed now that one exists.
                 if (_uiState.value.routeState == RouteState.WaitingForLocation) requestRoute()
@@ -712,6 +872,11 @@ class MapViewModel(
                 if (_uiState.value.isNavigating) onNavigationTick(update.location)
                 // Nearby places are location-driven only while not navigating (see Phase 9 region).
                 maybeFetchNearbyPlaces(update.location)
+                // Weather/speed-limit are current-location-driven regardless of navigation state —
+                // see the Road intelligence (Phase 10) region below for each's own refetch cadence.
+                maybeFetchWeather(update.location)
+                maybeFetchSpeedLimit(update.location)
+                recomputeRoadAlerts()
             }
             LocationUpdate.ServicesDisabled -> {
                 timeoutJob?.cancel()
@@ -778,6 +943,20 @@ class MapViewModel(
 
         /** Map-mode density cap while navigating: fewer, more relevant places. */
         const val MAX_VISIBLE_PLACES_NAVIGATING = 20
+
+        // Phase 10: road intelligence.
+
+        /** How far off the active route a hazard/incident can sit and still be surfaced. */
+        const val ROAD_HAZARD_CORRIDOR_METERS = 300.0
+
+        /** Weather changes slowly — a much coarser refetch distance than places/hazards. */
+        const val WEATHER_REFETCH_DISTANCE_METERS = 8_000.0
+
+        /** Tight enough to catch a posted-limit change at the next intersection. */
+        const val SPEED_LIMIT_REFETCH_DISTANCE_METERS = 150.0
+
+        /** Keeps the rendered alert list short even when several hazards qualify at once. */
+        const val MAX_ACTIVE_ALERTS = 5
 
         /**
          * Camera step while following. Short and non-animated: the target updates on every GPS

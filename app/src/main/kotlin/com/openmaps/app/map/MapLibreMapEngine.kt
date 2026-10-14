@@ -14,6 +14,8 @@ import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
+import com.openmaps.app.core.roadintelligence.RoadEvent
+import com.openmaps.app.core.roadintelligence.RoadEventSeverity
 import com.openmaps.app.core.routing.RouteResult
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
@@ -81,6 +83,7 @@ class MapLibreMapEngine(
     private var route: RouteResult? = null
     private var routeProgress: RouteProgressView? = null
     private var places: List<Place> = emptyList()
+    private var roadEvents: List<RoadEvent> = emptyList()
     private var bottomInsetPx = 0
     private var density = 1f
     private var lastReportedBearing = Double.NaN
@@ -182,6 +185,9 @@ class MapLibreMapEngine(
             // with no route yet), which is the layer the places layer is anchored below — see
             // ensurePlacesLayer.
             syncPlaces()
+            // After syncPlaces(): ensureRoadEventsLayer anchors above PLACES_LAYER_ID when it
+            // exists, so hazards render above general POIs but still below route/destination.
+            syncRoadEvents()
         }
     }
 
@@ -480,6 +486,68 @@ class MapLibreMapEngine(
         Expression.color(PLACE_COLOR_DEFAULT),
     )
 
+    override fun setRoadEvents(events: List<RoadEvent>) {
+        this.roadEvents = events
+        syncRoadEvents()
+    }
+
+    /**
+     * Road hazards (Phase 10) as a GeoJSON source + circle layer, the same "whole-collection
+     * replace" approach [syncPlaces] established. Colored by [RoadEvent.severity] rather than
+     * [RoadEvent.type] — "how urgent" is what a glance at the map needs, and it also means any
+     * future [com.openmaps.app.core.roadintelligence.RoadEventType] this app doesn't have a bespoke
+     * color for yet still renders sensibly.
+     */
+    private fun syncRoadEvents() {
+        val readyMap = map ?: return
+        if (!styleLoaded) return // Re-applied from the style-loaded callback.
+        val style = readyMap.style ?: return
+        ensureRoadEventsLayer(style)
+        val source = style.getSourceAs<GeoJsonSource>(ROAD_EVENTS_SOURCE_ID) ?: return
+        source.setGeoJson(
+            FeatureCollection.fromFeatures(
+                roadEvents.map { event ->
+                    val properties = JsonObject().apply {
+                        addProperty(ROAD_EVENT_FEATURE_ID_KEY, event.id)
+                        addProperty(ROAD_EVENT_FEATURE_SEVERITY_KEY, event.severity.name)
+                    }
+                    Feature.fromGeometry(Point.fromLngLat(event.longitude, event.latitude), properties)
+                }.toTypedArray(),
+            ),
+        )
+    }
+
+    /**
+     * Anchored above [PLACES_LAYER_ID] when it exists (hazards read as more urgent than a general
+     * POI), falling back to the same below-[ROUTE_TRAVELED_LAYER_ID] anchor [ensurePlacesLayer]
+     * uses when it does not — both keep navigation content on top either way.
+     */
+    private fun ensureRoadEventsLayer(style: Style) {
+        if (style.getLayer(ROAD_EVENTS_LAYER_ID) != null) return
+        style.addSource(GeoJsonSource(ROAD_EVENTS_SOURCE_ID))
+        val layer = CircleLayer(ROAD_EVENTS_LAYER_ID, ROAD_EVENTS_SOURCE_ID).withProperties(
+            PropertyFactory.circleRadius(ROAD_EVENT_MARKER_RADIUS),
+            PropertyFactory.circleColor(roadEventSeverityColorExpression()),
+            PropertyFactory.circleStrokeColor(Color.WHITE),
+            PropertyFactory.circleStrokeWidth(ROAD_EVENT_MARKER_STROKE_WIDTH),
+        )
+        when {
+            style.getLayer(PLACES_LAYER_ID) != null -> style.addLayerAbove(layer, PLACES_LAYER_ID)
+            style.getLayer(ROUTE_TRAVELED_LAYER_ID) != null -> style.addLayerBelow(layer, ROUTE_TRAVELED_LAYER_ID)
+            else -> style.addLayer(layer)
+        }
+    }
+
+    /** Maps each [RoadEventSeverity] to a color, increasing in alarm from low to severe. */
+    private fun roadEventSeverityColorExpression(): Expression = Expression.match(
+        Expression.get(ROAD_EVENT_FEATURE_SEVERITY_KEY),
+        Expression.literal(RoadEventSeverity.Low.name), Expression.color(ROAD_EVENT_COLOR_LOW),
+        Expression.literal(RoadEventSeverity.Moderate.name), Expression.color(ROAD_EVENT_COLOR_MODERATE),
+        Expression.literal(RoadEventSeverity.High.name), Expression.color(ROAD_EVENT_COLOR_HIGH),
+        Expression.literal(RoadEventSeverity.Severe.name), Expression.color(ROAD_EVENT_COLOR_SEVERE),
+        Expression.color(ROAD_EVENT_COLOR_MODERATE),
+    )
+
     override fun setBottomInset(pixels: Int) {
         bottomInsetPx = pixels
         applyAttributionMargins()
@@ -604,5 +672,20 @@ class MapLibreMapEngine(
         val PLACE_COLOR_GAS: Int = Color.parseColor("#E8C340")
         val PLACE_COLOR_EV: Int = Color.parseColor("#3DD6C6")
         val PLACE_COLOR_DEFAULT: Int = Color.parseColor("#B9C6DD")
+
+        // Phase 10: road-hazard markers.
+        const val ROAD_EVENTS_SOURCE_ID = "openmaps-road-events-source"
+        const val ROAD_EVENTS_LAYER_ID = "openmaps-road-events-layer"
+        const val ROAD_EVENT_FEATURE_ID_KEY = "id"
+        const val ROAD_EVENT_FEATURE_SEVERITY_KEY = "severity"
+
+        /** Slightly larger than a place marker — a hazard should draw the eye first. */
+        const val ROAD_EVENT_MARKER_RADIUS = 7f
+        const val ROAD_EVENT_MARKER_STROKE_WIDTH = 1.5f
+
+        val ROAD_EVENT_COLOR_LOW: Int = Color.parseColor("#E8C340")
+        val ROAD_EVENT_COLOR_MODERATE: Int = Color.parseColor("#FF8A3D")
+        val ROAD_EVENT_COLOR_HIGH: Int = Color.parseColor("#FF5C3D")
+        val ROAD_EVENT_COLOR_SEVERE: Int = Color.parseColor("#D32F2F")
     }
 }

@@ -151,6 +151,44 @@ Phase 8's **spatial placement seam** — and only that seam — was re-pointed a
 - Parking (type/access/fee), gas (brand), EV charging (operator/network, connectors) — every field only shown when OSM's tags actually state it; no invented availability, pricing or occupancy
 - 58 new unit tests. `assembleDebug`, `testDebugUnitTest` and `lint` all pass clean (0 lint issues) on top of Phase 7/8's own suite — see the total below. **Needs a physical device** for Live label placement/readability while moving and a real emulator/device run of the fetch -> marker -> tap -> navigate flow, same open item as Phase 6/7's AR path.
 
+## Phase 10: Road intelligence (hazards, weather, speed limits, alerts), Done (needs device check beyond the emulator)
+
+- `core/roadintelligence`: provider-neutral `RoadEvent`/`RoadEventType`/`RoadEventSeverity`,
+  `TrafficCondition`, `WeatherCondition`, `SpeedLimitInfo`, `LaneGuidance`/`Lane`, a `RouteAlert`
+  sealed type + `RoadAlertPriority`, and a `RoadIntelligenceRepository` seam (`roadEventsAlongRoute`,
+  `speedLimitNear`, `weatherNear`) — same shape as `core/places`/`core/routing`
+- `DefaultRoadIntelligenceRepository`: Overpass API for hazards (`highway=construction`/
+  `construction=*`/`hazard=*` tags only — OSM has no crash/debris/closure signal) and speed limits
+  (nearest way's `maxspeed`, never inferred from a non-numeric value); Open-Meteo for current
+  driving-relevant weather (free, no API key, no account) — see ARCHITECTURE.md#road-intelligence-phase-10
+  for exactly what each can and cannot claim
+- **No live traffic-congestion source** — the model/seam exist so one can be plugged in later, but
+  none is hardcoded in; **lane guidance has a real, tested OSRM-shape mapper
+  (`OsrmLaneGuidanceMapper`) with nothing to feed it**, since Valhalla's native `/route` response (what
+  this app requests) carries no lane-level data at all
+- `RoadEventRouteMatcher`: corridor filter + cumulative along-route distance via proper segment
+  projection (not a chord-distance approximation); `RoadAlertActivation`: per-type approach
+  distances + behind-driver suppression; `RoadAlertHysteresis`: two-tick confirm/exit debounce
+  generalizing `OffRouteDetector`'s pattern so alerts never flicker on GPS noise
+- `RoadIntelligenceCache`: three independently-TTL'd bucketed caches (hazards 3 min, weather 20 min,
+  speed limit 30 min), same shape as `PlaceCache`
+- `UserLocation.speedMetersPerSecond`: a direct `Location.getSpeed()` reading (never derived from
+  consecutive fixes), kept distinct from the posted speed limit everywhere both are shown
+- Map rendering: `MapEngine.setRoadEvents` + a severity-colored `CircleLayer`, anchored above places
+  but below route/destination; `RoadAlertBanner` — a compact top-priority-alert + speed chip row
+- Live rendering: `LiveRoadAlertHud` — at most one hazard/weather line plus one speed line, below
+  the maneuver card, never more regardless of how many alerts qualify (Live priority: AR arrows >
+  maneuver guidance > safety alerts > lane guidance > speed info > places)
+- Rerouting is consumed, never triggered, by this layer: `RoadAlertHysteresis` resets and hazards
+  refetch on a successful reroute, exactly like places already do
+- 86 new unit tests (448 total). `assembleDebug`, `testDebugUnitTest` and `lint` all pass clean (same
+  40-warning baseline as Phase 9, zero new warnings)
+- Validated end-to-end on the Pixel 8 API 35 emulator: launch, search, live Valhalla routing + live
+  Overpass places, Start navigation, camera-permission grant flow in Live, Live HUD, Map↔Live↔Map
+  switching while navigating — no crashes. The tested route/location had nothing to surface (no
+  tagged construction, no sub-"Moderate" weather, no tagged `maxspeed` way in range), so an actual
+  alert rendering live was not separately observed — worth a specific follow-up
+
 ## Next, not started (awaiting approval)
 
 Tentative order; each needs its own scope decision.
@@ -162,9 +200,30 @@ Tentative order; each needs its own scope decision.
 4. **Production routing**: move off the public Valhalla demo instance (self-hosted Valhalla or a contracted provider) before shipping.
 5. **Turn-by-turn guidance**: done in Phase 4; voice guidance is still open.
 6. **Production places**: move off the public Overpass instance (self-hosted Overpass or a contracted places provider) before shipping — done in Phase 9, production provider still open.
-7. **Later layers**: traffic, road hazards, weather, lane guidance, speed-limit intelligence (Phase 10).
+7. **Later layers**: traffic, road hazards, weather, lane guidance, speed-limit intelligence — done in Phase 10, except a live traffic-congestion source and a wired lane-guidance provider (both still open — see Phase 11 prerequisites).
+8. **Production road-intelligence providers**: move off the public Overpass instance and Open-Meteo's free tier (same category of open question as tile/geocoding/routing/places) before shipping; separately, decide on a live traffic-congestion provider and whether to request Valhalla's `format=osrm` (or switch providers) to unlock lane guidance.
+9. **Phase 11**: environment-dependent behavior (city/highway/suburb/rural modes) consuming Phase 10's road-intelligence state — see Phase 11 prerequisites below.
+
+## Phase 11 prerequisites
+
+Environment-dependent behavior (city/highway/suburb/rural modes — how Phase 10's road intelligence
+should behave differently by environment, per item 9 above). Available at the start of Phase 11: the
+full `core/roadintelligence` state (`RoadIntelligenceState`: events, traffic, weather, lane guidance,
+speed limit, current speed, prioritized `activeAlerts`) that `MapViewModel` already fetches, matches
+to the route, and stabilizes every tick — Phase 11 is a consumer of this state, not a builder of a
+new one. `RoadAlertActivationConfig`'s per-type approach distances are already a single injectable
+object, which is the natural seam for an environment-conditioned variant (e.g. a highway profile with
+longer approach distances) rather than a parallel threshold system. Still needed: any actual
+environment classification signal (OSM road class, speed, a geofence, or similar), and a decision on
+whether environment conditioning lives in `RoadAlertActivationConfig` itself, a new layer above it, or
+inside `MapViewModel`.
 
 ## Phase 10 prerequisites
+
+**Historical note:** this section originally read as a forward-looking plan when written at the end
+of Phase 9. Phase 10 is now **done** — see the "Phase 10: Road intelligence" entry above. Kept here,
+unedited otherwise, as the as-of-Phase-9 planning record (same convention as the historical notes
+under Phase 9/7 prerequisites below).
 
 Traffic, road hazards, weather and lane guidance. Available now: the `core/places` pattern itself
 (provider-neutral model, caching, corridor filtering, ranking) as a template for a second
@@ -173,6 +232,14 @@ contextual-data domain; `RouteCorridor` already generalizes over "geographic thi
 layer would follow (a parallel `setHazards`-style seam, not a shared one — different data, different
 priority rules). Still needed: any live traffic/incident/weather data source, lane-level geometry,
 and a priority model that can rank a hazard against a maneuver, not just against another POI.
+
+What was actually built: `setRoadEvents` (not `setHazards` — named for the provider-neutral
+`RoadEvent` model) follows that exact precedent, as predicted. The "priority model that can rank a
+hazard against a maneuver" turned out not to be needed in the form anticipated — Live's existing
+maneuver-guidance priority slot was extended by one tier (safety alerts), rather than `RoadAlertPriority`
+needing to rank against a maneuver directly. Traffic/incident data sources and lane-level geometry
+remain exactly as open as predicted here — see "Providers" under Road intelligence (Phase 10) in
+ARCHITECTURE.md for why, and Phase 11 prerequisites above for what that leaves open.
 
 ## Phase 9 prerequisites
 

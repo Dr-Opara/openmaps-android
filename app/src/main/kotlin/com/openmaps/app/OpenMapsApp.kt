@@ -187,6 +187,8 @@ private fun AppShell(container: AppContainer) {
                 navigationState = state.navigationState,
                 // Phase 9: the same ranked/capped list Map mode renders markers for.
                 places = state.visiblePlaces,
+                // Phase 10: the same road-intelligence state Map mode reads.
+                roadIntelligenceState = state.roadIntelligenceState,
             )
         }
 

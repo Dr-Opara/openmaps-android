@@ -11,6 +11,8 @@ import com.openmaps.app.core.location.LocationPermissionPrefs
 import com.openmaps.app.core.location.LocationRepository
 import com.openmaps.app.core.places.OverpassPlaceRepository
 import com.openmaps.app.core.places.PlaceRepository
+import com.openmaps.app.core.roadintelligence.DefaultRoadIntelligenceRepository
+import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.core.routing.ValhallaRoutingRepository
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
@@ -34,6 +36,14 @@ class AppContainer(application: Application) {
 
     /** Phase 9 contextual places (restaurants, parking, gas, EV charging, ...). See ARCHITECTURE.md. */
     val placesRepository: PlaceRepository = OverpassPlaceRepository(
+        userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+    )
+
+    /**
+     * Phase 10 road intelligence (hazards, weather, speed limits — see ARCHITECTURE.md's Road
+     * intelligence section for exactly which of those are real today versus absent-by-design).
+     */
+    val roadIntelligenceRepository: RoadIntelligenceRepository = DefaultRoadIntelligenceRepository(
         userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
     )
 

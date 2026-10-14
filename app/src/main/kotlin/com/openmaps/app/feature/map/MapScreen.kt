@@ -62,6 +62,9 @@ fun MapScreen(
     val placesFlow = remember(viewModel) {
         viewModel.uiState.map { it.visiblePlaces }.distinctUntilChanged()
     }
+    val roadEventsFlow = remember(viewModel) {
+        viewModel.uiState.map { it.roadIntelligenceState.events }.distinctUntilChanged()
+    }
     // Its own StateFlow rather than derived from `commands`: that flow is a Channel, so a second
     // collector would compete for messages with the one MapLibreHost already uses and silently
     // swallow camera/style commands.
@@ -81,6 +84,7 @@ fun MapScreen(
             modifier = Modifier.fillMaxSize(),
             routeProgress = routeProgressFlow,
             places = placesFlow,
+            roadEvents = roadEventsFlow,
         )
 
         // Failure state sits above the map but below the controls, so search and settings
@@ -120,6 +124,7 @@ fun MapScreen(
                     followSuspended = state.navigationFollowSuspended,
                 )
             }
+            RoadAlertBanner(roadState = state.roadIntelligenceState)
         }
 
         // Bottom: controls, then the location card, then the collapsed panel.

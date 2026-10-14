@@ -65,11 +65,14 @@ import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.OpenMapsWordmark
 import com.openmaps.app.core.places.LivePlaceProjector
 import com.openmaps.app.core.places.Place
+import com.openmaps.app.core.roadintelligence.RoadIntelligenceState
+import com.openmaps.app.core.roadintelligence.RouteAlert
 import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.spatial.LiveLocalizationStatus
 import com.openmaps.app.core.spatial.LiveLocalizationStatusMapper
 import com.openmaps.app.core.spatial.SpatialLocalizationState
 import com.openmaps.app.feature.map.MapModeToggle
+import com.openmaps.app.feature.map.RoadAlertPresentation
 import com.openmaps.app.feature.map.displayName
 import com.openmaps.app.feature.map.markerColor
 import com.openmaps.app.map.MapMode
@@ -107,6 +110,8 @@ fun LiveScreen(
     modifier: Modifier = Modifier,
     /** Ranked, capped contextual places (Phase 9) — the same list Map mode renders markers for. */
     places: List<Place> = emptyList(),
+    /** Hazards, weather, speed limit and prioritized alerts (Phase 10) — same state Map mode reads. */
+    roadIntelligenceState: RoadIntelligenceState = RoadIntelligenceState(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     // Reactive: flips from Spatial to CameraX mid-session if AR fails, which is what guarantees a
@@ -246,6 +251,16 @@ fun LiveScreen(
             )
         }
 
+        // Phase 10: road intelligence. Priority in Live is deliberately
+        // AR arrows > maneuver guidance > safety alerts > lane guidance > speed info > places, so
+        // this sits below the maneuver/status card, is capped to one hazard line plus one speed
+        // line, and never adds icons scattered across the feed — see docs/ARCHITECTURE.md's Road
+        // intelligence section ("Live mode rendering").
+        LiveRoadAlertHud(
+            roadState = roadIntelligenceState,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 230.dp, start = 16.dp, end = 16.dp),
+        )
+
         if (BuildConfig.DEBUG) {
             LocalDebugOverlay(
                 state = spatialState,
@@ -283,6 +298,55 @@ private fun LocalizationChip(status: LiveLocalizationStatus, modifier: Modifier 
         )
         Text(text = label, style = MaterialTheme.typography.labelMedium, color = Color.White)
     }
+}
+
+/**
+ * Phase 10's entire Live road-intelligence surface: at most one hazard/weather line (whichever
+ * [com.openmaps.app.core.roadintelligence.RoadAlertPriority] ranks highest, excluding the speed
+ * limit) plus one persistent speed line (current reading over the posted limit, when both are
+ * known). Never more than two short lines, and never icons scattered over the camera feed — see
+ * section 12 of the Phase 10 brief ("Live must remain restrained").
+ */
+@Composable
+private fun LiveRoadAlertHud(roadState: RoadIntelligenceState, modifier: Modifier = Modifier) {
+    val topAlert = roadState.activeAlerts.firstOrNull { it !is RouteAlert.SpeedLimit }
+    val speedLimitAlert = roadState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull()
+    val currentSpeed = roadState.currentSpeedMetersPerSecond
+    if (topAlert == null && speedLimitAlert == null) return
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        topAlert?.let { alert ->
+            val distance = RoadAlertPresentation.distanceAheadLabel(alert)
+            LiveCompactPill(
+                text = if (distance != null) "${RoadAlertPresentation.headline(alert)} $distance" else RoadAlertPresentation.headline(alert),
+                background = OpenMapsColors.Warning,
+                foreground = OpenMapsColors.Navy900,
+            )
+        }
+        speedLimitAlert?.let { alert ->
+            val text = if (currentSpeed != null) {
+                "${RoadAlertPresentation.formatCurrentSpeed(currentSpeed, alert.info.unit)} · ${RoadAlertPresentation.headline(alert)}"
+            } else {
+                RoadAlertPresentation.headline(alert)
+            }
+            LiveCompactPill(text = text, background = OpenMapsColors.Navy950.copy(alpha = 0.72f), foreground = Color.White)
+        }
+    }
+}
+
+@Composable
+private fun LiveCompactPill(text: String, background: Color, foreground: Color, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = foreground,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+            .clip(CircleShape)
+            .background(background)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    )
 }
 
 /**

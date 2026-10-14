@@ -1,6 +1,6 @@
 # OpenMaps Architecture
 
-OpenMaps is a United States-only, Android-first navigation app. This document describes what exists after **Phase 8 (AR route arrows on ARCore world anchors)**, which was built on a repaired Phase 7 (AR geospatial route anchoring). Parking, computer vision, AI and authentication do not exist yet.
+OpenMaps is a United States-only, Android-first navigation app. This document describes what exists after **Phase 10 (road intelligence: hazards, weather, speed limits, prioritized alerts)**, built on Phase 9 (contextual places) and Phase 8 (AR route arrows on ARCore world anchors, itself built on a repaired Phase 7 geospatial anchoring). Computer vision, AI and authentication do not exist yet.
 
 > **Verification status.** Phases 1-5 were built, unit-tested and manually validated end-to-end on a Pixel 8 API 35 emulator. **Phase 6 is built, unit-tested (175 tests) and emulator-validated only on its fallback paths** — the test emulator has no ARCore and no AR hardware, so Earth tracking, geospatial pose and heading are **unverified on a physical device**. See [SETUP.md](SETUP.md#verification-checklist).
 
@@ -16,6 +16,8 @@ OpenMaps is a United States-only, Android-first navigation app. This document de
 | Map data | OpenStreetMap-derived vector tiles via a configurable style URL |
 | Geocoding | OSM Nominatim (`nominatim.openstreetmap.org`), development-only — see [Geocoding](#geocoding) |
 | Routing | Valhalla demo instance (`valhalla1.openstreetmap.de`), development-only — see [Routing](#routing) |
+| Road hazards / speed limits | Overpass API, development-only — see [Road intelligence (Phase 10)](#road-intelligence-phase-10) |
+| Weather | Open-Meteo (`api.open-meteo.com`), free, no API key, development-only — see [Road intelligence (Phase 10)](#road-intelligence-phase-10) |
 | Location | Platform `LocationManager` (no Google Play services) |
 | State | `ViewModel` + `StateFlow` |
 | DI | Manual `AppContainer` (no framework) |
@@ -61,6 +63,7 @@ com.openmaps.app
 │   ├── camera                           Phase 5 camera permission model
 │   │   ├── CameraModels                 CameraPermissionState                                    (pure Kotlin)
 │   │   └── CameraPermissions            OS permission -> CameraPermissionState (+ "already asked" flag)
+│   ├── roadintelligence                  Phase 10 road intelligence (hazards, weather, speed limits, alerts) — see below
 │   └── spatial                          Phase 6 AR localization
 │       ├── SpatialModels                SpatialLocalizationState, SpatialPose, quality, availability (pure Kotlin)
 │       ├── SpatialLocalizationEngine    interface the app talks to                              (pure Kotlin)
@@ -975,6 +978,206 @@ as it stands at the end of Phase 9:
 guidance, and speed-limit intelligence beyond already-existing static UI. None of Phase 9's code
 assumes or blocks any particular choice there.
 
+## Road intelligence (Phase 10)
+
+Hazards, weather, speed limits and prioritized driver alerts — route-aware in both Map and Live,
+Live kept deliberately quieter than Map, exactly mirroring Phase 9's places precedent.
+
+### Architecture
+
+`core/roadintelligence` is a new, self-contained layer, the same shape as `core/places` and
+`core/routing`:
+
+```
+core/roadintelligence
+├── RoadEventModels               RoadEvent, RoadEventType, RoadEventSeverity, RoadIntelligenceException (pure Kotlin)
+├── TrafficModels                 TrafficCongestionLevel, TrafficCondition                      (pure Kotlin)
+├── WeatherModels                 WeatherConditionType, WeatherCondition                         (pure Kotlin)
+├── SpeedModels                   SpeedUnit, SpeedLimitInfo                                      (pure Kotlin)
+├── LaneModels                    LaneDirection, Lane, LaneGuidance                               (pure Kotlin)
+├── RouteAlert                    sealed alert type + RoadAlertPriority (deterministic ranking)   (pure Kotlin)
+├── RoadIntelligenceState         the one state value Map/Live both read                          (pure Kotlin)
+├── RoadIntelligenceRepository    interface: roadEventsAlongRoute, speedLimitNear, weatherNear     (pure Kotlin)
+├── RoadEventRouteMatcher         corridor filter + cumulative route-distance stamping             (pure Kotlin)
+├── RoadEventDeduplicator         collapses duplicate provider events by id                        (pure Kotlin)
+├── RoadAlertActivation           distance-ahead calc, behind-driver suppression, approach distances (pure Kotlin)
+├── RoadAlertHysteresis           confirm/exit debounce so alerts don't flicker on GPS noise        (pure Kotlin)
+├── OsrmLaneGuidanceMapper        OSRM `intersections[].lanes` → LaneGuidance (not yet wired — see below)
+├── RoadIntelligenceCache         three TTL caches (hazards/weather/speed), bucketed like PlaceCache (pure Kotlin)
+├── OverpassRoadIntelligenceParser  hazard + speed-limit parsing, unit-tested without network
+├── OpenMeteoWeatherParser        weather parsing, unit-tested without network
+└── DefaultRoadIntelligenceRepository  HTTP + JSON implementation (java.net + org.json)
+```
+
+`RoadEvent` (`id`, `type`, `latitude`, `longitude`, `routeDistanceMeters?`, `severity`, `title`,
+`description?`, `startTimeMillis?`, `endTimeMillis?`, `metadata`) is the only road-event shape
+anything outside `core/roadintelligence` ever sees, mirroring `Place`/`RouteResult`. `RouteAlert`
+is a sealed type (`Hazard | Weather | Lane | SpeedLimit | Congestion | Informational`) rather than
+scattered nullable fields — the one shared type `RoadAlertPriority` ranks and `MapUiState`'s
+`roadIntelligenceState.activeAlerts` renders.
+
+### Providers: what is real, and what is honestly absent
+
+Three independent capabilities, each optional and each backed (or not) by a real, free,
+no-API-key data source — same "development-only, document the limits" category as every other
+provider in this codebase:
+
+| Capability | Source | What it actually is |
+| --- | --- | --- |
+| Hazards | Overpass API (same host `OverpassPlaceRepository` already calls) | Static OSM tags only: `highway=construction`/`construction=*` → `RoadEventType.Construction`, `hazard=*` → `RoadEventType.Other` (value carried verbatim). **Not** crash/debris/stalled-vehicle/closure data — OSM is a static map database and has no real signal for those. |
+| Speed limits | Overpass API, nearest `highway=*` way's `maxspeed` tag | Real OSM data. A non-numeric `maxspeed` (`"none"`, `"walk"`, a zone name) is never translated into a guessed number — `SpeedLimitInfo` is only ever built from a value a provider actually stated. |
+| Weather | Open-Meteo (`api.open-meteo.com`, free, no API key, no account) | Real current-conditions reading, mapped from Open-Meteo's documented WMO `weather_code` table plus a measured-wind-speed override for `HighWind`. `visibilityMeters` is always null — Open-Meteo's `current` block (unlike `hourly`) does not expose one, and this only ever requests `current`. |
+
+**Traffic congestion has no source at all**, by design. `TrafficCondition`/`RoadEventType.Congestion`
+exist as provider-neutral models specifically so a real traffic feed (a contracted provider, a state
+511 feed, HERE/TomTom) can be plugged in behind `RoadIntelligenceRepository` later with zero
+`MapViewModel`/UI changes — but wiring one in now would mean hardcoding a commercial provider with
+no key-management story, which this phase explicitly avoids. `DefaultRoadIntelligenceRepository`
+simply never produces congestion data rather than labelling static/absent data as live traffic.
+
+**Lane guidance has a real, tested mapper with nothing to feed it.** `OsrmLaneGuidanceMapper` maps
+the documented OSRM `intersections[].lanes` shape into `LaneGuidance`/`Lane`, and is unit-tested
+against that real shape. It is **not wired into `ValhallaResponseParser`**: the native Valhalla
+`/route` response this app requests (`costing=auto`, no `format` override) was inspected — including
+the fixture captured from a live call in `ValhallaResponseParserTest` — and its
+`trip.legs[].maneuvers[]` objects carry no lane-level field under any name. Valhalla can emit
+OSRM-compatible output (which does carry `intersections[].lanes`), but only via a `format=osrm`
+request parameter this app does not pass; switching the live request format is a routing-provider
+change well beyond this phase's scope. `RoadIntelligenceState.laneGuidance` is therefore always null
+today — see "Phase 11 prerequisites" below.
+
+**Do not ship to the public on either live source.** Same category of open production decision as
+the tile source, Nominatim, Valhalla and Overpass places — see "Decisions to revisit."
+
+### Route matching and "distance ahead"
+
+`RoadEventRouteMatcher.matchToRoute` drops events outside the corridor and stamps survivors with
+`RoadEvent.routeDistanceMeters` — the cumulative distance **along the route**, computed once per
+route (a prefix-sum pass) and from a proper perpendicular *projection* onto the nearest segment, not
+a straight chord to the segment start (which would overcount by an event's lateral offset). This
+reuses `RouteCorridor`'s nearest-segment math, so a hazard's distance to the route never disagrees
+with how `RouteProgressTracker` measures the driver's own progress along it.
+
+That stamped distance is what makes "distance ahead" a cheap per-tick subtraction rather than a
+re-walk of the route geometry: `RoadAlertActivation.distanceAheadMeters(event, distanceTraveledMeters)`
+is `event.routeDistanceMeters - distanceTraveledMeters`, null (suppressed) when negative — an event
+behind the driver is never shown, full stop.
+
+### Activation and hysteresis
+
+`RoadAlertActivationConfig` holds per-type approach distances (collision-class hazards ~800 m,
+informational hazards ~400 m, a severe closure's wider 3 km "known about but not yet prominent"
+distance) — configurable, not hardcoded, per the brief's "make thresholds configurable." Speed
+limit and weather are not distance-gated at all: they describe the driver's current position, not a
+point somewhere ahead on the route.
+
+Raw per-tick candidates then pass through `RoadAlertHysteresis`, which generalizes
+`OffRouteDetector`'s confirm-sample pattern from one boolean to a set of ids: an alert needs two
+consecutive ticks present before it activates, and two consecutive ticks *absent from the raw
+candidates* before it is actually dropped (the confirmed alert keeps rendering through one
+borderline sample in between). Without this, an alert sitting right at its activation boundary
+would flicker on and off with ordinary GPS noise on every location update. `RoadEventDeduplicator`
+collapses same-id duplicates from one provider response before any of this runs.
+
+### Alert priority
+
+`RoadAlertPriority.rank` is a fixed table, no ML: severe closure → collision-class hazard (crash,
+debris, flooding, ice, or high-severity construction) → dangerous weather (≥ `High` severity) → lane
+guidance → speed limit → congestion → everything else, with ties broken by a stable sort so
+equal-priority alerts never reshuffle tick to tick.
+
+### Caching and request cadence
+
+`RoadIntelligenceCache` is three independent bucketed TTL caches (same shape as `PlaceCache`), one
+per concern, because each has a different natural refresh cadence: hazards 3 minutes (~550 m
+bucket), weather 20 minutes (~5.5 km bucket — weather doesn't vary block to block), speed limits 30
+minutes (~165 m bucket — tight enough to change at an intersection). `MapViewModel` additionally
+gates *when* it even calls the repository: hazards once per route (ready or rerouted, same as
+places), weather only once the user has moved `WEATHER_REFETCH_DISTANCE_METERS` (8 km) from the
+last fetch, speed limit only past `SPEED_LIMIT_REFETCH_DISTANCE_METERS` (150 m) — never on every GPS
+tick for any of the three.
+
+### Map mode rendering
+
+`MapEngine.setRoadEvents(events)` is the `setPlaces`-shaped extension point ARCHITECTURE.md's Phase
+9 section already predicted ("a second `MapEngine` method... follows the identical pattern").
+`MapLibreMapEngine` renders a `GeoJsonSource` + `CircleLayer` colored by `RoadEventSeverity` (not
+type — "how urgent" is the glanceable signal, and it means any future event type without a bespoke
+color still renders sensibly), anchored **above** the places layer when it exists (a hazard should
+outrank a general POI) and, like places, always below the route/destination layers.
+
+`RoadAlertBanner` (new Compose surface) is Map's compact alert row: the single top-priority alert
+(by `RoadAlertPriority`) plus a speed chip (current reading over posted limit, when known), placed
+below the search bar/navigation banner so it never covers the route or destination — the section 11
+density rule in the form every other Phase 10 surface also uses.
+
+### Live mode rendering
+
+Priority in Live is deliberately AR arrows > maneuver guidance > safety alerts > lane guidance >
+speed info > places — the Phase 9 "visual density" ordering, extended by exactly one tier. Live's
+entire road-intelligence surface (`LiveRoadAlertHud`) is two short lines, placed below the maneuver
+card: one hazard/weather line (the top-priority alert, excluding the speed limit) and one persistent
+speed line (current + posted limit). Never icons scattered over the camera feed, never more than
+those two lines regardless of how many alerts are technically active — the same "restrained by
+construction" rule Phase 9's 3-label cap and `LivePlaceProjector`'s "do not fake precision" already
+established.
+
+### Current speed
+
+`UserLocation.speedMetersPerSecond` is a new optional field, populated in
+`AndroidLocationRepository.toUserLocation()` from `android.location.Location.hasSpeed()/getSpeed()`
+exactly like `accuracyMeters`/`bearingDegrees` already are — a **direct reading**, never derived from
+consecutive fixes (a distance/time estimate from two noisy GPS points is a materially worse number
+than a real one, and section 8 of the brief explicitly asks for the real reading when one exists).
+Kept as a distinct concept from the posted speed limit everywhere it is surfaced, per the brief.
+
+### Rerouting and traffic-aware ETA
+
+Road intelligence never triggers a reroute by itself — the existing off-route hysteresis
+(`OffRouteDetector`) is still the only thing that calls `requestReroute`, exactly as the brief
+requires ("do NOT automatically reroute solely because a RoadEvent exists"). A reroute **is**
+observed by this layer: `MapViewModel.requestReroute`'s success path resets `RoadAlertHysteresis`
+(the old route's matched distances and confirm/exit streaks are meaningless against new geometry)
+and refetches hazards against the new route, the same "stale corridor data is now wrong" handling
+`fetchPlacesAlongRoute` already gets on a reroute.
+
+`TrafficCondition.baseDurationSeconds`/`trafficAdjustedDurationSeconds` are kept as distinct,
+independently-nullable fields precisely so a provider that cannot supply a traffic-aware estimate
+leaves the adjusted figure null rather than this type inventing one — moot today, since no traffic
+provider exists, but the contract a future one must satisfy.
+
+### Failure isolation and privacy
+
+Every one of the three repository calls fails silently from the ViewModel's point of view: a failed
+hazards/weather/speed-limit fetch leaves the previous (possibly empty) value exactly where it was,
+the same "never clear a Ready result" rule `fetchPlaces` already follows for places. No road
+intelligence source is ever consulted inside the navigation tick's critical path — `onNavigationTick`
+and `RouteProgressTracker` know nothing about this layer at all. Queries send only the coordinates
+and radius needed for that one request; nothing is logged, and `RoadIntelligenceCache` holds results
+in memory only, cleared when the process dies — the same posture as `PlaceCache`.
+
+### Verification status
+
+86 new unit tests (448 total on this branch, 0 failures) covering hazard/speed-limit/weather
+parsing, route-distance filtering and the chord-vs-projection distinction, behind-driver
+suppression, activation thresholds per type, hysteresis (confirm, exit grace, flicker resistance,
+reset), deduplication, priority ordering, the three caches' independent TTLs, and `MapViewModel`
+integration (route-ready fetch, movement-gated weather/speed-limit refetch, current-speed
+population, two-tick hazard confirmation, stop/reroute cleanup). `assembleDebug`, `testDebugUnitTest`
+and `lint` all pass clean (same 40-warning baseline as Phase 9, zero new warnings).
+
+**Manually validated on the Pixel 8 API 35 emulator**: launch, Map search → destination → live
+Valhalla route → Overpass places, Start navigation (maneuver banner correct), camera-permission
+grant flow in Live, Live HUD (maneuver card + trip summary, road-intelligence HUD correctly silent
+with no qualifying alerts at the tested location), Map ↔ Live ↔ Map switching while navigating — no
+crashes, no exceptions in logcat. Not separately observed: an actual hazard/weather/speed-limit
+alert rendering live (the tested route/location had none to surface, which — given Overpass/
+Open-Meteo calls otherwise succeeded, evidenced by the real street names and place markers the same
+network path returned — is consistent with there genuinely being no construction tag, no
+sub-"Moderate" weather, and no tagged `maxspeed` way within range there, not with the pipeline being
+broken). Worth a specific follow-up on a physical device or a route known to pass a tagged
+construction zone.
+
 ## Error handling
 
 - **Map unavailable**: a style load failure (`OnDidFailLoadingMap` before the style first loads) sets `error`, which shows "Map unavailable" with Retry. Search and Settings stay reachable. Retry reloads the style.
@@ -985,6 +1188,30 @@ assumes or blocks any particular choice there.
 - **Camera (Phase 5)**: every CameraX failure is classified into a `CameraFailure` and rendered as a short explanation over an opaque backdrop — never a crash and never a bare black screen. `NoRearCamera`, `BindingFailed` and `InUse` each get their own copy, with retry and a way back to the map. Camera permission states get their own panel. The user can always return to Map: the X control is in the top bar regardless of camera state.
 - **AR / spatial (Phase 6)**: every ARCore exception is mapped to a `SpatialLocalizationState` (`Unsupported`, `NotInstalled`, `PermissionRequired`, `Failed(reason)`) or a `Limited(reason)`; none is ever allowed to escape as a crash, and all of them fall back to the CameraX preview. Map mode never touches the AR engine, so the map, search, routing and navigation remain available no matter what AR does.
 - **Contextual places (Phase 9)**: every `PlaceException` maps to a `PlacesError` the same way routing does; a failed fetch never clears an already-showing `Ready` result (see "Network/failure handling" under Contextual places). Navigation, location and routing are completely unaffected by any places failure.
+- **Road intelligence (Phase 10)**: every `RoadIntelligenceException` is caught at the repository boundary and surfaces only as `Result.failure`; `MapViewModel` does not even map it to a UI-facing error type — a failed hazards/weather/speed-limit fetch is silently a no-op, leaving whatever was already in `roadIntelligenceState` untouched. No road intelligence source is ever read from inside `onNavigationTick`'s critical path, so navigation, rerouting, arrival and every other Phase 1-9 flow are provably unaffected by any of the three failing, being slow, or being absent entirely.
+
+## Phase 11 output contract
+
+What Phase 11 (environment-dependent behavior — city/highway/suburb/rural modes, per ROADMAP.md) can
+rely on, exactly as it stands at the end of Phase 10:
+
+| Requirement | Provided by | Notes |
+| --- | --- | --- |
+| Traffic state | `RoadIntelligenceState.traffic` (`TrafficCondition?`) | Model and seam exist; always null today — no traffic-congestion source is wired in (see "Providers" above) |
+| Road events (hazards) | `RoadIntelligenceState.events` (`List<RoadEvent>`) | Route-matched, each stamped with `routeDistanceMeters`; construction + tagged-hazard only, from Overpass |
+| Weather state | `RoadIntelligenceState.weather` (`WeatherCondition?`) | Real current-conditions reading from Open-Meteo, driving-relevant subset only |
+| Lane guidance | `RoadIntelligenceState.laneGuidance` (`LaneGuidance?`) | Model + a tested OSRM mapper exist; always null — Valhalla's native response carries no lane data (see "Providers" above for the `format=osrm` prerequisite) |
+| Speed limit | `RoadIntelligenceState.speedLimit` (`SpeedLimitInfo?`) | Real OSM `maxspeed` reading, nearest-way, never inferred |
+| Current speed | `RoadIntelligenceState.currentSpeedMetersPerSecond` | Direct `Location.getSpeed()` reading, kept distinct from the posted limit |
+| Alert priority model | `RoadAlertPriority.rank`/`sorted` | Fixed table, no ML; ready to rank any future alert type that slots into the existing severity bands |
+| Route context | `RoadEventRouteMatcher`, `RoadAlertActivation` | "Distance ahead," corridor filtering and behind-driver suppression all generalize to any future point-like route context, not just hazards |
+| Map/Live rendering seams | `MapEngine.setRoadEvents`, `RoadAlertBanner`, `LiveRoadAlertHud` | Each follows the established density-limited, navigation-never-covered pattern |
+
+**Still Phase 11 (or later) work, not present:** any live traffic-congestion source, a wired
+lane-guidance provider (requires either a Valhalla `format=osrm` request or a different routing
+provider), and anything environment-classification-specific (city/highway/suburb/rural) — Phase 10
+deliberately does not infer or branch on road environment anywhere; every threshold in
+`RoadAlertActivationConfig` is a single fixed default regardless of context.
 
 ## Migrating to PMTiles / self-hosted tiles
 
@@ -1011,3 +1238,7 @@ Nothing in the Map screen needs to change; only the provider does.
 - **Places provider**: the public Overpass API instance is development-only (see [Place data provider](#place-data-provider)), same category of open question as the tile source, geocoding and routing providers — needs a production decision before shipping.
 - **Places along a route are fetched once**, not re-queried as the trip progresses; a very long route's corridor query is capped at an 8 km radius, so places far along a long route may simply never be queried. Revisit if a product need for "scrolling window" corridor refresh emerges.
 - **No real-time parking/EV availability**: Phase 9 shows only what OSM's static tags state (type, access, fee; network, connectors). A live availability feed is a distinct, larger integration, not attempted here.
+- **Hazard/speed-limit provider (Phase 10)**: the public Overpass API instance is development-only (same category as Nominatim/Valhalla/Overpass-for-places), and hazard coverage is limited to what OSM states statically (construction + `hazard=*` tags) — no crash/debris/closure data exists without a live incident feed. Needs a production decision (self-hosted Overpass, or a contracted incident-feed provider) before shipping.
+- **Weather provider (Phase 10)**: Open-Meteo's free tier is development-only in the same sense — no SLA has been confirmed for this app's expected volume. Needs a production decision before shipping, same open question as every other provider here.
+- **No live traffic-congestion source**: `TrafficCondition`/`RoadEventType.Congestion` are modelled but nothing populates them. A contracted traffic provider (or a state 511 feed) is the natural fit behind `RoadIntelligenceRepository`, not attempted here.
+- **Lane guidance is modelled but unwired**: Valhalla's native `/route` response has no lane-level data; wiring `OsrmLaneGuidanceMapper` up would need either a `format=osrm` request to Valhalla or a different routing provider — a routing-architecture decision, not a Phase 10 one.

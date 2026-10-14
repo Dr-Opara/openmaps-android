@@ -11,6 +11,14 @@ import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PlaceException
 import com.openmaps.app.core.places.PlaceRepository
+import com.openmaps.app.core.roadintelligence.RoadEvent
+import com.openmaps.app.core.roadintelligence.RoadEventSeverity
+import com.openmaps.app.core.roadintelligence.RoadEventType
+import com.openmaps.app.core.roadintelligence.RoadIntelligenceException
+import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
+import com.openmaps.app.core.roadintelligence.RouteAlert
+import com.openmaps.app.core.roadintelligence.SpeedLimitInfo
+import com.openmaps.app.core.roadintelligence.WeatherCondition
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.routing.RouteBounds
@@ -49,12 +57,19 @@ class MapViewModelTest {
     private val repository = FakeLocationRepository()
     private val routingRepository = FakeRoutingRepository()
     private val placesRepository = FakePlaceRepository()
+    private val roadIntelligenceRepository = FakeRoadIntelligenceRepository()
     private lateinit var viewModel: MapViewModel
 
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
-        viewModel = MapViewModel(repository, routingRepository, placesRepository, fixTimeoutMillis = TIMEOUT)
+        viewModel = MapViewModel(
+            repository,
+            routingRepository,
+            placesRepository,
+            roadIntelligenceRepository,
+            fixTimeoutMillis = TIMEOUT,
+        )
     }
 
     @After
@@ -887,6 +902,199 @@ class MapViewModelTest {
 
     // endregion
 
+    // region Road intelligence (Phase 10)
+
+    @Test
+    fun routeReady_fetchesRoadEventsAlongTheRouteGeometry() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0))) // an origin, so requestRoute() fires immediately
+        val readyRoute = navigableRoute()
+        routingRepository.result = Result.success(readyRoute)
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        assertEquals(1, roadIntelligenceRepository.eventsAlongRouteCalls.size)
+        assertEquals(readyRoute.geometry, roadIntelligenceRepository.eventsAlongRouteCalls.single())
+    }
+
+    @Test
+    fun roadEventsProviderError_keepsPreviousEvents_navigationUnaffected() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        roadIntelligenceRepository.eventsResult = Result.success(listOf(testHazard("h1")))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        assertEquals(listOf("h1"), viewModel.uiState.value.roadIntelligenceState.events.map { it.id })
+
+        roadIntelligenceRepository.eventsResult = Result.failure(RoadIntelligenceException.NoNetwork)
+        // Trigger a reroute to force a refetch attempt.
+        repeat(OffRouteDetector.DEFAULT_REROUTE_SAMPLES) {
+            repository.emit(LocationUpdate.Fix(at(0.002, 0.003)))
+        }
+        assertEquals(
+            "a failed refresh must not clear good data",
+            listOf("h1"),
+            viewModel.uiState.value.roadIntelligenceState.events.map { it.id },
+        )
+        assertEquals(LocationStatus.Available, viewModel.uiState.value.locationStatus)
+    }
+
+    @Test
+    fun weatherFetch_gatedByMovementDistance() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        assertEquals(1, roadIntelligenceRepository.weatherCalls.size)
+
+        // ~11 m: well under WEATHER_REFETCH_DISTANCE_METERS.
+        repository.emit(LocationUpdate.Fix(at(40.0001, -74.0)))
+        assertEquals("small movement must not refetch weather", 1, roadIntelligenceRepository.weatherCalls.size)
+
+        // ~11 km: comfortably over MapViewModel.WEATHER_REFETCH_DISTANCE_METERS (8 km).
+        repository.emit(LocationUpdate.Fix(at(40.1, -74.0)))
+        assertEquals("large movement must refetch weather", 2, roadIntelligenceRepository.weatherCalls.size)
+    }
+
+    @Test
+    fun speedLimitFetch_gatedByMovementDistance() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        assertEquals(1, roadIntelligenceRepository.speedLimitCalls.size)
+
+        // ~1.1 m: well under SPEED_LIMIT_REFETCH_DISTANCE_METERS.
+        repository.emit(LocationUpdate.Fix(at(40.00001, -74.0)))
+        assertEquals("tiny movement must not refetch the speed limit", 1, roadIntelligenceRepository.speedLimitCalls.size)
+
+        // ~222 m: over MapViewModel.SPEED_LIMIT_REFETCH_DISTANCE_METERS (150 m).
+        repository.emit(LocationUpdate.Fix(at(40.002, -74.0)))
+        assertEquals("a block-sized movement must refetch the speed limit", 2, roadIntelligenceRepository.speedLimitCalls.size)
+    }
+
+    @Test
+    fun currentSpeed_populatedFromADirectReading() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0, speedMetersPerSecond = 12.5f)))
+        assertEquals(12.5f, viewModel.uiState.value.roadIntelligenceState.currentSpeedMetersPerSecond!!, 1e-6f)
+    }
+
+    @Test
+    fun currentSpeed_nullWhenProviderHasNoReading() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        assertNull(viewModel.uiState.value.roadIntelligenceState.currentSpeedMetersPerSecond)
+    }
+
+    @Test
+    fun hazardAlert_requiresTwoConsecutiveTicksBeforeActivating() = runTest(dispatcher) {
+        // Sits 333.96 m into the route (3 steps of ~111.32 m along `navigableRoute()`'s geometry),
+        // well inside the default 800 m collision-class approach distance from the origin.
+        roadIntelligenceRepository.eventsResult = Result.success(
+            listOf(testHazard("h1", routeDistanceMeters = 333.96, severity = RoadEventSeverity.High)),
+        )
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+
+        viewModel.startNavigation() // first candidate tick
+        assertTrue(
+            "one tick must not be enough to confirm a hazard alert",
+            viewModel.uiState.value.roadIntelligenceState.activeAlerts.none { it is RouteAlert.Hazard },
+        )
+
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0002))) // second consecutive candidate tick
+        val alerts = viewModel.uiState.value.roadIntelligenceState.activeAlerts
+        assertTrue("a high-severity hazard must appear as RouteAlert.Hazard", alerts.any { it is RouteAlert.Hazard })
+    }
+
+    @Test
+    fun hazardBehindTheDriver_isNeverActivated() = runTest(dispatcher) {
+        // Sits only 333.96 m into the route; the driver below is seeded well past it.
+        roadIntelligenceRepository.eventsResult = Result.success(
+            listOf(testHazard("h1", routeDistanceMeters = 333.96, severity = RoadEventSeverity.High)),
+        )
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        // Move to ~667 m along the route (0.006 deg * 111,320 m/deg) before starting navigation, so
+        // the very first progress snapshot already has the hazard behind it.
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.006)))
+
+        viewModel.startNavigation()
+        repeat(5) { repository.emit(LocationUpdate.Fix(at(0.0, 0.006))) }
+
+        assertTrue(
+            "an event behind the driver must never become an active alert",
+            viewModel.uiState.value.roadIntelligenceState.activeAlerts.none { it is RouteAlert.Hazard },
+        )
+    }
+
+    @Test
+    fun stopNavigation_clearsActiveHazardAlerts() = runTest(dispatcher) {
+        roadIntelligenceRepository.eventsResult = Result.success(
+            listOf(testHazard("h1", routeDistanceMeters = 333.96, severity = RoadEventSeverity.High)),
+        )
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0002)))
+        assertTrue(viewModel.uiState.value.roadIntelligenceState.activeAlerts.any { it is RouteAlert.Hazard })
+
+        viewModel.stopNavigation()
+        assertTrue(
+            "ending the trip must drop route-relative hazard alerts",
+            viewModel.uiState.value.roadIntelligenceState.activeAlerts.none { it is RouteAlert.Hazard },
+        )
+    }
+
+    @Test
+    fun reroute_refetchesRoadEventsAndDropsStaleHazardAlerts() = runTest(dispatcher) {
+        roadIntelligenceRepository.eventsResult = Result.success(
+            listOf(testHazard("stale", routeDistanceMeters = 333.96, severity = RoadEventSeverity.High)),
+        )
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0002)))
+        assertTrue(viewModel.uiState.value.roadIntelligenceState.activeAlerts.any { it is RouteAlert.Hazard })
+        val fetchesBefore = roadIntelligenceRepository.eventsAlongRouteCalls.size
+
+        // The replacement route has no hazards of its own.
+        roadIntelligenceRepository.eventsResult = Result.success(emptyList())
+        routingRepository.result = Result.success(navigableRoute(distanceMeters = 555.0))
+        repeat(OffRouteDetector.DEFAULT_REROUTE_SAMPLES) {
+            repository.emit(LocationUpdate.Fix(at(0.002, 0.003)))
+        }
+
+        assertEquals(
+            "a reroute must refetch hazards against the new route",
+            fetchesBefore + 1,
+            roadIntelligenceRepository.eventsAlongRouteCalls.size,
+        )
+        assertTrue(
+            "the stale hazard from the old route must not survive a reroute",
+            viewModel.uiState.value.roadIntelligenceState.activeAlerts.none { it is RouteAlert.Hazard },
+        )
+    }
+
+    private fun testHazard(
+        id: String,
+        routeDistanceMeters: Double? = null,
+        severity: RoadEventSeverity = RoadEventSeverity.High,
+    ) = RoadEvent(
+        id = id,
+        type = RoadEventType.Crash,
+        latitude = 0.0,
+        longitude = 0.0,
+        routeDistanceMeters = routeDistanceMeters,
+        severity = severity,
+        title = "Crash",
+    )
+
+    // endregion
+
     // region helpers
 
     private fun startWithPermission() {
@@ -904,7 +1112,8 @@ class MapViewModelTest {
             backgroundScope.launch(dispatcher) { viewModel.events.collect { list += it } }
         }
 
-    private fun at(lat: Double, lon: Double) = UserLocation(lat, lon, accuracyMeters = 8f)
+    private fun at(lat: Double, lon: Double, speedMetersPerSecond: Float? = null) =
+        UserLocation(lat, lon, accuracyMeters = 8f, speedMetersPerSecond = speedMetersPerSecond)
 
     private fun place(id: String, lat: Double, lon: Double) = SearchResult(
         id = id,
@@ -1007,6 +1216,33 @@ class MapViewModelTest {
         ): Result<List<Place>> {
             alongRouteCalls += routeGeometry
             return alongRouteResult
+        }
+    }
+
+    private class FakeRoadIntelligenceRepository : RoadIntelligenceRepository {
+        var eventsResult: Result<List<RoadEvent>> = Result.success(emptyList())
+        var speedLimitResult: Result<SpeedLimitInfo?> = Result.success(null)
+        var weatherResult: Result<WeatherCondition?> = Result.success(null)
+        val eventsAlongRouteCalls = mutableListOf<List<Coordinate>>()
+        val speedLimitCalls = mutableListOf<Coordinate>()
+        val weatherCalls = mutableListOf<Coordinate>()
+
+        override suspend fun roadEventsAlongRoute(
+            routeGeometry: List<Coordinate>,
+            corridorMeters: Double,
+        ): Result<List<RoadEvent>> {
+            eventsAlongRouteCalls += routeGeometry
+            return eventsResult
+        }
+
+        override suspend fun speedLimitNear(location: Coordinate): Result<SpeedLimitInfo?> {
+            speedLimitCalls += location
+            return speedLimitResult
+        }
+
+        override suspend fun weatherNear(location: Coordinate): Result<WeatherCondition?> {
+            weatherCalls += location
+            return weatherResult
         }
     }
 

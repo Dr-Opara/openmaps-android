@@ -12,6 +12,7 @@ fun mapViewModelFactory(container: AppContainer): ViewModelProvider.Factory = vi
             locationRepository = container.locationRepository,
             routingRepository = container.routingRepository,
             placesRepository = container.placesRepository,
+            roadIntelligenceRepository = container.roadIntelligenceRepository,
         )
     }
 }

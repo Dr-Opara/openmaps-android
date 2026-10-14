@@ -6,6 +6,7 @@ import androidx.lifecycle.Lifecycle
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.places.Place
+import com.openmaps.app.core.roadintelligence.RoadEvent
 import com.openmaps.app.core.routing.RouteResult
 import kotlinx.coroutines.flow.Flow
 
@@ -52,6 +53,15 @@ interface MapEngine {
      * stale marker left behind from an earlier fetch or filter change.
      */
     fun setPlaces(places: List<Place>)
+
+    /**
+     * Show road-hazard markers (Phase 10), replacing any previous set wholesale — same
+     * "whole-collection replace" contract as [setPlaces]. Rendered above contextual places but
+     * below the route/destination layers, so navigation content stays visually dominant while
+     * hazards still read as more urgent than a general POI — see docs/ARCHITECTURE.md's Road
+     * intelligence section ("Map mode rendering").
+     */
+    fun setRoadEvents(events: List<RoadEvent>)
 
     /**
      * Mark the first [RouteProgressView.traveledShapeIndex] points of the current route as already

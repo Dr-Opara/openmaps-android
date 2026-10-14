@@ -109,6 +109,21 @@ cover the arrow window`). Arrows will still draw via the per-frame geographic pr
 they will slide and jitter with the GPS fix — that is degraded mode, not working road anchoring, and it
 should not be reported as a success.
 
+## Road intelligence (Phase 10)
+
+- No API keys needed: hazards and speed limits use the same public Overpass API instance Places
+  already calls; weather uses Open-Meteo (`api.open-meteo.com`), also free and keyless.
+- All three are additive — if the emulator/device has no network, or Overpass/Open-Meteo are
+  unreachable, navigation continues unaffected and the relevant chip/marker simply never appears.
+  There is no error banner for a road-intelligence failure by design; check `adb logcat` for
+  `Mbgl-HttpRequest`/`java.io.IOException` only if you need to confirm a request actually failed
+  versus "nothing to show" (no construction tag, no notable weather, no tagged `maxspeed` nearby).
+- To see a hazard marker render, pick a route through an area with an OSM `highway=construction` or
+  `hazard=*` tag (check [openstreetmap.org](https://www.openstreetmap.org) for one near your test
+  route first — this is real crowd-sourced tagging, not guaranteed to exist everywhere).
+- There is no live-traffic or lane-guidance UI to test: neither has a data source wired in yet (see
+  ARCHITECTURE.md's Road intelligence section).
+
 ## Verification checklist
 
 **Nothing below has been run.** The remote build environment had no Android SDK and could not reach Google Maven or Maven Central, so it could not compile the Android code, run the Android unit tests, run lint, or launch anything. What *was* done remotely: the pure-Kotlin core (`LocationModels`, `LocationRepository`, `MapModels`, `MapStyleProvider`, `MapUiState`, `MapViewModel`) compiled with the Kotlin 2.0.21 compiler against a stub `ViewModel`, and 35 behavioural checks mirroring the ViewModel unit tests passed in a throwaway harness; XML and resource references were validated statically. That is **not** a substitute for the steps here.
@@ -117,7 +132,7 @@ should not be reported as a success.
 
 - [ ] Gradle sync succeeds
 - [ ] `./gradlew :app:assembleDebug` succeeds
-- [ ] `./gradlew :app:testDebugUnitTest` passes (304 tests across 18 classes)
+- [ ] `./gradlew :app:testDebugUnitTest` passes (448 tests as of Phase 10)
 - [ ] `./gradlew :app:lintDebug` has no errors
 - [ ] `dependencies` output shows no unexpected version conflicts (look at `androidx.lifecycle`, `kotlinx-coroutines`, and MapLibre's transitive libraries)
 - [ ] `./gradlew :app:assembleRelease` succeeds (R8 with MapLibre; try a release build early)

@@ -7,6 +7,15 @@ data class UserLocation(
     val accuracyMeters: Float? = null,
     val bearingDegrees: Float? = null,
     val timestampMillis: Long = 0L,
+    /**
+     * A direct speed reading from the location provider (Phase 10's "current speed"; see
+     * `AndroidLocationRepository.toUserLocation`), in metres/second. Null when the provider has not
+     * reported one — never derived from consecutive fixes here: a distance/time estimate from two
+     * noisy GPS points is a materially different (and materially worse) number than a direct reading,
+     * and section 8 of the Phase 10 brief explicitly asks for the real reading when one exists rather
+     * than fabricating one from unreliable samples.
+     */
+    val speedMetersPerSecond: Float? = null,
 )
 
 /**
