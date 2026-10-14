@@ -5,6 +5,9 @@ import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.navigation.RouteProgress
+import com.openmaps.app.core.environment.DrivingEnvironment
+import com.openmaps.app.core.environment.EnvironmentNavigationProfile
+import com.openmaps.app.core.environment.EnvironmentProfiles
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PlaceCategoryMapper
@@ -59,7 +62,25 @@ data class MapUiState(
     val visiblePlaces: List<Place> = emptyList(),
     /** Hazards, weather, speed limit, lane guidance and prioritized alerts (Phase 10). */
     val roadIntelligenceState: RoadIntelligenceState = RoadIntelligenceState(),
+    /**
+     * The debounced environment mode (Phase 11), recomputed on each navigation tick and held
+     * through [com.openmaps.app.core.environment.EnvironmentHysteresis] so it never flickers.
+     * [DrivingEnvironment.Unknown] (and therefore [activeProfile] == [EnvironmentProfiles.unknown],
+     * the pre-Phase-11 baseline) whenever not navigating or no signal has resolved yet.
+     */
+    val drivingEnvironment: DrivingEnvironment = DrivingEnvironment.Unknown,
+    /**
+     * Set once by [com.openmaps.app.feature.map.MapViewModel.onLiveReadinessChanged] when `Start`'s
+     * automatic switch to Live turned out to be unusable (camera denied/unavailable) and navigation
+     * was automatically presented in Map instead (section A7). Null once dismissed or once Live is
+     * next entered successfully.
+     */
+    val liveFallbackMessage: String? = null,
 ) {
+    /** The centralized Phase 11 tuning for [drivingEnvironment] — see `EnvironmentNavigationProfile`. */
+    val activeProfile: EnvironmentNavigationProfile
+        get() = EnvironmentProfiles.forEnvironment(drivingEnvironment)
+
     /** The progress snapshot to render, or null when navigation isn't reporting one. */
     val navigationProgress: RouteProgress?
         get() = when (val state = navigationState) {
@@ -72,6 +93,15 @@ data class MapUiState(
             is NavigationState.Error,
             -> null
         }
+
+    /**
+     * Part A2/A3/O: a destination was picked but "Directions" has not been tapped yet, so no route
+     * has been requested. Derived from the two fields that already exist rather than a new
+     * tri-state flag — once [routeState] leaves [RouteState.Idle] (Directions tapped), this flips to
+     * false and the Route Preview panel ([BottomPanel] + [NavigationControls]) takes over instead.
+     */
+    val isShowingDestinationDetails: Boolean
+        get() = selectedDestination != null && routeState is RouteState.Idle && selectedPlace == null
 
     /** True while a trip is underway: following, off route, rerouting, or arrived. */
     val isNavigating: Boolean

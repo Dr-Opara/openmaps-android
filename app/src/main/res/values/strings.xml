@@ -112,6 +112,9 @@
     <!-- Contextual places (Phase 9) -->
     <string name="place_navigate_action">Navigate</string>
 
+    <!-- Destination details (Phase 11) -->
+    <string name="destination_directions_action">Directions</string>
+
     <!-- Settings -->
     <string name="settings_title">Settings</string>
     <string name="settings_section_location">Location</string>

@@ -70,6 +70,27 @@ class RoadAlertPriorityTest {
         assertEquals(listOf(a, b), RoadAlertPriority.sorted(listOf(a, b)))
     }
 
+    @Test
+    fun defaultLaneGuidanceBand_isUnchangedFromPrePhase11Ordering() {
+        val lane = RouteAlert.Lane(LaneGuidance(emptyList(), emptyList(), null))
+        val speed = RouteAlert.SpeedLimit(SpeedLimitInfo(45.0, SpeedUnit.Mph, "osm:maxspeed"))
+        // No override passed: must rank identically to before Phase 11 (lane above speed limit).
+        assertEquals(listOf(lane, speed), RoadAlertPriority.sorted(listOf(speed, lane), laneGuidanceBand = null))
+    }
+
+    @Test
+    fun boostedLaneGuidanceBand_outranksWeatherButNotCollisionClassHazards() {
+        // Phase 11 (`EnvironmentNavigationProfile.laneGuidancePriorityBoost`): "elevated" relative to
+        // lane guidance's own normal band, never above a life-safety alert.
+        val boostedBand = 25
+        val lane = RouteAlert.Lane(LaneGuidance(emptyList(), emptyList(), null))
+        val weather = RouteAlert.Weather(weather(RoadEventSeverity.High))
+        val crash = hazardAlert(RoadEventType.Crash, RoadEventSeverity.High)
+
+        val sorted = RoadAlertPriority.sorted(listOf(weather, lane, crash), laneGuidanceBand = boostedBand)
+        assertEquals(listOf(crash, lane, weather), sorted)
+    }
+
     private fun hazardAlert(type: RoadEventType, severity: RoadEventSeverity, id: String = "h") = RouteAlert.Hazard(
         event = RoadEvent(id = id, type = type, latitude = 0.0, longitude = 0.0, severity = severity, title = "Event"),
         distanceAheadMeters = 100.0,

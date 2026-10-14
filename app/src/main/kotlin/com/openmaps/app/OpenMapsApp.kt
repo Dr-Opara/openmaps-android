@@ -36,6 +36,7 @@ import com.openmaps.app.core.camera.CameraPermissions
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.location.LocationPermissions
 import com.openmaps.app.feature.live.LiveHud
+import com.openmaps.app.feature.live.LiveReadinessMapper
 import com.openmaps.app.feature.live.LiveScreen
 import com.openmaps.app.feature.live.LiveUiEvent
 import com.openmaps.app.feature.live.LiveViewModel
@@ -78,7 +79,17 @@ private fun AppShell(container: AppContainer) {
     val searchViewModel: SearchViewModel = viewModel(factory = searchViewModelFactory(container))
     val liveViewModel: LiveViewModel = viewModel(factory = liveViewModelFactory(container))
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val liveState by liveViewModel.uiState.collectAsStateWithLifecycle()
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
+
+    // Part A7: reactive (never timer-based) fallback from Live back to Map. Recomputed whenever
+    // Live's camera permission/failure state changes; `MapViewModel.onLiveReadinessChanged` itself
+    // guards this to only act in the short window right after `startNavigation()` auto-switched to
+    // Live, so this is safe to call unconditionally here rather than gating on the current mode.
+    LaunchedEffect(liveState) {
+        val (readiness, reason) = LiveReadinessMapper.of(liveState)
+        viewModel.onLiveReadinessChanged(readiness, reason)
+    }
 
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
@@ -189,6 +200,8 @@ private fun AppShell(container: AppContainer) {
                 places = state.visiblePlaces,
                 // Phase 10: the same road-intelligence state Map mode reads.
                 roadIntelligenceState = state.roadIntelligenceState,
+                // Phase 11: the same active environment profile Map mode's camera/places/alerts read.
+                environmentProfile = state.activeProfile,
             )
         }
 

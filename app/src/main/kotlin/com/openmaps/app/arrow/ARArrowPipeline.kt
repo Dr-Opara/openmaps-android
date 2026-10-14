@@ -29,9 +29,20 @@ class ARArrowPipeline(
     private val config: ARArrowConfig = ARArrowConfig(),
 ) : com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization.ArOverlayRenderer {
 
-    private val sampler = ARArrowSampler(config)
+    private var sampler = ARArrowSampler(config)
     private val gate = ARArrowQualityGate(config)
     private val renderer = ARArrowRenderer()
+
+    /**
+     * Swaps the sampler's spacing/look-ahead/max-count/turn-density config (Phase 11 environment
+     * tuning — see `EnvironmentNavigationProfile.arrowConfig`). [ARArrowSampler] is pure and
+     * stateless, so replacing it is safe mid-trip; this deliberately does **not** touch [gate] (the
+     * quality-hysteresis fields are not part of what environment tunes) or anything in
+     * `RouteAnchorManager` — anchor lifecycle stays exactly as Phase 7/8 left it.
+     */
+    fun updateArrowConfig(newConfig: ARArrowConfig) {
+        sampler = ARArrowSampler(newConfig)
+    }
 
     /**
      * The projected arrows for the most recent frame. Volatile because it is written on the main

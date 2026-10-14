@@ -243,7 +243,13 @@ fun BottomPanel(
     }
 }
 
-/** One compact line under the destination subtitle: loading, error, or "12 mi · 18 min". */
+/**
+ * One compact line under the destination subtitle: loading, error, or "12 mi · 18 min · Arrive
+ * 3:45 PM" — Route Preview's confirmation figures (section A5: distance, duration, "expected
+ * arrival time if calculable"). The arrival clock time is read at render time ([System.currentTimeMillis])
+ * rather than computed once and stored, so it stays correct across recomposition without this
+ * becoming a second, independently-fallible estimate — it is always `now + durationSeconds`.
+ */
 @Composable
 private fun RouteSummaryLine(routeState: RouteState) {
     when (routeState) {
@@ -251,7 +257,9 @@ private fun RouteSummaryLine(routeState: RouteState) {
         RouteState.WaitingForLocation -> RouteStatusText(stringResource(R.string.route_waiting_for_location))
         RouteState.Loading -> RouteLoadingRow()
         is RouteState.Ready -> RouteStatusText(
-            text = "${formatDistance(routeState.route.distanceMeters)} · ${formatDuration(routeState.route.durationSeconds)}",
+            text = "${formatDistance(routeState.route.distanceMeters)} · " +
+                "${formatDuration(routeState.route.durationSeconds)} · " +
+                "Arrive ${ArrivalTimeFormatter.format(routeState.route.durationSeconds, System.currentTimeMillis())}",
             color = OpenMapsColors.ElectricBlue,
         )
         is RouteState.Error -> RouteStatusText(stringResource(routeState.reason.toMessageRes()))
@@ -394,6 +402,38 @@ private fun LocationPrompt.copy(): PromptCopy = when (this) {
     LocationPrompt.Loading -> PromptCopy(
         R.string.location_loading, R.string.location_loading, R.string.location_loading,
     )
+}
+
+/**
+ * Part A7: the concise, dismissible reason shown after Start's automatic switch to Live fell back
+ * to Map because the camera turned out to be unusable. A single compact row, not a full card — this
+ * is informational, not a decision the user needs to make (unlike [LocationPromptCard], it has no
+ * primary action: by the time it shows, navigation is already continuing fine in Map).
+ */
+@Composable
+fun LiveFallbackBanner(message: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .glass(GlassShapes.Pill)
+            .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.labelMedium,
+            color = OpenMapsColors.TextPrimary,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onDismiss) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = stringResource(R.string.cd_dismiss),
+                tint = OpenMapsColors.TextSecondary,
+            )
+        }
+    }
 }
 
 /** Full-screen failure state: "Map unavailable" + retry. Browsing is blocked only by this. */

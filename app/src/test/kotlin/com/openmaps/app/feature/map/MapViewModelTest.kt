@@ -1,5 +1,9 @@
 package com.openmaps.app.feature.map
 
+import com.openmaps.app.core.environment.DrivingEnvironment
+import com.openmaps.app.core.environment.EnvironmentProfiles
+import com.openmaps.app.core.environment.RoadClass
+import com.openmaps.app.core.environment.RoadClassRepository
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.location.LocationRepository
@@ -26,6 +30,7 @@ import com.openmaps.app.core.routing.RouteManeuver
 import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.routing.RoutingException
 import com.openmaps.app.core.routing.RoutingRepository
+import com.openmaps.app.feature.live.LiveReadiness
 import com.openmaps.app.map.CameraState
 import com.openmaps.app.map.MapCommand
 import com.openmaps.app.map.MapError
@@ -58,6 +63,7 @@ class MapViewModelTest {
     private val routingRepository = FakeRoutingRepository()
     private val placesRepository = FakePlaceRepository()
     private val roadIntelligenceRepository = FakeRoadIntelligenceRepository()
+    private val roadClassRepository = FakeRoadClassRepository()
     private lateinit var viewModel: MapViewModel
 
     @Before
@@ -68,6 +74,7 @@ class MapViewModelTest {
             routingRepository,
             placesRepository,
             roadIntelligenceRepository,
+            roadClassRepository,
             fixTimeoutMillis = TIMEOUT,
         )
     }
@@ -303,14 +310,14 @@ class MapViewModelTest {
     // region Routing
 
     @Test
-    fun selectingDestination_withLocationAlready_requestsRoute_andBecomesReady() = runTest(dispatcher) {
+    fun requestingDirections_withLocationAlready_computesTheRoute_andBecomesReady() = runTest(dispatcher) {
         val commands = collectCommands()
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
         commands.clear()
         routingRepository.result = Result.success(route(distanceMeters = 1609.0, durationSeconds = 300.0))
 
-        viewModel.onDestinationSelected(place("dest", 41.0, -75.0))
+        viewModel.selectAndRequestDirections(place("dest", 41.0, -75.0))
 
         assertEquals(listOf(Coordinate(40.0, -74.0)), routingRepository.originsReceived)
         assertEquals(listOf(Coordinate(41.0, -75.0)), routingRepository.destinationsReceived)
@@ -322,8 +329,8 @@ class MapViewModelTest {
     }
 
     @Test
-    fun selectingDestination_withoutLocation_waitsForLocation_andNeverCallsProvider() = runTest(dispatcher) {
-        viewModel.onDestinationSelected(place("dest", 41.0, -75.0))
+    fun requestingDirections_withoutLocation_waitsForLocation_andNeverCallsProvider() = runTest(dispatcher) {
+        viewModel.selectAndRequestDirections(place("dest", 41.0, -75.0))
 
         assertEquals(RouteState.WaitingForLocation, viewModel.uiState.value.routeState)
         assertTrue(routingRepository.originsReceived.isEmpty())
@@ -332,7 +339,7 @@ class MapViewModelTest {
     @Test
     fun locationArrivingLater_triggersTheWaitingRoute() = runTest(dispatcher) {
         routingRepository.result = Result.success(route())
-        viewModel.onDestinationSelected(place("dest", 41.0, -75.0))
+        viewModel.selectAndRequestDirections(place("dest", 41.0, -75.0))
         assertEquals(RouteState.WaitingForLocation, viewModel.uiState.value.routeState)
 
         startWithPermission()
@@ -357,9 +364,9 @@ class MapViewModelTest {
         repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
         routingRepository.result = Result.success(route(distanceMeters = 111.0))
 
-        viewModel.onDestinationSelected(place("a", 1.0, 1.0))
+        viewModel.selectAndRequestDirections(place("a", 1.0, 1.0))
         routingRepository.result = Result.success(route(distanceMeters = 222.0))
-        viewModel.onDestinationSelected(place("b", 2.0, 2.0))
+        viewModel.selectAndRequestDirections(place("b", 2.0, 2.0))
 
         assertEquals(2, routingRepository.destinationsReceived.size)
         val ready = viewModel.uiState.value.routeState as RouteState.Ready
@@ -371,7 +378,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
         routingRepository.result = Result.success(route())
-        viewModel.onDestinationSelected(place("a", 1.0, 1.0))
+        viewModel.selectAndRequestDirections(place("a", 1.0, 1.0))
         assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
 
         viewModel.onDestinationCleared()
@@ -385,7 +392,7 @@ class MapViewModelTest {
         repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
         routingRepository.result = Result.failure(RoutingException.NoRouteFound)
 
-        viewModel.onDestinationSelected(place("a", 1.0, 1.0))
+        viewModel.selectAndRequestDirections(place("a", 1.0, 1.0))
 
         val error = viewModel.uiState.value.routeState as RouteState.Error
         assertEquals(RouteError.NoRouteFound, error.reason)
@@ -397,7 +404,7 @@ class MapViewModelTest {
         repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
         routingRepository.result = Result.failure(RoutingException.NoNetwork)
 
-        viewModel.onDestinationSelected(place("a", 1.0, 1.0))
+        viewModel.selectAndRequestDirections(place("a", 1.0, 1.0))
 
         val error = viewModel.uiState.value.routeState as RouteState.Error
         assertEquals(RouteError.NoNetwork, error.reason)
@@ -431,7 +438,7 @@ class MapViewModelTest {
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0005)))
         routingRepository.result = Result.success(navigableRoute())
 
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
 
         assertTrue(viewModel.uiState.value.isNavigating)
@@ -446,7 +453,7 @@ class MapViewModelTest {
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0005)))
         routingRepository.result = Result.success(route()) // Phase 3 route: no maneuvers
 
-        viewModel.onDestinationSelected(place("dest", 41.0, -75.0))
+        viewModel.selectAndRequestDirections(place("dest", 41.0, -75.0))
         viewModel.startNavigation()
 
         val error = viewModel.uiState.value.navigationState as NavigationState.Error
@@ -458,7 +465,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
 
         val startRemaining = viewModel.uiState.value.navigationProgress!!.remainingDistanceMeters
@@ -477,7 +484,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         // Starting seeds progress from the last fix, so a split already exists (at the start).
         assertEquals(0, viewModel.routeProgressView.value?.traveledShapeIndex)
@@ -492,7 +499,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.004)))
         assertNotNull(viewModel.routeProgressView.value)
@@ -507,7 +514,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.004)))
         assertNotNull(viewModel.routeProgressView.value)
@@ -525,7 +532,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         viewModel.stopNavigation()
         val snapshot = viewModel.uiState.value.navigationProgress
@@ -540,7 +547,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
 
         viewModel.onDestinationCleared()
@@ -553,7 +560,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
 
         repository.emit(LocationUpdate.Fix(at(0.0, 0.009)))
@@ -567,7 +574,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         val requestsBefore = routingRepository.destinationsReceived.size
 
@@ -587,7 +594,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         val requestsBefore = routingRepository.destinationsReceived.size
 
@@ -611,7 +618,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         assertEquals("starting navigation is not a route replacement", 0, notifications)
 
@@ -632,7 +639,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         assertEquals(0, ended)
 
@@ -648,7 +655,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
 
         routingRepository.result = Result.failure(RoutingException.NoNetwork)
@@ -667,7 +674,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
 
         val replacement = navigableRoute(distanceMeters = 555.0)
@@ -687,7 +694,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         commands.clear()
 
@@ -708,7 +715,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         viewModel.onMapEvent(MapEvent.UserGestureStarted)
         commands.clear()
@@ -754,7 +761,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         viewModel.onMapEvent(MapEvent.UserGestureStarted)
         viewModel.stopNavigation()
@@ -768,7 +775,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
 
         viewModel.onModeSelected(MapMode.Live)
@@ -783,7 +790,7 @@ class MapViewModelTest {
 
         startWithPermission()
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         assertFalse("route but no fix", viewModel.uiState.value.canStartNavigation)
 
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
@@ -816,7 +823,7 @@ class MapViewModelTest {
     fun nearbyFetch_doesNotRunWhileNavigating() = runTest(dispatcher) {
         startWithPermission()
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         viewModel.startNavigation()
         val fetchesSoFar = placesRepository.nearbyCenters.size
@@ -833,7 +840,7 @@ class MapViewModelTest {
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0))) // an origin, so requestRoute() fires immediately
         val readyRoute = navigableRoute()
         routingRepository.result = Result.success(readyRoute)
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         assertEquals(1, placesRepository.alongRouteCalls.size)
         assertEquals(readyRoute.geometry, placesRepository.alongRouteCalls.single())
     }
@@ -895,7 +902,7 @@ class MapViewModelTest {
         assertEquals(25, viewModel.uiState.value.visiblePlaces.size)
 
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         assertEquals(MapViewModel.MAX_VISIBLE_PLACES_NAVIGATING, viewModel.uiState.value.visiblePlaces.size)
     }
@@ -910,7 +917,7 @@ class MapViewModelTest {
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0))) // an origin, so requestRoute() fires immediately
         val readyRoute = navigableRoute()
         routingRepository.result = Result.success(readyRoute)
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         assertEquals(1, roadIntelligenceRepository.eventsAlongRouteCalls.size)
         assertEquals(readyRoute.geometry, roadIntelligenceRepository.eventsAlongRouteCalls.single())
     }
@@ -921,7 +928,7 @@ class MapViewModelTest {
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         roadIntelligenceRepository.eventsResult = Result.success(listOf(testHazard("h1")))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         assertEquals(listOf("h1"), viewModel.uiState.value.roadIntelligenceState.events.map { it.id })
 
         roadIntelligenceRepository.eventsResult = Result.failure(RoadIntelligenceException.NoNetwork)
@@ -991,7 +998,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
 
         viewModel.startNavigation() // first candidate tick
         assertTrue(
@@ -1013,7 +1020,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         // Move to ~667 m along the route (0.006 deg * 111,320 m/deg) before starting navigation, so
         // the very first progress snapshot already has the hazard behind it.
         repository.emit(LocationUpdate.Fix(at(0.0, 0.006)))
@@ -1035,7 +1042,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0002)))
         assertTrue(viewModel.uiState.value.roadIntelligenceState.activeAlerts.any { it is RouteAlert.Hazard })
@@ -1055,7 +1062,7 @@ class MapViewModelTest {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
-        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0002)))
         assertTrue(viewModel.uiState.value.roadIntelligenceState.activeAlerts.any { it is RouteAlert.Hazard })
@@ -1095,7 +1102,313 @@ class MapViewModelTest {
 
     // endregion
 
+    // region Navigation UX (Phase 11)
+
+    @Test
+    fun selectingDestination_doesNotRequestARoute() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+
+        assertEquals("selection alone must never request a route", 0, routingRepository.destinationsReceived.size)
+        assertEquals(RouteState.Idle, viewModel.uiState.value.routeState)
+        assertTrue(viewModel.uiState.value.isShowingDestinationDetails)
+    }
+
+    @Test
+    fun onDirectionsRequested_computesTheRouteAndShowsRoutePreview() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(route())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+
+        viewModel.onDirectionsRequested()
+
+        assertEquals(1, routingRepository.destinationsReceived.size)
+        assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+        assertFalse(
+            "Route Preview must replace Destination Details once Directions is tapped",
+            viewModel.uiState.value.isShowingDestinationDetails,
+        )
+    }
+
+    @Test
+    fun selectingANewDestination_afterAPreviousRouteExisted_showsDetailsNotStaleRoutePreview() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(route())
+        viewModel.onDestinationSelected(place("first", 0.009, 0.0))
+        viewModel.onDirectionsRequested()
+        assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+
+        viewModel.onDestinationSelected(place("second", 0.02, 0.0))
+
+        assertEquals(
+            "a freshly selected destination must not inherit the previous one's route",
+            RouteState.Idle,
+            viewModel.uiState.value.routeState,
+        )
+        assertTrue(viewModel.uiState.value.isShowingDestinationDetails)
+    }
+
+    @Test
+    fun onNavigateToPlace_stillGoesStraightToRoutePreview_oneTapBehaviorPreserved() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(route())
+
+        viewModel.onNavigateToPlace(testPlace("gas-1", PlaceCategory.Gas, latitude = 0.009, longitude = 0.0))
+
+        assertTrue(
+            "a place's details are already shown before Navigate is reachable, so one tap must act like Directions",
+            viewModel.uiState.value.routeState is RouteState.Ready,
+        )
+    }
+
+    @Test
+    fun startNavigation_automaticallySwitchesToLiveMode() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsRequested()
+        assertEquals(MapMode.Map, viewModel.uiState.value.selectedMapMode)
+
+        viewModel.startNavigation()
+
+        assertEquals(MapMode.Live, viewModel.uiState.value.selectedMapMode)
+        assertTrue(viewModel.uiState.value.navigationState is NavigationState.Active)
+    }
+
+    @Test
+    fun startNavigation_thatFailsToStart_doesNotSwitchToLive() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsRequested()
+        assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+        // The route is ready, but the location fix is lost right before Start is pressed.
+        repository.emit(LocationUpdate.ServicesDisabled)
+
+        viewModel.startNavigation()
+
+        assertEquals(MapMode.Map, viewModel.uiState.value.selectedMapMode)
+        assertTrue(viewModel.uiState.value.navigationState is NavigationState.Error)
+    }
+
+    @Test
+    fun manualMapSelection_preservesNavigation_doesNotRestartTheRoute() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsRequested()
+        viewModel.startNavigation()
+        val requestsBefore = routingRepository.destinationsReceived.size
+
+        viewModel.onModeSelected(MapMode.Map)
+
+        assertEquals(MapMode.Map, viewModel.uiState.value.selectedMapMode)
+        assertTrue("navigation must continue in Map mode", viewModel.uiState.value.navigationState is NavigationState.Active)
+        assertEquals("switching mode must never re-request the route", requestsBefore, routingRepository.destinationsReceived.size)
+    }
+
+    @Test
+    fun returningToLive_resumesTheSameProgress_doesNotRestartNavigation() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsRequested()
+        viewModel.startNavigation()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.003)))
+        viewModel.onModeSelected(MapMode.Map)
+        val progressBeforeReturn = viewModel.uiState.value.navigationProgress
+
+        viewModel.onModeSelected(MapMode.Live)
+
+        assertEquals(MapMode.Live, viewModel.uiState.value.selectedMapMode)
+        assertEquals(
+            "the same NavigationSession must still be tracking — progress is unchanged by the switch",
+            progressBeforeReturn?.snappedShapeIndex,
+            viewModel.uiState.value.navigationProgress?.snappedShapeIndex,
+        )
+    }
+
+    @Test
+    fun onLiveReadinessChanged_unusableWhileArmed_fallsBackToMapWithAReason() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsRequested()
+        viewModel.startNavigation()
+        assertEquals(MapMode.Live, viewModel.uiState.value.selectedMapMode)
+
+        viewModel.onLiveReadinessChanged(LiveReadiness.Unusable, "Camera access denied — continuing in Map")
+
+        assertEquals(MapMode.Map, viewModel.uiState.value.selectedMapMode)
+        assertEquals("Camera access denied — continuing in Map", viewModel.uiState.value.liveFallbackMessage)
+        assertTrue("navigation must continue despite the fallback", viewModel.uiState.value.navigationState is NavigationState.Active)
+    }
+
+    @Test
+    fun onLiveReadinessChanged_pendingWhileArmed_staysInLiveWithNoMessage() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsRequested()
+        viewModel.startNavigation()
+
+        viewModel.onLiveReadinessChanged(LiveReadiness.Pending, null)
+
+        assertEquals("the permission dialog may still be in flight; must not bounce back yet", MapMode.Live, viewModel.uiState.value.selectedMapMode)
+        assertNull(viewModel.uiState.value.liveFallbackMessage)
+    }
+
+    @Test
+    fun onLiveReadinessChanged_readyWhileArmed_disarmsAndStaysInLive() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsRequested()
+        viewModel.startNavigation()
+
+        viewModel.onLiveReadinessChanged(LiveReadiness.Ready, null)
+        // A later Unusable signal must now be ignored: disarmed after the first Ready resolution.
+        viewModel.onLiveReadinessChanged(LiveReadiness.Unusable, "should be ignored")
+
+        assertEquals(MapMode.Live, viewModel.uiState.value.selectedMapMode)
+        assertNull(viewModel.uiState.value.liveFallbackMessage)
+    }
+
+    @Test
+    fun onLiveReadinessChanged_ignoredWhenNotArmed_manualReentryUnaffected() = runTest(dispatcher) {
+        // A manual Live visit (never auto-armed by `startNavigation`) must not be yanked back to Map
+        // just because the camera happens to be unusable — the existing recoverable panel must get
+        // its chance, exactly as before Phase 11.
+        viewModel.onModeSelected(MapMode.Live)
+
+        viewModel.onLiveReadinessChanged(LiveReadiness.Unusable, "denied")
+
+        assertEquals(MapMode.Live, viewModel.uiState.value.selectedMapMode)
+        assertNull(viewModel.uiState.value.liveFallbackMessage)
+    }
+
+    @Test
+    fun manualModeSelection_disarmsTheAutomaticFallback() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsRequested()
+        viewModel.startNavigation()
+
+        // The user manually leaves Live before camera readiness ever resolves, then manually
+        // returns — a later Unusable signal must now be ignored (disarmed by the manual switch),
+        // or it would incorrectly bounce this manual re-entry straight back to Map.
+        viewModel.onModeSelected(MapMode.Map)
+        viewModel.onModeSelected(MapMode.Live)
+        viewModel.onLiveReadinessChanged(LiveReadiness.Unusable, "should be ignored")
+
+        assertEquals(MapMode.Live, viewModel.uiState.value.selectedMapMode)
+        assertNull(viewModel.uiState.value.liveFallbackMessage)
+    }
+
+    // endregion
+
+    // region Environment (Phase 11)
+
+    @Test
+    fun drivingEnvironment_defaultsToUnknownWhileNotNavigating() = runTest(dispatcher) {
+        startWithPermission()
+        roadClassRepository.result = Result.success(RoadClass.Motorway)
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+
+        assertEquals(DrivingEnvironment.Unknown, viewModel.uiState.value.drivingEnvironment)
+        assertEquals(EnvironmentProfiles.unknown, viewModel.uiState.value.activeProfile)
+    }
+
+    @Test
+    fun drivingEnvironment_resolvesToHighway_fromRealRoadClassSignalWhileNavigating() = runTest(dispatcher) {
+        roadClassRepository.result = Result.success(RoadClass.Motorway)
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsRequested()
+        viewModel.startNavigation()
+
+        // Several ticks, each far enough apart to refetch road class, so the hysteresis has every
+        // chance to confirm — the exact tick-count guarantee is covered by EnvironmentHysteresisTest.
+        repeat(5) { i -> repository.emit(LocationUpdate.Fix(at(0.0, 0.0001 * i))) }
+
+        assertEquals(DrivingEnvironment.Highway, viewModel.uiState.value.drivingEnvironment)
+        assertEquals(EnvironmentProfiles.highway, viewModel.uiState.value.activeProfile)
+    }
+
+    @Test
+    fun drivingEnvironment_resetsToUnknownOnStopNavigation() = runTest(dispatcher) {
+        roadClassRepository.result = Result.success(RoadClass.Motorway)
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsRequested()
+        viewModel.startNavigation()
+        repeat(5) { i -> repository.emit(LocationUpdate.Fix(at(0.0, 0.0001 * i))) }
+        assertEquals(DrivingEnvironment.Highway, viewModel.uiState.value.drivingEnvironment)
+
+        viewModel.stopNavigation()
+
+        assertEquals(DrivingEnvironment.Unknown, viewModel.uiState.value.drivingEnvironment)
+    }
+
+    @Test
+    fun activeProfile_tunesVisiblePlacesCapWhileNavigating() = runTest(dispatcher) {
+        roadClassRepository.result = Result.success(RoadClass.Motorway)
+        val many = (1..30).map { testPlace("p$it", PlaceCategory.Coffee) }
+        placesRepository.alongRouteResult = Result.success(many)
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsRequested()
+        viewModel.startNavigation()
+
+        repeat(5) { i -> repository.emit(LocationUpdate.Fix(at(0.0, 0.0001 * i))) }
+        assertEquals(DrivingEnvironment.Highway, viewModel.uiState.value.drivingEnvironment)
+
+        assertEquals(
+            "Highway's lower POI cap must be in effect, not the Unknown-profile default",
+            EnvironmentProfiles.highway.poiLimitNavigating,
+            viewModel.uiState.value.visiblePlaces.size,
+        )
+    }
+
+    // endregion
+
     // region helpers
+
+    /**
+     * The Phase 11 selection flow: pick a result, then ask for Directions.
+     *
+     * Picking a destination deliberately does **not** request a route any more — it opens Destination
+     * Details, and Directions is the explicit next step. Tests that go on to assert about the route
+     * therefore have to take that second step too.
+     *
+     * Going through one helper rather than sprinkling `onDirectionsRequested()` everywhere is
+     * deliberate: it keeps every test reading like the flow a user actually performs, and makes the
+     * old one-step assumption impossible to reintroduce silently. Tests that are specifically about
+     * the two steps being separate call the ViewModel methods directly.
+     */
+    private fun MapViewModel.selectAndRequestDirections(result: SearchResult) {
+        onDestinationSelected(result)
+        onDirectionsRequested()
+    }
 
     private fun startWithPermission() {
         viewModel.onAppVisibilityChanged(true)
@@ -1243,6 +1556,16 @@ class MapViewModelTest {
         override suspend fun weatherNear(location: Coordinate): Result<WeatherCondition?> {
             weatherCalls += location
             return weatherResult
+        }
+    }
+
+    private class FakeRoadClassRepository : RoadClassRepository {
+        var result: Result<RoadClass?> = Result.success(null)
+        val calls = mutableListOf<Coordinate>()
+
+        override suspend fun roadClassNear(location: Coordinate): Result<RoadClass?> {
+            calls += location
+            return result
         }
     }
 

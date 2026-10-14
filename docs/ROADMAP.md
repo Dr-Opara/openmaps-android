@@ -193,18 +193,64 @@ Phase 8's **spatial placement seam** — and only that seam — was re-pointed a
 
 Tentative order; each needs its own scope decision.
 
-1. **Physical-device validation of Phases 7/8.** This is now the highest-priority open item: every
-   spatial claim about anchoring is currently unverified against real ARCore hardware.
-2. **Production basemap**: pick and host the tile source (PMTiles/Protomaps or self-hosted vector tiles), glyphs and sprites; flip `devOnly` to false; dark navy style to match the brand.
-3. **Production geocoding**: move off the public Nominatim instance (self-hosted Nominatim/Photon or a contracted provider) before shipping.
-4. **Production routing**: move off the public Valhalla demo instance (self-hosted Valhalla or a contracted provider) before shipping.
-5. **Turn-by-turn guidance**: done in Phase 4; voice guidance is still open.
-6. **Production places**: move off the public Overpass instance (self-hosted Overpass or a contracted places provider) before shipping — done in Phase 9, production provider still open.
-7. **Later layers**: traffic, road hazards, weather, lane guidance, speed-limit intelligence — done in Phase 10, except a live traffic-congestion source and a wired lane-guidance provider (both still open — see Phase 11 prerequisites).
-8. **Production road-intelligence providers**: move off the public Overpass instance and Open-Meteo's free tier (same category of open question as tile/geocoding/routing/places) before shipping; separately, decide on a live traffic-congestion provider and whether to request Valhalla's `format=osrm` (or switch providers) to unlock lane guidance.
-9. **Phase 11**: environment-dependent behavior (city/highway/suburb/rural modes) consuming Phase 10's road-intelligence state — see Phase 11 prerequisites below.
+1. **On-device validation of environment modes (Phase 11).** The highest-priority open item: no
+   environment mode other than `Unknown` has been seen resolve against live map data. The classifier,
+   hysteresis and every profile are unit-tested, but the Overpass road-class fetch and the resulting
+   profile swap have never run against a real drive.
+2. **Physical-device validation of Phases 7/8.** Every spatial claim about AR anchoring is still
+   unverified against real ARCore hardware.
+3. **Production basemap**: pick and host the tile source (PMTiles/Protomaps or self-hosted vector tiles), glyphs and sprites; flip `devOnly` to false; dark navy style to match the brand.
+4. **Production geocoding**: move off the public Nominatim instance (self-hosted Nominatim/Photon or a contracted provider) before shipping.
+5. **Production routing**: move off the public Valhalla demo instance (self-hosted Valhalla or a contracted provider) before shipping.
+6. **Turn-by-turn guidance**: done in Phase 4; voice guidance is still open.
+7. **Production places**: move off the public Overpass instance (self-hosted Overpass or a contracted places provider) before shipping — done in Phase 9, production provider still open.
+8. **Later layers**: traffic, road hazards, weather, lane guidance, speed-limit intelligence — done in Phase 10, except a live traffic-congestion source and a wired lane-guidance provider (both still open).
+9. **Production road-intelligence providers**: move off the public Overpass instance and Open-Meteo's free tier (same category of open question as tile/geocoding/routing/places) before shipping; separately, decide on a live traffic-congestion provider and whether to request Valhalla's `format=osrm` (or switch providers) to unlock lane guidance.
+
+## Phase 11 — environment-dependent navigation (complete, on-device validation pending)
+
+Answers "what kind of road am I on?" and lets every environment-sensitive consumer read the answer
+without knowing how it was produced. Also makes the destination→route flow a deliberate two-step.
+
+- **Classification is pure, stateless and deterministic** — `EnvironmentClassifier` over
+  `EnvironmentSignals`. No ML, mirroring `PlaceRanking` and `RoadAlertPriority`. Thresholds live in an
+  injectable `EnvironmentClassifierConfig`.
+- **Signals are real and already available**: OSM `highway=*` road class via a new Overpass-backed
+  `RoadClassRepository`, Phase 10's posted speed limit and current speed, mean maneuver spacing on the
+  active route (`ManeuverSpacing`), and Phase 9's visible nearby-place count.
+- **Highway comes from road classification, never from speed.** A driver crawling in motorway traffic
+  is still on a motorway; a driver speeding on a rural road is not on one.
+- **Hysteresis**: a candidate mode must hold for **3 consecutive ticks** before it replaces the
+  current one — stricter than Phase 10's per-alert hysteresis, because a mode change flips arrow
+  density, camera, POI priority and alert thresholds all at once. `reset()` on a new trip. Classification
+  only runs while navigating.
+- **One profile object** (`EnvironmentNavigationProfile`) is the single source of truth; no consumer
+  branches on `DrivingEnvironment`. `EnvironmentProfiles.unknown` is pinned to the exact pre-Phase-11
+  constants so an unresolvable mode behaves identically to Phases 1–10.
+- **Profiles tune** arrow spacing/look-ahead/count, maneuver lead, POI limits and ranking weights,
+  road-alert approach distances, speed emphasis, and map camera zoom/look-ahead.
+- **Arrow integration is config-only** (`ARArrowPipeline.updateArrowConfig`): sampling is retuned,
+  anchor lifecycle and placement-path selection are deliberately untouched and tested as such.
+- **Two-step destination UX**: selecting a result opens Destination Details and does *not* request a
+  route; `onDirectionsRequested` computes it into Route Preview; `startNavigation` begins the trip and
+  flips to Live in one state update, with a reactive camera fallback back to Map that never blocks
+  navigation and is disarmed by any manual mode choice.
+- 529 unit tests total, 0 failures; all pre-existing Phase 1–10 tests preserved.
+- **Emulator: the destination UX validated end to end** — Explore → search → results → Destination
+  Details (no route, no Start) → Directions → Route Preview (route, arrival time, Start) → Start →
+  Live opened automatically with camera and HUD. No crash at any point.
+- **Emulator: Live → Map → Live continuity, arrival, and environment-mode transitions NOT completed.**
+  The AVD degraded mid-session (ANRs in SystemUI, Phone and the Latin IME; restarted system services;
+  transient PackageManager inconsistency) and could no longer deliver taps or text reliably. Those are
+  unit-tested only.
+- **On-device validation is the open item.** No mode other than `Unknown` has been observed resolving.
 
 ## Phase 11 prerequisites
+
+**Historical note:** this section originally read as a forward-looking plan when written at the end of
+Phase 10. Phase 11 is now **done** — see the "Phase 11 — environment-dependent navigation" entry above.
+Kept here, unedited otherwise, as the as-of-Phase-10 planning record (same convention as the
+historical notes under Phase 10/7 prerequisites below).
 
 Environment-dependent behavior (city/highway/suburb/rural modes — how Phase 10's road intelligence
 should behave differently by environment, per item 9 above). Available at the start of Phase 11: the
@@ -217,6 +263,12 @@ longer approach distances) rather than a parallel threshold system. Still needed
 environment classification signal (OSM road class, speed, a geofence, or similar), and a decision on
 whether environment conditioning lives in `RoadAlertActivationConfig` itself, a new layer above it, or
 inside `MapViewModel`.
+
+**What was actually built:** the classification signal is real OSM road class via a new
+`RoadClassRepository`, not speed or a geofence; and the conditioning lives in **a new layer above**
+`RoadAlertActivationConfig` (`EnvironmentNavigationProfile`, one profile object per mode), exactly as
+that section anticipated — `RoadAlertActivationConfig` itself stayed a single fixed default, now
+supplied *per profile* rather than being edited in place.
 
 ## Phase 10 prerequisites
 

@@ -124,6 +124,43 @@ should not be reported as a success.
 - There is no live-traffic or lane-guidance UI to test: neither has a data source wired in yet (see
   ARCHITECTURE.md's Road intelligence section).
 
+## Environment modes (Phase 11)
+
+City / Highway / Suburb / Rural, with `Unknown` as the safe fallback. Classification needs a **real
+drive on a physical device with network** — it reads live OSM road classification from the same public
+Overpass instance Places and Road intelligence already use.
+
+- No API keys needed; same Overpass endpoint as above.
+- **The emulator cannot demonstrate this.** With a synthetic `adb emu geo fix` position there is no
+  real road context, so the mode stays `Unknown` — which is the correct safe fallback (it pins
+  `EnvironmentProfiles.unknown` to the exact pre-Phase-11 constants) but proves nothing about
+  detection.
+- Classification only runs **while navigating**. Before Start, and after arrival, the mode is
+  `Unknown` by design: there is no route shape to read.
+- **Highway requires genuinely controlled-access OSM road class**, never speed. To test it, route
+  onto a real `highway=motorway`/`motorway_link` or `trunk`/`trunk_link` way and confirm
+  `RoadClass.isControlledAccess` matches the road you are on (check
+  [openstreetmap.org](https://www.openstreetmap.org) first). A motorway can read `Unknown` if Overpass
+  has no data for that tile — that is a data gap, not a classifier bug.
+- **Hysteresis: 3 consecutive ticks.** A mode must hold before it switches, so a single noisy reading
+  never flips behaviour. Do not expect an instant switch when crossing a city boundary; expect it
+  within a few seconds of sustained evidence.
+- **A mode switch must never restart navigation.** Verify the trip survives: the maneuver banner,
+  remaining distance and elapsed time all keep counting through a City→Highway transition.
+
+What to watch, in order of likelihood of being the thing that is wrong:
+
+| Check | Expected | If it fails |
+| --- | --- | --- |
+| Mode reaches anything other than `Unknown` | Yes, on a real drive | Overpass returned nothing, or you are not navigating |
+| Motorway reads `Highway` | Yes | The nearest way is not actually controlled-access at your position |
+| Dense Manhattan grid reads `City` | Yes | Maneuver spacing is driven by the route's own maneuvers — a sparse route through a city can read `Suburb` |
+| Long sparse rural route reads `Rural` | Yes, if nearby places are also ≤ 1 | Requires *both* long segments and low density |
+| Mode change mid-trip | Trip continues uninterrupted | Navigation must never depend on classification |
+
+There is no debug overlay for the environment mode today; `MapUiState.drivingEnvironment` is exposed in
+the ViewModel and is the thing to assert on in a test.
+
 ## Verification checklist
 
 **Nothing below has been run.** The remote build environment had no Android SDK and could not reach Google Maven or Maven Central, so it could not compile the Android code, run the Android unit tests, run lint, or launch anything. What *was* done remotely: the pure-Kotlin core (`LocationModels`, `LocationRepository`, `MapModels`, `MapStyleProvider`, `MapUiState`, `MapViewModel`) compiled with the Kotlin 2.0.21 compiler against a stub `ViewModel`, and 35 behavioural checks mirroring the ViewModel unit tests passed in a throwaway harness; XML and resource references were validated statically. That is **not** a substitute for the steps here.
@@ -132,7 +169,7 @@ should not be reported as a success.
 
 - [ ] Gradle sync succeeds
 - [ ] `./gradlew :app:assembleDebug` succeeds
-- [ ] `./gradlew :app:testDebugUnitTest` passes (448 tests as of Phase 10)
+- [ ] `./gradlew :app:testDebugUnitTest` passes (529 tests as of Phase 11)
 - [ ] `./gradlew :app:lintDebug` has no errors
 - [ ] `dependencies` output shows no unexpected version conflicts (look at `androidx.lifecycle`, `kotlinx-coroutines`, and MapLibre's transitive libraries)
 - [ ] `./gradlew :app:assembleRelease` succeeds (R8 with MapLibre; try a release build early)

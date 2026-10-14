@@ -222,6 +222,12 @@ class LiveViewModel(
         spatialState: SpatialLocalizationState,
         viewportWidthPx: Int,
         viewportHeightPx: Int,
+        /**
+         * Phase 11 (`EnvironmentNavigationProfile.liveMaxPoiLabels`): Highway drops this to 0 ("POIs
+         * minimized"), Rural to 1. Defaults to the pre-Phase-11 constant so a caller that does not
+         * pass an environment profile (or the `Unknown` profile) sees unchanged Phase 9 behavior.
+         */
+        maxVisible: Int = MAX_LIVE_PLACE_LABELS,
     ) {
         val pose = (spatialState as? SpatialLocalizationState.Tracking)?.pose
         _livePlaceLabels.value = LivePlaceProjector.project(
@@ -229,7 +235,7 @@ class LiveViewModel(
             pose = pose,
             viewportWidthPx = viewportWidthPx,
             viewportHeightPx = viewportHeightPx,
-            maxVisible = MAX_LIVE_PLACE_LABELS,
+            maxVisible = maxVisible,
         )
     }
 

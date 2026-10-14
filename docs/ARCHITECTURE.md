@@ -2,7 +2,7 @@
 
 OpenMaps is a United States-only, Android-first navigation app. This document describes what exists after **Phase 10 (road intelligence: hazards, weather, speed limits, prioritized alerts)**, built on Phase 9 (contextual places) and Phase 8 (AR route arrows on ARCore world anchors, itself built on a repaired Phase 7 geospatial anchoring). Computer vision, AI and authentication do not exist yet.
 
-> **Verification status.** Phases 1-5 were built, unit-tested and manually validated end-to-end on a Pixel 8 API 35 emulator. **Phase 6 is built, unit-tested (175 tests) and emulator-validated only on its fallback paths** — the test emulator has no ARCore and no AR hardware, so Earth tracking, geospatial pose and heading are **unverified on a physical device**. See [SETUP.md](SETUP.md#verification-checklist).
+> **Verification status.** Phases 1-5 were built, unit-tested and manually validated end-to-end on a Pixel 8 API 35 emulator. **Phases 6-11 are built and unit-tested (529 tests, 0 failures); emulator validation covers fallback paths and the Phase 11 destination UX only** - the test emulator has no ARCore and no AR hardware, so Earth tracking, geospatial pose, heading and anchored arrow placement are **unverified on a physical device**. **Environment classification (City/Highway/Suburb/Rural) has never been observed resolving against live map data** - see "Phase 11 validation status" below. See [SETUP.md](SETUP.md#verification-checklist).
 
 ## Stack
 
@@ -1190,28 +1190,130 @@ construction zone.
 - **Contextual places (Phase 9)**: every `PlaceException` maps to a `PlacesError` the same way routing does; a failed fetch never clears an already-showing `Ready` result (see "Network/failure handling" under Contextual places). Navigation, location and routing are completely unaffected by any places failure.
 - **Road intelligence (Phase 10)**: every `RoadIntelligenceException` is caught at the repository boundary and surfaces only as `Result.failure`; `MapViewModel` does not even map it to a UI-facing error type — a failed hazards/weather/speed-limit fetch is silently a no-op, leaving whatever was already in `roadIntelligenceState` untouched. No road intelligence source is ever read from inside `onNavigationTick`'s critical path, so navigation, rerouting, arrival and every other Phase 1-9 flow are provably unaffected by any of the three failing, being slow, or being absent entirely.
 
-## Phase 11 output contract
+## Phase 11: environment-dependent navigation
 
-What Phase 11 (environment-dependent behavior — city/highway/suburb/rural modes, per ROADMAP.md) can
-rely on, exactly as it stands at the end of Phase 10:
+Phase 11 answers one question — *what kind of road am I on?* — and lets every environment-sensitive
+consumer read the answer without knowing how it was produced. It also changes the destination→route
+UX to a deliberate two-step flow.
+
+### Navigation UX (search → … → Start → Live)
+
+Selecting a search result no longer requests a route. It flies the camera, drops a marker and opens a
+**Destination Details** sheet (name, address, distance, clear, and a **Directions** button). Only
+`onDirectionsRequested()` computes a route, which produces **Route Preview** in Map mode — route line,
+bounds-fitted camera, and a summary card with distance, duration and arrival time. Only the card's
+**Start** begins navigation.
+
+`startNavigation()` sets `navigationState = Active` and flips `selectedMapMode` to `Live` in the same
+state update, so the camera-first view opens automatically and can never open on top of a navigation
+error. If the camera then proves unusable, `onLiveReadinessChanged` moves the user **back to Map** with
+a short reason — navigation itself is never blocked. `MapViewModel.onModeSelected` disarms that
+fallback, so a manual mode choice is never overridden.
+
+`LiveReadiness` is deliberately three-way (`Pending` / `Ready` / `Unusable`) rather than a boolean:
+`Pending` must be allowed to resolve, because a fresh permission prompt is not a denial.
+
+### Environment classification
+
+```
+EnvironmentSignals ──► EnvironmentClassifier.classify() ──► EnvironmentHysteresis.update()
+                                    (pure)                          (debounce)
+                                                                        │
+                                              MapUiState.drivingEnvironment
+                                                                        │
+                                              EnvironmentProfiles.forEnvironment(…)
+                                                                        │
+              ARArrowPipeline · NavigationCamera · places · road alerts · Live HUD
+```
+
+| Piece | File | Responsibility |
+| --- | --- | --- |
+| `DrivingEnvironment`, `RoadClass`, `EnvironmentSignals` | `core/environment/EnvironmentModels.kt` | The five modes, the OSM road classes, and the only inputs allowed |
+| `EnvironmentClassifier` | `core/environment/EnvironmentClassifier.kt` | Pure, stateless, deterministic. No ML |
+| `EnvironmentHysteresis` | `core/environment/EnvironmentHysteresis.kt` | Debounces across ticks |
+| `EnvironmentNavigationProfile` | `core/environment/EnvironmentNavigationProfile.kt` | The single source of truth for every environment-dependent number |
+| `ManeuverSpacing` | `core/environment/ManeuverSpacing.kt` | Mean maneuver spacing, the route-shape signal |
+| `RoadClassRepository` / `OverpassRoadClassRepository` / `OverpassRoadClassParser` | `core/environment/` | Real OSM `highway=*` classification of the nearest way |
+
+**Signals.** Only real, already-available data: OSM road class (Overpass), posted speed limit
+(Phase 10), current speed (`Location.getSpeed()`, Phase 10), mean maneuver spacing on the active route,
+and the visible nearby-place count (Phase 9).
+
+**Highway is decided by road classification alone — never by speed.** A driver crawling in motorway
+traffic is still on a motorway; a driver speeding on a rural road is not on one. Classification order
+is controlled-access → rural evidence → city evidence → Suburb (the balanced middle) → Unknown.
+
+**Hysteresis.** A candidate mode must be classified **3 consecutive ticks** before it replaces the
+current one, mirroring `OffRouteDetector`'s confirm-sample shape but stricter than Phase 10's
+per-alert hysteresis — an environment switch changes arrow density, camera, POI priority and alert
+thresholds *at once*, so it should move only on sustained evidence. `reset()` runs on a new trip so a
+fresh drive never inherits the previous one's mode. Classification only runs while navigating: with no
+progress there is no route shape to read, so the mode is held at `Unknown`.
+
+**Profiles.** `EnvironmentProfiles.unknown` is set to the exact pre-Phase-11 constants, so when
+classification cannot resolve, behaviour is identical to what Phases 1–10 already shipped — never a
+new, untested combination.
+
+| | Unknown | City | Highway | Suburb | Rural |
+| --- | --- | --- | --- | --- | --- |
+| Arrow look-ahead | 120 m | 90 m | 150 m | 120 m | 140 m |
+| Max arrows | 12 | 14 | 10 | 12 | 8 |
+| Arrow near/far spacing | 6 / 14 m | 4 / 10 m | 10 / 20 m | 6 / 14 m | 8 / 18 m |
+| Maneuver lead | 25 m | 35 m | 60 m | 30 m | 50 m |
+| POI limit navigating | 20 | 24 | 6 | 18 | 8 |
+| Utility / general POI weight | 1.0 / 1.0 | 1.1 / 1.1 | 1.6 / 0.3 | 1.0 / 1.0 | 1.4 / 0.6 |
+| Collision-class alert | default | 600 m | 1200 m | default | 1000 m |
+| Camera zoom / look-ahead | 16.5 / 110 m | 17.0 / 80 m | 15.5 / 180 m | 16.5 / 110 m | 16.0 / 140 m |
+
+Consumers never branch on `DrivingEnvironment` themselves — they read fields off the active profile,
+which is what keeps `if (city)` out of the codebase. Profiles change **presentation thresholds only**;
+provider truth (Phase 10's road data, Phase 9's place data) is never modified.
+
+**Arrow profile integration is config-only.** `ARArrowPipeline.updateArrowConfig` swaps spacing,
+look-ahead and max-count in place. It deliberately does **not** touch anchor creation, pruning or
+placement-path selection — which anchors exist and how arrows are placed in space remain Phase 7/8's
+decision, verified by `ARArrowPipelineConfigTest`.
+
+### Phase 11 output contract
+
+What a later phase can rely on, as it stands at the end of Phase 11:
 
 | Requirement | Provided by | Notes |
 | --- | --- | --- |
-| Traffic state | `RoadIntelligenceState.traffic` (`TrafficCondition?`) | Model and seam exist; always null today — no traffic-congestion source is wired in (see "Providers" above) |
-| Road events (hazards) | `RoadIntelligenceState.events` (`List<RoadEvent>`) | Route-matched, each stamped with `routeDistanceMeters`; construction + tagged-hazard only, from Overpass |
-| Weather state | `RoadIntelligenceState.weather` (`WeatherCondition?`) | Real current-conditions reading from Open-Meteo, driving-relevant subset only |
-| Lane guidance | `RoadIntelligenceState.laneGuidance` (`LaneGuidance?`) | Model + a tested OSRM mapper exist; always null — Valhalla's native response carries no lane data (see "Providers" above for the `format=osrm` prerequisite) |
-| Speed limit | `RoadIntelligenceState.speedLimit` (`SpeedLimitInfo?`) | Real OSM `maxspeed` reading, nearest-way, never inferred |
-| Current speed | `RoadIntelligenceState.currentSpeedMetersPerSecond` | Direct `Location.getSpeed()` reading, kept distinct from the posted limit |
-| Alert priority model | `RoadAlertPriority.rank`/`sorted` | Fixed table, no ML; ready to rank any future alert type that slots into the existing severity bands |
-| Route context | `RoadEventRouteMatcher`, `RoadAlertActivation` | "Distance ahead," corridor filtering and behind-driver suppression all generalize to any future point-like route context, not just hazards |
-| Map/Live rendering seams | `MapEngine.setRoadEvents`, `RoadAlertBanner`, `LiveRoadAlertHud` | Each follows the established density-limited, navigation-never-covered pattern |
+| Active environment mode | `MapUiState.drivingEnvironment`, `activeProfile` | `Unknown` whenever classification cannot resolve or navigation is not active |
+| Raw classification | `EnvironmentClassifier.classify(signals, config)` | Pure; thresholds in `EnvironmentClassifierConfig` |
+| Debounced mode | `EnvironmentHysteresis` | 3 consecutive ticks; `reset()` on a new trip |
+| Real road class | `RoadClassRepository.roadClassNear(...)` | Overpass-backed, cached; failure is a silent no-op |
+| Route shape signal | `ManeuverSpacing.averageSpacingMeters(maneuvers)` | Null with no route |
+| Per-environment tuning | `EnvironmentProfiles.forEnvironment(...)` → `EnvironmentNavigationProfile` | One object; also `arrowConfig()` |
+| Environment-aware arrows | `ARArrowPipeline.updateArrowConfig(profile.arrowConfig())` | Sampling only; anchor lifecycle untouched |
+| Environment-aware camera | `NavigationCamera` via `navigationCameraZoom` / `LookAheadMeters` | Follow target only; manual pan untouched |
+| Environment-aware places | `poiLimitBrowsing/Navigating`, weight multipliers, `liveMaxPoiLabels` | Applied on fetch; a confirmed mode change triggers a recompute |
+| Environment-aware alerts | `profile.hazardActivationConfig`, `laneGuidancePriorityBoost`, `speedEmphasis` | Presentation thresholds only |
+| Two-step destination UX | `onDestinationSelected` (details) / `onDirectionsRequested` (route) | Selection never requests a route |
+| Start → Live | `startNavigation()` sets mode + `Active` together | Never opens Live over a navigation error |
+| Camera fallback | `LiveReadiness` + `onLiveReadinessChanged` | Reactive, not timer-based; disarmed by manual mode choice |
+| Arrival time | `ArrivalTimeFormatter` | Shown in both Route Preview and the Live summary |
 
-**Still Phase 11 (or later) work, not present:** any live traffic-congestion source, a wired
-lane-guidance provider (requires either a Valhalla `format=osrm` request or a different routing
-provider), and anything environment-classification-specific (city/highway/suburb/rural) — Phase 10
-deliberately does not infer or branch on road environment anywhere; every threshold in
-`RoadAlertActivationConfig` is a single fixed default regardless of context.
+**Still not present:** any live traffic-congestion source, and a wired lane-guidance provider
+(requires a Valhalla `format=osrm` request or a different routing provider). `laneGuidancePriorityBoost`
+therefore currently has no lane alerts to promote.
+
+### Phase 11 validation status
+
+| Area | Status |
+| --- | --- |
+| Unit tests | **529 passing, 0 failures** across 42 classes. All pre-existing Phase 1–10 tests preserved |
+| `assembleDebug` / `testDebugUnitTest` / `lint` | All pass. Lint warnings unchanged from the pre-existing baseline (40, all warnings) |
+| Emulator (Pixel 8 API 35) | Full destination UX validated end to end: Explore → search → results → Destination Details (no route requested, no Start) → Directions → Route Preview (route drawn, bounds fitted, arrival time, Start) → Start → Live opened automatically with camera and HUD. No crash in the crash buffer at any point |
+| Emulator — not completed | **Live → Map → Live continuity, the arrival flow, and environment-mode transitions were NOT completed on this AVD.** The test AVD degraded mid-session (ANRs in SystemUI, Phone and the Latin IME, restarted system services, transient PackageManager inconsistency), and taps/text could no longer be delivered reliably. Those three items are covered by unit tests only, not by emulator evidence |
+| Physical ARCore device | **PENDING — none available.** As in Phases 6–8, nothing about real AR anchoring or arrow placement has been observed on hardware |
+| Environment classification on device | **NOT observed.** Classification needs live Overpass road-class responses and a real drive; on the emulator the mode stayed `Unknown`, which is the correct safe fallback but proves nothing about City/Highway/Suburb/Rural detection |
+
+The single most important unverified claim: **no environment mode other than `Unknown` has been seen
+resolve end-to-end on a real device.** The classifier, hysteresis and every profile are unit-tested,
+but the Overpass road-class fetch, the maneuver-spacing signal and the resulting profile swap have not
+been observed against live map data.
 
 ## Migrating to PMTiles / self-hosted tiles
 

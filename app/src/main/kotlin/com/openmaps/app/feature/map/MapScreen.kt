@@ -125,6 +125,12 @@ fun MapScreen(
                 )
             }
             RoadAlertBanner(roadState = state.roadIntelligenceState)
+            // Part A7: a concise, dismissible reason when Start's automatic switch to Live had to
+            // fall back to Map because the camera turned out to be unusable. Null (and this renders
+            // nothing) once dismissed or once Live is next entered successfully.
+            state.liveFallbackMessage?.let { message ->
+                LiveFallbackBanner(message = message, onDismiss = viewModel::onLiveFallbackMessageDismissed)
+            }
         }
 
         // Bottom: controls, then the location card, then the collapsed panel.
@@ -153,28 +159,40 @@ fun MapScreen(
                 )
             }
             val selectedPlace = state.selectedPlace
-            if (selectedPlace != null) {
+            when {
                 // Place details take over the panel region rather than stacking beside it — a
                 // compact presentation, not a second destination summary competing for attention.
-                PlaceDetailsSheet(
+                selectedPlace != null -> PlaceDetailsSheet(
                     place = selectedPlace,
                     onNavigate = { viewModel.onNavigateToPlace(selectedPlace) },
                     onDismiss = viewModel::onPlaceDetailsDismissed,
                 )
-            } else {
-                BottomPanel(
-                    destination = state.selectedDestination,
-                    routeState = state.routeState,
-                    onClearDestination = viewModel::onDestinationCleared,
-                )
-                NavigationControls(
-                    canStart = state.canStartNavigation,
-                    isNavigating = state.isNavigating,
-                    navigationError = (state.navigationState as? NavigationState.Error)?.reason,
-                    onStart = viewModel::startNavigation,
-                    onStop = viewModel::stopNavigation,
-                    modifier = Modifier.align(Alignment.End),
-                )
+
+                // Part A2/A3: a destination was picked but Directions has not been tapped yet.
+                state.isShowingDestinationDetails -> state.selectedDestination?.let { destination ->
+                    DestinationDetailsSheet(
+                        destination = destination,
+                        currentLocation = state.currentLocation,
+                        onDirections = viewModel::onDirectionsRequested,
+                        onDismiss = viewModel::onDestinationCleared,
+                    )
+                }
+
+                else -> {
+                    BottomPanel(
+                        destination = state.selectedDestination,
+                        routeState = state.routeState,
+                        onClearDestination = viewModel::onDestinationCleared,
+                    )
+                    NavigationControls(
+                        canStart = state.canStartNavigation,
+                        isNavigating = state.isNavigating,
+                        navigationError = (state.navigationState as? NavigationState.Error)?.reason,
+                        onStart = viewModel::startNavigation,
+                        onStop = viewModel::stopNavigation,
+                        modifier = Modifier.align(Alignment.End),
+                    )
+                }
             }
         }
     }

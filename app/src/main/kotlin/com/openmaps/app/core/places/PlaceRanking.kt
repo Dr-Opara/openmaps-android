@@ -12,10 +12,16 @@ object PlaceRanking {
      *   a place behind the driver is penalized — neither applies while just browsing.
      * @param aheadPlaceIds [Place.id]s known to be ahead of the driver on the route (see
      *   [RouteCorridor.isAhead]). Ignored unless [isNavigating] is true.
+     * @param utilityWeightMultiplier Phase 11 environment tuning (see `EnvironmentNavigationProfile`):
+     *   multiplies the utility-category weight while navigating. Defaults to `1.0`, reproducing the
+     *   exact pre-Phase-11 Phase 9 weighting.
+     * @param generalWeightMultiplier same as [utilityWeightMultiplier], for general categories.
      */
     data class Context(
         val isNavigating: Boolean,
         val aheadPlaceIds: Set<String> = emptySet(),
+        val utilityWeightMultiplier: Double = 1.0,
+        val generalWeightMultiplier: Double = 1.0,
     )
 
     fun rank(places: List<Place>, context: Context): List<Place> =
@@ -25,15 +31,19 @@ object PlaceRanking {
         val distance = place.routeDetourMeters ?: place.distanceMeters ?: DEFAULT_DISTANCE_METERS
         val distancePenalty = distance / DISTANCE_SCALE_METERS
         val behindPenalty = if (context.isNavigating && place.id !in context.aheadPlaceIds) BEHIND_PENALTY else 0.0
-        return categoryWeight(place.category, context.isNavigating) - distancePenalty - behindPenalty
+        return categoryWeight(place.category, context) - distancePenalty - behindPenalty
     }
 
-    private fun categoryWeight(category: PlaceCategory, isNavigating: Boolean): Double {
-        if (!isNavigating) return BROWSING_WEIGHT
+    private fun categoryWeight(category: PlaceCategory, context: Context): Double {
+        if (!context.isNavigating) return BROWSING_WEIGHT
         val isUtility = category == PlaceCategory.Parking ||
             category == PlaceCategory.Gas ||
             category == PlaceCategory.EvCharging
-        return if (isUtility) NAVIGATING_UTILITY_WEIGHT else NAVIGATING_GENERAL_WEIGHT
+        return if (isUtility) {
+            NAVIGATING_UTILITY_WEIGHT * context.utilityWeightMultiplier
+        } else {
+            NAVIGATING_GENERAL_WEIGHT * context.generalWeightMultiplier
+        }
     }
 
     private const val DEFAULT_DISTANCE_METERS = 2_000.0

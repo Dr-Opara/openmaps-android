@@ -90,6 +90,31 @@ class RoadAlertHysteresisTest {
     }
 
     @Test
+    fun laneGuidanceBand_threadsThroughToTheFinalSort() {
+        // Phase 11: the override must still apply to `update`'s own final re-sort, not just to
+        // whatever order the raw candidates were already sorted in before being fed in. Dangerous
+        // (High-severity) weather ranks ahead of lane guidance's normal band (30 vs 40) by default,
+        // so this only passes if the 25 override is genuinely applied, not just forwarded unused.
+        val hysteresis = RoadAlertHysteresis(confirmSamples = 1)
+        val lane = RouteAlert.Lane(LaneGuidance(emptyList(), emptyList(), null))
+        val dangerousWeather = RouteAlert.Weather(
+            WeatherCondition(
+                type = WeatherConditionType.Fog,
+                severity = RoadEventSeverity.High,
+                description = "Fog",
+                observedAtMillis = 0L,
+            ),
+        )
+
+        val default = hysteresis.update(listOf(dangerousWeather, lane))
+        assertEquals(listOf(dangerousWeather, lane), default)
+
+        hysteresis.reset()
+        val boosted = hysteresis.update(listOf(dangerousWeather, lane), laneGuidanceBand = 25)
+        assertEquals(listOf(lane, dangerousWeather), boosted)
+    }
+
+    @Test
     fun duplicateIdsAcrossDistinctAlertKinds_areIndependent() {
         val hysteresis = RoadAlertHysteresis(confirmSamples = 1)
         val result = hysteresis.update(

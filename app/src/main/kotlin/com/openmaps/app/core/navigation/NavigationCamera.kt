@@ -46,6 +46,12 @@ class NavigationCamera(
         fallbackBearing: Double = 0.0,
         zoom: Double = DEFAULT_NAVIGATION_ZOOM,
         pitch: Double = DEFAULT_NAVIGATION_PITCH,
+        /**
+         * Phase 11 environment tuning (see `EnvironmentNavigationProfile.
+         * navigationCameraLookAheadMeters`): how far up the route the camera target sits. Defaults
+         * to the constructor's [lookAheadMeters], reproducing the exact pre-Phase-11 behavior.
+         */
+        lookAheadMeters: Double = this.lookAheadMeters,
     ): NavigationCameraTarget? {
         val geometry = route.geometry
         if (geometry.isEmpty()) return null

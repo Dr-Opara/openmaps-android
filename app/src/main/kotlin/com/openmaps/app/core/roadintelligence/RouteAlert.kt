@@ -46,18 +46,26 @@ sealed interface RouteAlert {
  */
 object RoadAlertPriority {
 
-    /** Lower sorts first (more urgent). Ties within a band are broken by [RoadEvent.severity]. */
-    fun rank(alert: RouteAlert): Int = when (alert) {
+    /**
+     * Lower sorts first (more urgent). Ties within a band are broken by [RoadEvent.severity].
+     *
+     * @param laneGuidanceBand Phase 11 environment tuning (see `EnvironmentNavigationProfile.
+     *   laneGuidancePriorityBoost`): overrides [RouteAlert.Lane]'s band, e.g. to rank it above
+     *   collision-class hazards on a highway. Defaults to the fixed [BAND_LANE_GUIDANCE], reproducing
+     *   the exact pre-Phase-11 Phase 10 ordering.
+     */
+    fun rank(alert: RouteAlert, laneGuidanceBand: Int? = null): Int = when (alert) {
         is RouteAlert.Hazard -> rankHazard(alert.event)
         is RouteAlert.Weather -> rankWeather(alert.condition)
-        is RouteAlert.Lane -> BAND_LANE_GUIDANCE
+        is RouteAlert.Lane -> laneGuidanceBand ?: BAND_LANE_GUIDANCE
         is RouteAlert.SpeedLimit -> BAND_SPEED_LIMIT
         is RouteAlert.Congestion -> BAND_CONGESTION
         is RouteAlert.Informational -> BAND_INFORMATIONAL
     }
 
     /** Stable sort: ties keep their relative order, so equal-priority alerts don't reshuffle per tick. */
-    fun sorted(alerts: List<RouteAlert>): List<RouteAlert> = alerts.sortedBy { rank(it) }
+    fun sorted(alerts: List<RouteAlert>, laneGuidanceBand: Int? = null): List<RouteAlert> =
+        alerts.sortedBy { rank(it, laneGuidanceBand) }
 
     private fun rankHazard(event: RoadEvent): Int = when (event.type) {
         RoadEventType.Closure -> if (event.severity == RoadEventSeverity.Severe) BAND_CLOSURE_SEVERE else BAND_CLOSURE

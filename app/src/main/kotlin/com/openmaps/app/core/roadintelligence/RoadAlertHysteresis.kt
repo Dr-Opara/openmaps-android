@@ -33,8 +33,11 @@ class RoadAlertHysteresis(private val confirmSamples: Int = DEFAULT_CONFIRM_SAMP
     /**
      * Feeds one tick's raw candidate alerts through the hysteresis and returns the stabilized set,
      * priority-ordered ([RoadAlertPriority.sorted]) for rendering as-is.
+     *
+     * @param laneGuidanceBand forwarded to the final [RoadAlertPriority.sorted] call — see
+     *   `EnvironmentNavigationProfile.laneGuidancePriorityBoost`. Defaults to the fixed band.
      */
-    fun update(candidates: List<RouteAlert>): List<RouteAlert> {
+    fun update(candidates: List<RouteAlert>, laneGuidanceBand: Int? = null): List<RouteAlert> {
         val candidateIds = candidates.associateBy { it.id }
 
         for ((id, alert) in candidateIds) {
@@ -61,7 +64,7 @@ class RoadAlertHysteresis(private val confirmSamples: Int = DEFAULT_CONFIRM_SAMP
         // candidates entirely (not even in grace) have nothing left to debounce.
         presentStreak.keys.retainAll(candidateIds.keys)
 
-        return RoadAlertPriority.sorted(active.mapNotNull { lastSeen[it] })
+        return RoadAlertPriority.sorted(active.mapNotNull { lastSeen[it] }, laneGuidanceBand)
     }
 
     /** Drops all remembered state. Call on reroute/arrival/navigation-stop — a new trip, fresh start. */

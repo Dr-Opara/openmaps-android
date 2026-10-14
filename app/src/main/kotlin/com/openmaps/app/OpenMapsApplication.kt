@@ -6,6 +6,8 @@ import com.openmaps.app.core.geocoding.NominatimGeocodingRepository
 import com.openmaps.app.core.geocoding.RecentSearchStore
 import com.openmaps.app.core.geocoding.SharedPreferencesRecentSearchStore
 import com.openmaps.app.core.camera.CameraPermissionPrefs
+import com.openmaps.app.core.environment.OverpassRoadClassRepository
+import com.openmaps.app.core.environment.RoadClassRepository
 import com.openmaps.app.core.location.AndroidLocationRepository
 import com.openmaps.app.core.location.LocationPermissionPrefs
 import com.openmaps.app.core.location.LocationRepository
@@ -44,6 +46,15 @@ class AppContainer(application: Application) {
      * intelligence section for exactly which of those are real today versus absent-by-design).
      */
     val roadIntelligenceRepository: RoadIntelligenceRepository = DefaultRoadIntelligenceRepository(
+        userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+    )
+
+    /**
+     * Phase 11 environment classification's one real network signal (see ARCHITECTURE.md's Adaptive
+     * environment modes section). A separate Overpass client from [roadIntelligenceRepository] by
+     * design — Phase 10's seam is not touched by Phase 11.
+     */
+    val roadClassRepository: RoadClassRepository = OverpassRoadClassRepository(
         userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
     )
 

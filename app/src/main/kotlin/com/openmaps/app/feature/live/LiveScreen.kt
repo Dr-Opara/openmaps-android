@@ -63,6 +63,8 @@ import com.openmaps.app.camera.RearCameraState
 import com.openmaps.app.core.camera.CameraPermissionState
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.OpenMapsWordmark
+import com.openmaps.app.core.environment.EnvironmentNavigationProfile
+import com.openmaps.app.core.environment.EnvironmentProfiles
 import com.openmaps.app.core.places.LivePlaceProjector
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceState
@@ -71,6 +73,7 @@ import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.spatial.LiveLocalizationStatus
 import com.openmaps.app.core.spatial.LiveLocalizationStatusMapper
 import com.openmaps.app.core.spatial.SpatialLocalizationState
+import com.openmaps.app.feature.map.ArrivalTimeFormatter
 import com.openmaps.app.feature.map.MapModeToggle
 import com.openmaps.app.feature.map.RoadAlertPresentation
 import com.openmaps.app.feature.map.displayName
@@ -112,6 +115,8 @@ fun LiveScreen(
     places: List<Place> = emptyList(),
     /** Hazards, weather, speed limit and prioritized alerts (Phase 10) — same state Map mode reads. */
     roadIntelligenceState: RoadIntelligenceState = RoadIntelligenceState(),
+    /** Phase 11: the active environment profile — same one Map mode's camera/places/alerts read. */
+    environmentProfile: EnvironmentNavigationProfile = EnvironmentProfiles.unknown,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     // Reactive: flips from Spatial to CameraX mid-session if AR fails, which is what guarantees a
@@ -135,6 +140,7 @@ fun LiveScreen(
                         navigationState = navigationState,
                         isNavigating = isNavigating,
                         places = places,
+                        environmentProfile = environmentProfile,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
@@ -258,6 +264,7 @@ fun LiveScreen(
         // intelligence section ("Live mode rendering").
         LiveRoadAlertHud(
             roadState = roadIntelligenceState,
+            speedFirst = environmentProfile.speedEmphasis,
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 230.dp, start = 16.dp, end = 16.dp),
         )
 
@@ -308,13 +315,23 @@ private fun LocalizationChip(status: LiveLocalizationStatus, modifier: Modifier 
  * section 12 of the Phase 10 brief ("Live must remain restrained").
  */
 @Composable
-private fun LiveRoadAlertHud(roadState: RoadIntelligenceState, modifier: Modifier = Modifier) {
+private fun LiveRoadAlertHud(
+    roadState: RoadIntelligenceState,
+    modifier: Modifier = Modifier,
+    /**
+     * Phase 11 (`EnvironmentNavigationProfile.speedEmphasis`, Highway only): when true, the speed
+     * line renders above the hazard/weather line instead of below it — section D's "speed display
+     * priority" made visible, without adding a third element or any new icon.
+     */
+    speedFirst: Boolean = false,
+) {
     val topAlert = roadState.activeAlerts.firstOrNull { it !is RouteAlert.SpeedLimit }
     val speedLimitAlert = roadState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull()
     val currentSpeed = roadState.currentSpeedMetersPerSecond
     if (topAlert == null && speedLimitAlert == null) return
 
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    @Composable
+    fun HazardLine() {
         topAlert?.let { alert ->
             val distance = RoadAlertPresentation.distanceAheadLabel(alert)
             LiveCompactPill(
@@ -323,6 +340,10 @@ private fun LiveRoadAlertHud(roadState: RoadIntelligenceState, modifier: Modifie
                 foreground = OpenMapsColors.Navy900,
             )
         }
+    }
+
+    @Composable
+    fun SpeedLine() {
         speedLimitAlert?.let { alert ->
             val text = if (currentSpeed != null) {
                 "${RoadAlertPresentation.formatCurrentSpeed(currentSpeed, alert.info.unit)} · ${RoadAlertPresentation.headline(alert)}"
@@ -330,6 +351,16 @@ private fun LiveRoadAlertHud(roadState: RoadIntelligenceState, modifier: Modifie
                 RoadAlertPresentation.headline(alert)
             }
             LiveCompactPill(text = text, background = OpenMapsColors.Navy950.copy(alpha = 0.72f), foreground = Color.White)
+        }
+    }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (speedFirst) {
+            SpeedLine()
+            HazardLine()
+        } else {
+            HazardLine()
+            SpeedLine()
         }
     }
 }
@@ -408,6 +439,7 @@ private fun ArPreviewSurface(
     navigationState: NavigationState,
     isNavigating: Boolean,
     places: List<Place>,
+    environmentProfile: EnvironmentNavigationProfile,
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -466,6 +498,13 @@ private fun ArPreviewSurface(
             viewModel.startSpatialLocalization(lifecycleOwner)
         }
 
+        // Phase 11 (Part I): environment tunes the arrow sampler's spacing/look-ahead/max-count/
+        // turn-density only. `ARArrowSampler` is pure and stateless, so swapping it mid-trip is
+        // safe; anchor creation/lifecycle (`RouteAnchorManager`, above) is completely untouched.
+        LaunchedEffect(environmentProfile) {
+            viewModel.arrowPipeline.updateArrowConfig(environmentProfile.arrowConfig())
+        }
+
         // Anchors are created/destroyed here, on state change — NOT per frame. Creating an ARCore anchor
         // is a real cost (a server-refined object) and must never sit in the render loop.
         val progress = when (val nav = navigationState) {
@@ -518,12 +557,13 @@ private fun ArPreviewSurface(
         // in the CameraX fallback there is no tracked device heading to project against (see
         // `LiveViewModel.updateLivePlaces`), so Live simply shows no place labels there rather than
         // guessing a position.
-        LaunchedEffect(places, spatialState, glView) {
+        LaunchedEffect(places, spatialState, glView, environmentProfile) {
             viewModel.updateLivePlaces(
                 places = places,
                 spatialState = spatialState,
                 viewportWidthPx = glView.width,
                 viewportHeightPx = glView.height,
+                maxVisible = environmentProfile.liveMaxPoiLabels,
             )
         }
         val labels by viewModel.livePlaceLabels.collectAsState()
@@ -858,6 +898,13 @@ private fun LiveTripSummary(hud: LiveHudState.Maneuver, modifier: Modifier = Mod
             ),
             style = MaterialTheme.typography.titleMedium,
             color = Color.White,
+        )
+        // Section M2: "estimated arrival time" alongside remaining distance/duration. Read at
+        // render time, always `now + remainingDurationSeconds` — never a second, independent guess.
+        Text(
+            text = "Arrive ${ArrivalTimeFormatter.format(hud.remainingDurationSeconds, System.currentTimeMillis())}",
+            style = MaterialTheme.typography.bodySmall,
+            color = OpenMapsColors.TextSecondary,
         )
     }
 }

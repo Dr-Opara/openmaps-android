@@ -74,4 +74,45 @@ class PlaceRankingTest {
         )
         assertEquals(listOf("far-air-near-detour", "near-air-far-detour"), ranked.map { it.id })
     }
+
+    @Test
+    fun rank_defaultMultipliers_reproduceThePrePhase11Order() {
+        // Phase 11's `utilityWeightMultiplier`/`generalWeightMultiplier` default to 1.0, so a
+        // Context with neither set must rank identically to before Phase 11 existed.
+        val gas = place("gas", PlaceCategory.Gas, 500.0)
+        val coffee = place("coffee", PlaceCategory.Coffee, 500.0)
+        val withDefaults = PlaceRanking.rank(listOf(coffee, gas), PlaceRanking.Context(isNavigating = true))
+        val withExplicitOnes = PlaceRanking.rank(
+            listOf(coffee, gas),
+            PlaceRanking.Context(isNavigating = true, utilityWeightMultiplier = 1.0, generalWeightMultiplier = 1.0),
+        )
+        assertEquals(withDefaults.map { it.id }, withExplicitOnes.map { it.id })
+    }
+
+    @Test
+    fun rank_highUtilityMultiplier_widensTheGapOverGeneralCategories() {
+        // Gas is far enough behind coffee that coffee wins with default (1.0/1.0) weights...
+        val gas = place("gas", PlaceCategory.Gas, 1_500.0)
+        val coffee = place("coffee", PlaceCategory.Coffee, 100.0)
+        val defaultOrder = PlaceRanking.rank(listOf(coffee, gas), PlaceRanking.Context(isNavigating = true))
+        assertEquals("sanity check: coffee wins with default weights", listOf("coffee", "gas"), defaultOrder.map { it.id })
+
+        // ...but a Highway-style utility boost closes that gap and flips the order.
+        val boosted = PlaceRanking.rank(
+            listOf(coffee, gas),
+            PlaceRanking.Context(isNavigating = true, utilityWeightMultiplier = 3.0),
+        )
+        assertEquals(listOf("gas", "coffee"), boosted.map { it.id })
+    }
+
+    @Test
+    fun rank_lowGeneralMultiplier_suppressesGeneralCategoriesRelativeToUtility() {
+        val gas = place("gas", PlaceCategory.Gas, 500.0)
+        val coffee = place("coffee", PlaceCategory.Coffee, 500.0)
+        val suppressed = PlaceRanking.rank(
+            listOf(coffee, gas),
+            PlaceRanking.Context(isNavigating = true, generalWeightMultiplier = 0.1),
+        )
+        assertEquals(listOf("gas", "coffee"), suppressed.map { it.id })
+    }
 }

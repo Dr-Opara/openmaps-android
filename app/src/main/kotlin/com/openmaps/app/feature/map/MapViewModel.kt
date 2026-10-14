@@ -2,6 +2,13 @@ package com.openmaps.app.feature.map
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.openmaps.app.core.environment.DrivingEnvironment
+import com.openmaps.app.core.environment.EnvironmentClassifier
+import com.openmaps.app.core.environment.EnvironmentHysteresis
+import com.openmaps.app.core.environment.EnvironmentSignals
+import com.openmaps.app.core.environment.ManeuverSpacing
+import com.openmaps.app.core.environment.RoadClass
+import com.openmaps.app.core.environment.RoadClassRepository
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.location.LocationRepository
@@ -25,10 +32,13 @@ import com.openmaps.app.core.roadintelligence.RoadAlertPriority
 import com.openmaps.app.core.roadintelligence.RoadEventSeverity
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RouteAlert
+import com.openmaps.app.core.roadintelligence.SpeedLimitInfo
+import com.openmaps.app.core.roadintelligence.SpeedUnit
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.routing.RoutingException
 import com.openmaps.app.core.routing.RoutingRepository
+import com.openmaps.app.feature.live.LiveReadiness
 import com.openmaps.app.map.CameraState
 import com.openmaps.app.map.MapCommand
 import com.openmaps.app.map.MapError
@@ -63,6 +73,7 @@ class MapViewModel(
     private val routingRepository: RoutingRepository,
     private val placesRepository: PlaceRepository,
     private val roadIntelligenceRepository: RoadIntelligenceRepository,
+    private val roadClassRepository: RoadClassRepository,
     private val fixTimeoutMillis: Long = DEFAULT_FIX_TIMEOUT_MILLIS,
 ) : ViewModel() {
 
@@ -130,6 +141,37 @@ class MapViewModel(
      * trip never inherits a stale confirm/exit streak from the one before it.
      */
     private val roadAlertHysteresis = RoadAlertHysteresis()
+
+    // endregion
+
+    // region Environment (Phase 11)
+
+    private var roadClassJob: Job? = null
+    private var roadClass: RoadClass? = null
+
+    /** Where the last road-class fetch was centered, for its own move-threshold check. */
+    private var lastRoadClassFetchLocation: UserLocation? = null
+
+    /**
+     * Debounces [DrivingEnvironment] across ticks (section C of the Phase 11 brief). Per-trip, like
+     * [roadAlertHysteresis] — reset on a fresh `startNavigation()` so a new trip never inherits the
+     * previous one's confirmed mode.
+     */
+    private val environmentHysteresis = EnvironmentHysteresis()
+
+    // endregion
+
+    // region Start -> Live (Phase 11)
+
+    /**
+     * True only in the window right after `startNavigation()` automatically switched
+     * [MapUiState.selectedMapMode] to [MapMode.Live] (section A6/A7). [onLiveReadinessChanged] acts
+     * only while this is true, so a *manual* later re-entry into Live (after the user has already
+     * dismissed the automatic fallback, or switched back and forth by hand) is left to show its own
+     * recoverable permission/failure panel exactly as before Phase 11 — repeatedly tapping Live with
+     * a known-denied permission must not get yanked back to Map before the user can act on it.
+     */
+    private var liveAutoFallbackArmed = false
 
     // endregion
 
@@ -202,7 +244,41 @@ class MapViewModel(
     }
 
     fun onModeSelected(mode: MapMode) {
-        _uiState.update { it.copy(selectedMapMode = mode) }
+        // A manual mode choice always supersedes the automatic Start -> Live switch (section A7):
+        // once the user has acted, repeated camera-readiness checks must not yank the mode back.
+        liveAutoFallbackArmed = false
+        _uiState.update { it.copy(selectedMapMode = mode, liveFallbackMessage = null) }
+    }
+
+    /**
+     * Part A7: reactive (never timer-based) response to Live's camera readiness resolving, called
+     * from the composition root (see `LiveReadinessMapper`) whenever it changes. Only acts during
+     * the [liveAutoFallbackArmed] window right after `startNavigation()` auto-switched to Live:
+     *  - [LiveReadiness.Pending] (permission not yet asked/resolved): keep waiting, stay armed — the
+     *    normal camera-permission request flow is still in flight and must be allowed to resolve.
+     *  - [LiveReadiness.Ready]: confirmed usable; disarm and do nothing else.
+     *  - [LiveReadiness.Unusable]: camera permission denied/blocked, or the camera itself failed —
+     *    Live is genuinely unusable, so navigation is automatically presented in Map instead (never
+     *    blocked), with a concise, short-lived reason.
+     *
+     * Deliberately does **not** react to AR/ARCore-specific failure: an ARCore failure already falls
+     * back to the CameraX preview *within* Live (Phase 6), which is a perfectly usable Live
+     * experience, so it must never be treated as "Live is unusable."
+     */
+    fun onLiveReadinessChanged(readiness: LiveReadiness, reason: String?) {
+        if (!liveAutoFallbackArmed) return
+        when (readiness) {
+            LiveReadiness.Pending -> Unit
+            LiveReadiness.Ready -> liveAutoFallbackArmed = false
+            LiveReadiness.Unusable -> {
+                liveAutoFallbackArmed = false
+                _uiState.update { it.copy(selectedMapMode = MapMode.Map, liveFallbackMessage = reason) }
+            }
+        }
+    }
+
+    fun onLiveFallbackMessageDismissed() {
+        _uiState.update { it.copy(liveFallbackMessage = null) }
     }
 
     fun onRecenterClicked() {
@@ -222,9 +298,19 @@ class MapViewModel(
         }
 
         // Prefer the navigation follow target (ahead on the route, bearing along it) so resuming
-        // doesn't snap the camera back onto the user's own position.
+        // doesn't snap the camera back onto the user's own position. Same profile zoom/look-ahead
+        // `followCameraWith` uses, so recenter resumes at the same place follow would already be.
+        val profile = state.activeProfile
         val navigationTarget = state.navigationProgress
-            ?.let { progress -> session?.camera?.targetFor(progress, location.bearingDegrees?.toDouble(), state.cameraState.bearing) }
+            ?.let { progress ->
+                session?.camera?.targetFor(
+                    progress,
+                    location.bearingDegrees?.toDouble(),
+                    state.cameraState.bearing,
+                    zoom = profile.navigationCameraZoom,
+                    lookAheadMeters = profile.navigationCameraLookAheadMeters,
+                )
+            }
         if (navigationTarget != null) {
             moveCamera(
                 CameraState(
@@ -285,12 +371,28 @@ class MapViewModel(
         _uiState.update { it.copy(dismissedPrompt = it.locationPrompt) }
     }
 
-    /** A search result (fresh or recent) was picked: show its marker, fly the camera, request a route. */
+    /**
+     * A search result (fresh or recent) was picked: show its marker, fly the camera, and show
+     * Destination Details ([MapUiState.isShowingDestinationDetails]) — section A2 of the Phase 11
+     * brief: "selecting a result should NOT immediately begin navigation" (nor even request a
+     * route). [onDirectionsRequested] is the explicit next step that does.
+     */
     fun onDestinationSelected(result: SearchResult) {
         // A different destination is a different trip; the old session's geometry is gone.
         if (_uiState.value.isNavigating) stopNavigation()
-        _uiState.update { it.copy(selectedDestination = result) }
+        // Cancel (don't just ignore) any route still in flight for a previous destination — its
+        // result landing after this would show Route Preview for the new pin with the old route.
+        routeJob?.cancel()
+        routeJob = null
+        _uiState.update { it.copy(selectedDestination = result, routeState = RouteState.Idle) }
         moveCamera(CameraState(result.latitude, result.longitude, DESTINATION_ZOOM), durationMillis = 900)
+    }
+
+    /**
+     * Part A4: "Directions" — computes the route and shows Route Preview, while staying in Map
+     * mode. The only thing that turns a selected destination into a requested route.
+     */
+    fun onDirectionsRequested() {
         requestRoute()
     }
 
@@ -372,11 +474,15 @@ class MapViewModel(
     /**
      * A place becomes the destination exactly like a search result does (see "Navigation
      * integration" in ARCHITECTURE.md) — reusing [onDestinationSelected] rather than a second
-     * routing path.
+     * routing path. Unlike a raw search result, "Navigate" here goes straight to [onDirectionsRequested]
+     * in the same call: [PlaceDetailsSheet] already showed the place's details (name, category,
+     * distance) before this button was ever reachable, so there is no separate Destination Details
+     * step left to show — the one tap plays the role of "Directions" directly.
      */
     fun onNavigateToPlace(place: Place) {
         onPlaceSelected(null)
         onDestinationSelected(place.toSearchResult())
+        onDirectionsRequested()
     }
 
     /**
@@ -465,8 +571,21 @@ class MapViewModel(
         } else {
             emptySet()
         }
-        val ranked = PlaceRanking.rank(filtered, PlaceRanking.Context(isNavigating = isNav, aheadPlaceIds = aheadIds))
-        val cap = if (isNav) MAX_VISIBLE_PLACES_NAVIGATING else MAX_VISIBLE_PLACES_BROWSING
+        // Phase 11: the active environment profile tunes both the ranking weights and the density
+        // cap — see `EnvironmentNavigationProfile`. `DrivingEnvironment.Unknown`'s profile carries the
+        // exact pre-Phase-11 multipliers (1.0) and caps, so behavior is unchanged until an environment
+        // actually resolves.
+        val profile = state.activeProfile
+        val ranked = PlaceRanking.rank(
+            filtered,
+            PlaceRanking.Context(
+                isNavigating = isNav,
+                aheadPlaceIds = aheadIds,
+                utilityWeightMultiplier = profile.utilityPlaceWeightMultiplier,
+                generalWeightMultiplier = profile.generalPlaceWeightMultiplier,
+            ),
+        )
+        val cap = if (isNav) profile.poiLimitNavigating else profile.poiLimitBrowsing
         _uiState.update { it.copy(visiblePlaces = ranked.take(cap)) }
     }
 
@@ -576,10 +695,17 @@ class MapViewModel(
         val state = _uiState.value
         val roadState = state.roadIntelligenceState
         val progress = state.navigationProgress
+        // Phase 11: the active profile tunes presentation thresholds only — the hazard distances
+        // and the lane-guidance ranking band — never the underlying provider truth (section K).
+        val profile = state.activeProfile
         val candidates = mutableListOf<RouteAlert>()
 
         if (progress != null) {
-            val active = RoadAlertActivation.activeHazards(roadState.events, progress.distanceTraveledMeters)
+            val active = RoadAlertActivation.activeHazards(
+                roadState.events,
+                progress.distanceTraveledMeters,
+                config = profile.hazardActivationConfig,
+            )
             for ((event, aheadMeters) in active) {
                 candidates += if (event.severity >= RoadEventSeverity.High) {
                     RouteAlert.Hazard(event, aheadMeters)
@@ -595,10 +721,88 @@ class MapViewModel(
         roadState.speedLimit?.let { candidates += RouteAlert.SpeedLimit(it) }
         roadState.traffic?.let { candidates += RouteAlert.Congestion(it) }
 
-        val stabilized = roadAlertHysteresis.update(RoadAlertPriority.sorted(candidates)).take(MAX_ACTIVE_ALERTS)
+        val laneGuidanceBand = if (profile.laneGuidancePriorityBoost) ELEVATED_LANE_GUIDANCE_BAND else null
+        val stabilized = roadAlertHysteresis
+            .update(RoadAlertPriority.sorted(candidates, laneGuidanceBand), laneGuidanceBand)
+            .take(MAX_ACTIVE_ALERTS)
         _uiState.update {
             it.copy(roadIntelligenceState = it.roadIntelligenceState.copy(activeAlerts = stabilized))
         }
+    }
+
+    // endregion
+
+    // region Environment (Phase 11)
+
+    /**
+     * Speed limit and road class share one query radius/cadence story but are fetched separately
+     * (see `RoadClassRepository`'s doc comment for why) — this mirrors `maybeFetchSpeedLimit`
+     * exactly, just against the environment-classification seam instead of Phase 10's.
+     */
+    private fun maybeFetchRoadClass(location: UserLocation) {
+        val last = lastRoadClassFetchLocation
+        val movedEnough = last == null || RouteCorridor.metersBetween(
+            Coordinate(last.latitude, last.longitude),
+            Coordinate(location.latitude, location.longitude),
+        ) >= ROAD_CLASS_REFETCH_DISTANCE_METERS
+        if (!movedEnough) return
+        lastRoadClassFetchLocation = location
+        roadClassJob?.cancel()
+        roadClassJob = viewModelScope.launch {
+            roadClassRepository.roadClassNear(Coordinate(location.latitude, location.longitude))
+                .onSuccess { result ->
+                    roadClass = result
+                    recomputeEnvironment()
+                }
+            // onFailure: deliberately no-op, same as every other Phase 10/11 provider call — a
+            // stale (possibly null) road class is additive context, never a navigation dependency.
+        }
+    }
+
+    /**
+     * Classifies the current trip's [DrivingEnvironment] from whatever real signals are available
+     * right now, then runs it through [environmentHysteresis] so the mode itself never flickers
+     * (section C). Pure in-memory work — no network call here — so calling this on every location
+     * tick (see [onLocationUpdate]) is as cheap as [recomputeRoadAlerts].
+     *
+     * Only meaningful while navigating: [EnvironmentSignals.averageManeuverSpacingMeters] needs an
+     * active route's maneuvers, and section B's whole premise is adapting *navigation* behavior.
+     * While not navigating this holds (and, if needed, resets back to) [DrivingEnvironment.Unknown]
+     * — the safe default — rather than guessing from stale signals.
+     */
+    private fun recomputeEnvironment() {
+        val state = _uiState.value
+        val progress = state.navigationProgress
+        if (progress == null) {
+            if (state.drivingEnvironment != DrivingEnvironment.Unknown) {
+                environmentHysteresis.reset()
+                _uiState.update { it.copy(drivingEnvironment = DrivingEnvironment.Unknown) }
+            }
+            return
+        }
+        val route = (state.routeState as? RouteState.Ready)?.route
+        val signals = EnvironmentSignals(
+            roadClass = roadClass,
+            speedLimitKmh = state.roadIntelligenceState.speedLimit?.toKmh(),
+            currentSpeedKmh = state.roadIntelligenceState.currentSpeedMetersPerSecond?.let { it * KMH_PER_MPS },
+            averageManeuverSpacingMeters = route?.maneuvers?.let { ManeuverSpacing.averageSpacingMeters(it) },
+            nearbyPlaceCount = state.visiblePlaces.size,
+        )
+        val classified = EnvironmentClassifier.classify(signals)
+        val stabilized = environmentHysteresis.update(classified)
+        if (stabilized != state.drivingEnvironment) {
+            _uiState.update { it.copy(drivingEnvironment = stabilized) }
+            // The POI density cap/ranking weights are baked in at fetch time (see
+            // `recomputeVisiblePlaces`'s own "never on every GPS tick" rule), so a newly-confirmed
+            // environment is exactly the kind of "an input actually changed" moment that rule means —
+            // without this, a profile change would only ever take visible effect on the next fetch.
+            recomputeVisiblePlaces()
+        }
+    }
+
+    private fun SpeedLimitInfo.toKmh(): Double = when (unit) {
+        SpeedUnit.Kmh -> value
+        SpeedUnit.Mph -> value * KMH_PER_MPH
     }
 
     // endregion
@@ -628,12 +832,22 @@ class MapViewModel(
 
         session = NavigationSession(route)
         navigationFollowSuspended = false
+        // A fresh trip must not inherit the previous one's confirmed environment mode.
+        environmentHysteresis.reset()
         // Seed progress immediately from the last known fix so the banner has something to show
         // before the next location tick arrives.
         val seeded = state.currentLocation.let { session?.locate(it.toCoordinate()) }
+        // Section A6: Start automatically opens Live — the camera-first product decision — but only
+        // once navigation genuinely became Active; an Error below must never silently open Live on
+        // top of it. `onLiveReadinessChanged` (armed by `liveAutoFallbackArmed`) is what Section A7's
+        // fallback hangs off of if the camera then turns out to be unusable.
+        val didStart = seeded != null
+        if (didStart) liveAutoFallbackArmed = true
         _uiState.update {
             it.copy(
                 navigationFollowSuspended = false,
+                selectedMapMode = if (didStart) MapMode.Live else it.selectedMapMode,
+                liveFallbackMessage = if (didStart) null else it.liveFallbackMessage,
                 navigationState = if (seeded != null) {
                     NavigationState.Active(withOffRouteFlag(seeded, false))
                 } else {
@@ -650,6 +864,7 @@ class MapViewModel(
         recomputeVisiblePlaces()
         // Hazard "ahead" distances only mean something once there is a progress to measure from.
         recomputeRoadAlerts()
+        recomputeEnvironment()
     }
 
     /** Ends the trip and returns the map to plain route browsing. Never touches the route itself. */
@@ -657,6 +872,7 @@ class MapViewModel(
         session = null
         navigationFollowSuspended = false
         rerouteInFlight = false
+        liveAutoFallbackArmed = false
         _uiState.update {
             it.copy(navigationState = NavigationState.Idle, navigationFollowSuspended = false)
         }
@@ -666,6 +882,8 @@ class MapViewModel(
         // have no "ahead" distance to show once there is no progress to measure from.
         roadAlertHysteresis.reset()
         recomputeRoadAlerts()
+        // No route left to measure maneuver spacing against: back to the safe Unknown default.
+        recomputeEnvironment()
     }
 
     /**
@@ -748,6 +966,10 @@ class MapViewModel(
                     roadAlertHysteresis.reset()
                     fetchRoadEventsAlongRoute(route)
                     recomputeRoadAlerts()
+                    // Deliberately not an `environmentHysteresis.reset()`: a reroute is still the
+                    // same physical surroundings, just a different path through them, so carrying
+                    // the confirmed mode over avoids a jarring profile flash on every reroute.
+                    recomputeEnvironment()
                 }
                 .onFailure {
                     rerouteInFlight = false
@@ -776,10 +998,15 @@ class MapViewModel(
     private fun followCameraWith(progress: RouteProgress) {
         if (navigationFollowSuspended) return
         val activeSession = session ?: return
+        val profile = _uiState.value.activeProfile
         val target = activeSession.camera.targetFor(
             progress = progress,
             headingDegrees = _uiState.value.currentLocation?.bearingDegrees?.toDouble(),
             fallbackBearing = _uiState.value.cameraState.bearing,
+            // Phase 11 (Part J): environment tunes the follow camera's zoom/look-ahead only. Manual
+            // pan/recenter behavior is untouched — this only changes where the *automatic* target sits.
+            zoom = profile.navigationCameraZoom,
+            lookAheadMeters = profile.navigationCameraLookAheadMeters,
         ) ?: return
         moveCamera(
             CameraState(
@@ -877,6 +1104,11 @@ class MapViewModel(
                 maybeFetchWeather(update.location)
                 maybeFetchSpeedLimit(update.location)
                 recomputeRoadAlerts()
+                // Phase 11: road class is only meaningful while navigating (see `recomputeEnvironment`),
+                // but the fetch itself is gated the same movement-distance way regardless, so a route
+                // picked up mid-fetch is never left waiting on a second location tick.
+                maybeFetchRoadClass(update.location)
+                recomputeEnvironment()
             }
             LocationUpdate.ServicesDisabled -> {
                 timeoutJob?.cancel()
@@ -938,10 +1170,15 @@ class MapViewModel(
         /** How far off the active route a place can sit and still be surfaced. */
         const val ROUTE_CORRIDOR_METERS = 250.0
 
-        /** Map-mode density cap while just browsing ("Map: moderate" — see ARCHITECTURE.md). */
+        /**
+         * Map-mode density cap while just browsing ("Map: moderate" — see ARCHITECTURE.md).
+         * As of Phase 11 this is only the [com.openmaps.app.core.environment.EnvironmentProfiles.unknown]
+         * baseline value — `recomputeVisiblePlaces` reads `MapUiState.activeProfile.poiLimitBrowsing`,
+         * which equals this constant exactly until an environment other than `Unknown` resolves.
+         */
         const val MAX_VISIBLE_PLACES_BROWSING = 40
 
-        /** Map-mode density cap while navigating: fewer, more relevant places. */
+        /** Map-mode density cap while navigating: fewer, more relevant places. See the note above. */
         const val MAX_VISIBLE_PLACES_NAVIGATING = 20
 
         // Phase 10: road intelligence.
@@ -957,6 +1194,22 @@ class MapViewModel(
 
         /** Keeps the rendered alert list short even when several hazards qualify at once. */
         const val MAX_ACTIVE_ALERTS = 5
+
+        // Phase 11: environment classification.
+
+        /** Same cadence as Phase 10's speed-limit fetch — a road's classification is just as stable. */
+        const val ROAD_CLASS_REFETCH_DISTANCE_METERS = 150.0
+
+        /**
+         * Rank a boosted [com.openmaps.app.core.roadintelligence.RouteAlert.Lane] is given when
+         * `EnvironmentNavigationProfile.laneGuidancePriorityBoost` is true: between collision-class
+         * hazards and dangerous weather — "elevated" relative to lane guidance's own normal band, not
+         * elevated above a life-safety alert.
+         */
+        const val ELEVATED_LANE_GUIDANCE_BAND = 25
+
+        const val KMH_PER_MPS = 3.6
+        const val KMH_PER_MPH = 1.60934
 
         /**
          * Camera step while following. Short and non-animated: the target updates on every GPS
