@@ -251,7 +251,7 @@ fun LiveScreen(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .statusBarsPadding()
-                        .padding(top = 72.dp, start = 16.dp, end = 16.dp),
+                        .padding(top = 64.dp, start = 14.dp, end = 14.dp),
                 )
                 // The mockup stacks a compact "Then" pill directly beneath the maneuver card.
                 hud.nextInstruction?.let { then ->
@@ -261,7 +261,7 @@ fun LiveScreen(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .statusBarsPadding()
-                            .padding(top = 172.dp, start = 16.dp, end = 16.dp),
+                            .padding(top = 150.dp, start = 14.dp, end = 14.dp),
                     )
                 }
             }
@@ -328,7 +328,7 @@ fun LiveScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
-                    .padding(top = if (isNavigating) 226.dp else 96.dp, start = 16.dp, end = 16.dp),
+                    .padding(top = if (isNavigating) 202.dp else 96.dp, start = 16.dp, end = 16.dp),
             )
         }
 
@@ -339,7 +339,7 @@ fun LiveScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(top = if (isNavigating) 270.dp else 230.dp, start = 16.dp, end = 16.dp),
+                .padding(top = if (isNavigating) 246.dp else 230.dp, start = 16.dp, end = 16.dp),
         )
 
         // Mockup: current speed + posted limit, lower-left, above the trip card.
@@ -349,7 +349,7 @@ fun LiveScreen(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .navigationBarsPadding()
-                .padding(start = 16.dp, bottom = summaryBottomPadding + 132.dp),
+                .padding(start = 16.dp, bottom = summaryBottomPadding + 104.dp),
         )
 
     }
@@ -1005,7 +1005,7 @@ private fun VoiceToggle(
         modifier = modifier
             .size(44.dp)
             .clip(CircleShape)
-            .background(OpenMapsColors.Navy950.copy(alpha = 0.58f)),
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.50f)),
     ) {
         Icon(
             painter = painterResource(if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off),
@@ -1027,7 +1027,7 @@ private fun LiveManeuverHud(hud: LiveHudState.Maneuver, modifier: Modifier = Mod
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Navy950.copy(alpha = 0.58f))
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.50f))
             .padding(horizontal = 18.dp, vertical = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1075,7 +1075,7 @@ private fun LiveNextManeuverHud(
     Row(
         modifier = modifier
             .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Navy950.copy(alpha = 0.58f))
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.50f))
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1118,7 +1118,7 @@ private fun LiveStatusHud(title: String, modifier: Modifier = Modifier) {
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Navy950.copy(alpha = 0.58f))
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.50f))
             .padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1139,62 +1139,82 @@ private fun LiveStatusHud(title: String, modifier: Modifier = Modifier) {
  * read at render time rather than stored, so it stays correct without becoming a second estimate.
  */
 @Composable
-private fun LiveTripSummary(hud: LiveHudState.Maneuver, onStopNavigation: () -> Unit, modifier: Modifier = Modifier) {
-    Column(
+private fun LiveTripSummary(
+    hud: LiveHudState.Maneuver,
+    onStopNavigation: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Surface.copy(alpha = 0.82f))
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .background(OpenMapsColors.Surface.copy(alpha = 0.90f))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        hud.destinationName?.let { name ->
-            Text(
-                text = stringResource(R.string.live_destination_format, name),
-                style = MaterialTheme.typography.bodySmall,
-                color = OpenMapsColors.TextSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-        }
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            LiveTripStatColumn(
-                value = formatLiveDistance(hud.remainingDistanceMeters),
-                label = stringResource(R.string.live_stat_remaining),
-                modifier = Modifier.weight(1f),
-            )
-            LiveTripStatDivider()
-            LiveTripStatColumn(
-                value = formatLiveDuration(hud.remainingDurationSeconds),
-                label = stringResource(R.string.live_stat_to_arrive),
-                modifier = Modifier.weight(1f),
-            )
-            LiveTripStatDivider()
-            LiveTripStatColumn(
-                value = ArrivalTimeFormatter.format(hud.remainingDurationSeconds, System.currentTimeMillis()),
-                label = stringResource(R.string.live_stat_arrival),
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-            horizontalArrangement = Arrangement.End,
+        IconButton(
+            onClick = onStopNavigation,
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(OpenMapsColors.SurfaceMuted),
         ) {
-            TextButton(onClick = onStopNavigation) {
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = null,
-                    tint = OpenMapsColors.TextSecondary,
-                    modifier = Modifier.size(16.dp),
-                )
-                Spacer(Modifier.width(4.dp))
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = stringResource(R.string.nav_stop),
+                tint = OpenMapsColors.TextPrimary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
+        Column(Modifier.weight(1f)) {
+            hud.destinationName?.let { name ->
                 Text(
-                    text = stringResource(R.string.nav_stop),
-                    style = MaterialTheme.typography.labelMedium,
+                    text = name,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OpenMapsColors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(3.dp))
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = formatLiveDistance(hud.remainingDistanceMeters),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = OpenMapsColors.TextPrimary,
+                )
+                Text(
+                    text = "  •  ",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = OpenMapsColors.TextSecondary,
                 )
+                Text(
+                    text = formatLiveDuration(hud.remainingDurationSeconds),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = OpenMapsColors.TextPrimary,
+                )
             }
+            Text(
+                text = "Arrive " + ArrivalTimeFormatter.format(
+                    hud.remainingDurationSeconds,
+                    System.currentTimeMillis(),
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = OpenMapsColors.TextSecondary,
+            )
         }
+
+        Icon(
+            Icons.AutoMirrored.Filled.ArrowForward,
+            contentDescription = null,
+            tint = OpenMapsColors.TextSecondary,
+            modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = -90f },
+        )
     }
 }
 
