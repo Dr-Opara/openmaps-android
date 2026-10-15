@@ -2,9 +2,11 @@ package com.openmaps.app.feature.search
 
 import com.openmaps.app.core.geocoding.GeocodingException
 import com.openmaps.app.core.geocoding.GeocodingRepository
+import com.openmaps.app.core.geocoding.GeocodingSearchContext
 import com.openmaps.app.core.geocoding.RecentSearchList
 import com.openmaps.app.core.geocoding.RecentSearchStore
 import com.openmaps.app.core.geocoding.SearchResult
+import com.openmaps.app.core.location.UserLocation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -60,6 +62,25 @@ class SearchViewModelTest {
         viewModel.onQueryChanged("cafe")
         dispatcher.scheduler.advanceTimeBy(DEBOUNCE + 1)
         assertEquals(listOf("cafe"), repository.queriesReceived)
+    }
+
+    @Test
+    fun searchUsesLatestLocationBias() = runTest(dispatcher) {
+        viewModel.onLocationBiasChanged(
+            UserLocation(
+                latitude = 29.75,
+                longitude = -95.75,
+                accuracyMeters = 5f,
+                bearingDegrees = null,
+                timestampMillis = 1L,
+                speedMetersPerSecond = null,
+            ),
+        )
+        viewModel.onQueryChanged("coffee")
+        dispatcher.scheduler.advanceTimeBy(DEBOUNCE + 1)
+
+        assertEquals(29.75, repository.contextsReceived.single().latitude ?: 0.0, 0.0)
+        assertEquals(-95.75, repository.contextsReceived.single().longitude ?: 0.0, 0.0)
     }
 
     @Test
@@ -133,9 +154,14 @@ class SearchViewModelTest {
 
     private class FakeGeocodingRepository : GeocodingRepository {
         val queriesReceived = mutableListOf<String>()
+        val contextsReceived = mutableListOf<GeocodingSearchContext>()
         var result: Result<List<SearchResult>> = Result.success(emptyList())
-        override suspend fun search(query: String): Result<List<SearchResult>> {
+        override suspend fun search(
+            query: String,
+            context: GeocodingSearchContext,
+        ): Result<List<SearchResult>> {
             queriesReceived += query
+            contextsReceived += context
             return result
         }
     }
