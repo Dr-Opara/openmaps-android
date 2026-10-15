@@ -201,7 +201,7 @@ private fun NearbyStatusRow(text: String, showSpinner: Boolean) {
 private fun NearbyPlaceCard(place: Place, onDetails: () -> Unit, onNavigate: () -> Unit) {
     Column(
         modifier = Modifier
-            .width(220.dp)
+            .width(300.dp)
             .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
             .padding(14.dp),
     ) {
@@ -226,7 +226,7 @@ private fun NearbyPlaceCard(place: Place, onDetails: () -> Unit, onNavigate: () 
             }
         }
         Text(
-            text = place.name,
+            text = nearbyDisplayName(place),
             style = MaterialTheme.typography.titleMedium,
             color = OpenMapsColors.TextPrimary,
             maxLines = 1,
@@ -254,16 +254,38 @@ private fun NearbyPlaceCard(place: Place, onDetails: () -> Unit, onNavigate: () 
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onDetails, modifier = Modifier.weight(1f).heightIn(min = 40.dp)) {
-                Text(stringResource(R.string.nearby_details_action), style = MaterialTheme.typography.labelMedium)
+                Text(
+                    stringResource(R.string.nearby_details_action),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                )
             }
             Button(
                 onClick = onNavigate,
                 colors = ButtonDefaults.buttonColors(containerColor = OpenMapsColors.ElectricBlueFilled, contentColor = Color.White),
                 modifier = Modifier.weight(1f).heightIn(min = 40.dp),
             ) {
-                Text(stringResource(R.string.place_navigate_action), style = MaterialTheme.typography.labelMedium, color = Color.White)
+                Text(
+                    stringResource(R.string.place_navigate_action),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    maxLines = 1,
+                )
             }
         }
+    }
+}
+
+private fun nearbyDisplayName(place: Place): String {
+    val raw = place.name.trim()
+    val generic = place.category.displayName()
+    if (raw.isNotBlank() && !raw.equals(generic, ignoreCase = true)) return raw
+    return when (place.category) {
+        PlaceCategory.Parking -> "Public Parking"
+        PlaceCategory.Gas -> "Gas Station"
+        PlaceCategory.EvCharging -> "EV Charging"
+        PlaceCategory.Atm -> "ATM"
+        else -> "Nearby ${generic}"
     }
 }
 
