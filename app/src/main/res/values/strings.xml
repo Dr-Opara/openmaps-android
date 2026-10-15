@@ -77,6 +77,12 @@
     <string name="live_off_route">Off route</string>
     <string name="live_arrived_title">You\'ve arrived</string>
     <string name="live_arrived_action">Back to map</string>
+    <string name="live_safety_title">Drive safely with OpenMaps Live</string>
+    <string name="live_safety_intro">OpenMaps Live uses your camera to place navigation guidance over the road ahead.</string>
+    <string name="live_safety_eyes">Keep your eyes on the road at all times.</string>
+    <string name="live_safety_body">Do not interact with OpenMaps while driving unless it is safe and lawful. Follow traffic signs, road conditions, and applicable laws. OpenMaps guidance may be delayed, incomplete, or inaccurate. Camera guidance does not replace your responsibility to drive safely.</string>
+    <string name="live_safety_use_map">Use Map Navigation</string>
+    <string name="live_safety_confirm">I Understand — Start Live</string>
 
     <!-- Search -->
     <string name="search_title">Search destinations</string>
@@ -117,6 +123,11 @@
     <string name="nav_steps">Steps</string>
     <string name="cd_steps">Show turn-by-turn steps</string>
     <string name="nav_steps_unavailable">No turn-by-turn steps for this route.</string>
+    <string name="nav_choose_experience">Choose navigation view</string>
+    <string name="nav_mode_map_title">Map Navigation</string>
+    <string name="nav_mode_map_body">Traditional turn-by-turn map guidance</string>
+    <string name="nav_mode_live_title">Live Camera</string>
+    <string name="nav_mode_live_body">Camera + AR road guidance</string>
 
     <!-- Spatial localization (Phase 6) -->
     <string name="spatial_locating">Locating…</string>
