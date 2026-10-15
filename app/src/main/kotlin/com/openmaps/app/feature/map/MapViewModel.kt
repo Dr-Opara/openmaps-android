@@ -289,10 +289,15 @@ class MapViewModel(
     }
 
     fun onModeSelected(mode: MapMode) {
-        // A manual mode choice always supersedes the automatic Start -> Live switch (section A7):
-        // once the user has acted, repeated camera-readiness checks must not yank the mode back.
+        // Switching Map <-> Live during an active trip must not restart the route.
         liveAutoFallbackArmed = false
-        _uiState.update { it.copy(selectedMapMode = mode, liveFallbackMessage = null) }
+        _uiState.update {
+            it.copy(
+                selectedMapMode = mode,
+                selectedNavigationMode = if (mode == MapMode.Live) NavigationMode.Live else NavigationMode.Map,
+                liveFallbackMessage = null,
+            )
+        }
     }
 
     /**
@@ -1132,6 +1137,48 @@ class MapViewModel(
      * never moves. The route must also carry maneuvers — a route the provider returned without
      * them can't drive a maneuver banner.
      */
+    /** Route Preview chooses the experience before a trip begins. */
+    fun onNavigationModeSelected(mode: NavigationMode) {
+        _uiState.update {
+            it.copy(
+                selectedNavigationMode = mode,
+                isLiveSafetyWarningVisible = false,
+            )
+        }
+    }
+
+    /** Start button entry point. Live never starts without the mandatory safety acknowledgement. */
+    fun onStartNavigationRequested() {
+        val state = _uiState.value
+        if (state.selectedNavigationMode == NavigationMode.Live) {
+            _uiState.update { it.copy(isLiveSafetyWarningVisible = true) }
+            return
+        }
+        startNavigation()
+    }
+
+    fun onLiveSafetyDismissed() {
+        _uiState.update { it.copy(isLiveSafetyWarningVisible = false) }
+    }
+
+    /** Safety-screen fallback: continue the same route using conventional map navigation. */
+    fun onUseMapNavigationFromSafety() {
+        _uiState.update {
+            it.copy(
+                selectedNavigationMode = NavigationMode.Map,
+                selectedMapMode = MapMode.Map,
+                isLiveSafetyWarningVisible = false,
+            )
+        }
+        startNavigation()
+    }
+
+    /** Deliberate acknowledgement required before the camera-based driving experience begins. */
+    fun onLiveSafetyConfirmed() {
+        _uiState.update { it.copy(isLiveSafetyWarningVisible = false) }
+        startNavigation()
+    }
+
     fun startNavigation() {
         val state = _uiState.value
         val route = (state.routeState as? RouteState.Ready)?.route
@@ -1155,17 +1202,17 @@ class MapViewModel(
         // Seed progress immediately from the last known fix so the banner has something to show
         // before the next location tick arrives.
         val seeded = state.currentLocation.let { session?.locate(it.toCoordinate()) }
-        // Section A6: Start automatically opens Live — the camera-first product decision — but only
-        // once navigation genuinely became Active; an Error below must never silently open Live on
-        // top of it. `onLiveReadinessChanged` (armed by `liveAutoFallbackArmed`) is what Section A7's
-        // fallback hangs off of if the camera then turns out to be unusable.
+        // Route Preview owns the user's navigation choice. Conventional Map is the default;
+        // Live is opt-in and only reaches this function after the safety acknowledgement.
         val didStart = seeded != null
-        if (didStart) liveAutoFallbackArmed = true
+        val requestedMode = state.selectedNavigationMode
+        liveAutoFallbackArmed = didStart && requestedMode == NavigationMode.Live
         _uiState.update {
             it.copy(
                 navigationFollowSuspended = false,
-                selectedMapMode = if (didStart) MapMode.Live else it.selectedMapMode,
+                selectedMapMode = if (didStart && requestedMode == NavigationMode.Live) MapMode.Live else MapMode.Map,
                 liveFallbackMessage = if (didStart) null else it.liveFallbackMessage,
+                isLiveSafetyWarningVisible = false,
                 navigationState = if (seeded != null) {
                     NavigationState.Active(withOffRouteFlag(seeded, false))
                 } else {
@@ -1224,6 +1271,12 @@ class MapViewModel(
             _routeProgressView.value = null
             _uiState.update { it.copy(navigationState = NavigationState.Arrived(progress)) }
             voiceGuidanceEngine.speak(VoiceEvent.Arrived)
+            viewModelScope.launch {
+                delay(ARRIVAL_RETURN_HOME_DELAY_MILLIS)
+                if (_uiState.value.navigationState is NavigationState.Arrived) {
+                    finishArrivalToHome()
+                }
+            }
             return
         }
 
@@ -1246,6 +1299,41 @@ class MapViewModel(
                 requestReroute(location)
             }
         }
+    }
+
+    /** Completes the arrival lifecycle and returns to the clean Discover/Home state. */
+    private fun finishArrivalToHome() {
+        session = null
+        navigationFollowSuspended = false
+        rerouteInFlight = false
+        liveAutoFallbackArmed = false
+        routeJob?.cancel()
+        routeJob = null
+        _routeProgressView.value = null
+        onNavigationEnded()
+        roadAlertHysteresis.reset()
+        voicePlanner.reset()
+        voiceGuidanceEngine.stop()
+        _uiState.update {
+            it.copy(
+                selectedDestination = null,
+                routeOriginOverride = null,
+                routeState = RouteState.Idle,
+                navigationState = NavigationState.Idle,
+                selectedMapMode = MapMode.Map,
+                selectedNavigationMode = NavigationMode.Map,
+                selectedPlace = null,
+                isReviewingDirections = false,
+                isExploreOpen = false,
+                isShowingSteps = false,
+                stepsRouteSummary = null,
+                navigationFollowSuspended = false,
+                isLiveSafetyWarningVisible = false,
+            )
+        }
+        recomputeVisiblePlaces()
+        recomputeRoadAlerts()
+        recomputeEnvironment()
     }
 
     /**
@@ -1493,6 +1581,7 @@ class MapViewModel(
 
     companion object {
         const val DEFAULT_FIX_TIMEOUT_MILLIS = 20_000L
+        const val ARRIVAL_RETURN_HOME_DELAY_MILLIS = 6_000L
         const val INITIAL_USER_ZOOM = 15.0
         const val RECENTER_MIN_ZOOM = 14.0
         const val DESTINATION_ZOOM = 15.0
