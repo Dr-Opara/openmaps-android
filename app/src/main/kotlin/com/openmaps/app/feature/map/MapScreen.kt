@@ -253,6 +253,7 @@ fun MapScreen(
                     selectedCategories = state.placeCategoryFilters,
                     onCategoriesChanged = viewModel::onCategoryFilterChanged,
                     currentLocation = state.currentLocation,
+                    hasRoute = state.routeState is RouteState.Ready,
                     onDetails = viewModel::onPlaceSelected,
                     onNavigate = viewModel::onNavigateToPlace,
                     onDismiss = viewModel::onExploreDismissed,
