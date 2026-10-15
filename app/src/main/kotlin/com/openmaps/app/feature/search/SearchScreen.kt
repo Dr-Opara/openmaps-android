@@ -38,11 +38,10 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +60,8 @@ import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.geocoding.SearchResult
+import com.openmaps.app.core.geocoding.SearchResultKind
+import com.openmaps.app.core.places.PlaceCategory
 
 /**
  * Destination search: typing debounces into a geocoding lookup ([SearchViewModel]); the recent
@@ -73,6 +74,7 @@ fun SearchScreen(
     viewModel: SearchViewModel,
     onBack: () -> Unit,
     onResultSelected: (SearchResult) -> Unit,
+    onCategorySelected: (PlaceCategory) -> Unit = {},
     modifier: Modifier = Modifier,
     /** Set when the home screen's mic was tapped: start capture as soon as this screen appears. */
     autoStartVoiceSearch: Boolean = false,
@@ -185,7 +187,19 @@ fun SearchScreen(
 
         val currentError = state.error
         when {
-            state.query.isBlank() -> RecentSearchesList(state.recentSearches, onSelect = ::selectResult)
+            state.selectedTab == SearchTab.Categories -> CategoryBrowseList(
+                query = state.query,
+                onSelect = onCategorySelected,
+            )
+            state.query.isBlank() -> RecentSearchesList(
+                recents = when (state.selectedTab) {
+                    SearchTab.All -> state.recentSearches
+                    SearchTab.Places -> state.recentSearches.filter { it.resultKind == SearchResultKind.Place }
+                    SearchTab.Addresses -> state.recentSearches.filter { it.resultKind == SearchResultKind.Address }
+                    SearchTab.Categories -> emptyList()
+                },
+                onSelect = ::selectResult,
+            )
             state.isSearching -> SearchStatusMessage { LoadingRow() }
             currentError != null -> SearchStatusMessage { ErrorRow(currentError) }
             state.hasNoResults -> SearchStatusMessage {
@@ -195,8 +209,6 @@ fun SearchScreen(
                     color = OpenMapsColors.TextSecondary,
                 )
             }
-            // A search that succeeded but has nothing in the selected bucket. Distinct from
-            // "no results at all" so the user knows to switch tabs rather than retype.
             state.selectedTabIsEmpty -> SearchStatusMessage {
                 Text(
                     text = stringResource(R.string.search_no_results_for_tab, state.selectedTab.label()),
@@ -295,6 +307,107 @@ private fun SearchTab.label(): String = when (this) {
     SearchTab.Addresses -> "addresses"
     SearchTab.Categories -> "categories"
 }
+
+@Composable
+private fun CategoryBrowseList(
+    query: String,
+    onSelect: (PlaceCategory) -> Unit,
+) {
+    val normalized = query.trim().lowercase()
+    val categories = SEARCH_CATEGORIES.filter { entry ->
+        normalized.isBlank() ||
+            entry.label.lowercase().contains(normalized) ||
+            entry.aliases.any { it.contains(normalized) }
+    }
+
+    LazyColumn(Modifier.fillMaxWidth()) {
+        if (normalized.isBlank()) {
+            item {
+                Text(
+                    text = stringResource(R.string.search_categories_header),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = OpenMapsColors.ElectricBlueFilled,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
+                )
+            }
+        }
+        items(categories, key = { it.category.name }) { entry ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(entry.category) }
+                    .padding(vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(OpenMapsColors.SurfaceMuted, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = entry.symbol,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = OpenMapsColors.ElectricBlueFilled,
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = entry.label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OpenMapsColors.TextPrimary,
+                    )
+                    Text(
+                        text = stringResource(R.string.search_category_nearby_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OpenMapsColors.TextSecondary,
+                    )
+                }
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = OpenMapsColors.TextSecondary,
+                )
+            }
+        }
+        if (categories.isEmpty()) {
+            item {
+                Text(
+                    text = stringResource(R.string.search_category_no_match),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OpenMapsColors.TextSecondary,
+                    modifier = Modifier.padding(vertical = 20.dp),
+                )
+            }
+        }
+    }
+}
+
+private data class SearchCategoryEntry(
+    val category: PlaceCategory,
+    val label: String,
+    val symbol: String,
+    val aliases: List<String> = emptyList(),
+)
+
+private val SEARCH_CATEGORIES = listOf(
+    SearchCategoryEntry(PlaceCategory.Restaurant, "Restaurants", "🍴", listOf("food", "dining")),
+    SearchCategoryEntry(PlaceCategory.Coffee, "Coffee", "☕", listOf("cafe", "cafes")),
+    SearchCategoryEntry(PlaceCategory.Gas, "Gas", "⛽", listOf("fuel", "gas station")),
+    SearchCategoryEntry(PlaceCategory.Hotel, "Hotels", "H", listOf("lodging")),
+    SearchCategoryEntry(PlaceCategory.Parking, "Parking", "P", listOf("garage")),
+    SearchCategoryEntry(PlaceCategory.Pharmacy, "Pharmacy", "+", listOf("drugstore")),
+    SearchCategoryEntry(PlaceCategory.Grocery, "Grocery", "G", listOf("supermarket")),
+    SearchCategoryEntry(PlaceCategory.EvCharging, "EV charging", "⚡", listOf("electric charging")),
+    SearchCategoryEntry(PlaceCategory.Bank, "Banks", "$", listOf("banking")),
+    SearchCategoryEntry(PlaceCategory.Atm, "ATMs", "$", listOf("cash")),
+    SearchCategoryEntry(PlaceCategory.Medical, "Medical", "+", listOf("hospital", "clinic", "doctor")),
+    SearchCategoryEntry(PlaceCategory.Shopping, "Shopping", "S", listOf("mall", "stores")),
+    SearchCategoryEntry(PlaceCategory.Entertainment, "Entertainment", "★", listOf("cinema", "theatre", "attraction")),
+    SearchCategoryEntry(PlaceCategory.Convenience, "Convenience", "C", listOf("convenience store")),
+)
 
 @Composable
 private fun SearchStatusMessage(content: @Composable () -> Unit) {
