@@ -950,12 +950,14 @@ private fun LiveTopBar(
                 VoiceToggle(voiceEnabled = voiceEnabled, onToggle = onVoiceMuteToggled)
                 Spacer(Modifier.width(8.dp))
             }
-            IconButton(onClick = onBackToMap) {
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = stringResource(R.string.cd_back_to_map),
-                    tint = OpenMapsColors.TextOnDark,
-                )
+            if (!isNavigating) {
+                IconButton(onClick = onBackToMap) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = stringResource(R.string.cd_back_to_map),
+                        tint = OpenMapsColors.TextOnDark,
+                    )
+                }
             }
             MapModeToggle(selected = MapMode.Live, onSelected = onModeSelected, transparent = true)
         }
