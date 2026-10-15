@@ -77,7 +77,7 @@ fun DestinationDetailsSheet(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(150.dp)
+                .height(118.dp)
                 .background(OpenMapsColors.SurfaceMuted),
         ) {
             Icon(
@@ -105,7 +105,7 @@ fun DestinationDetailsSheet(
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Text(
                 text = destination.name.ifBlank { destination.displayName },
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.headlineSmall,
                 color = OpenMapsColors.TextPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -130,11 +130,15 @@ fun DestinationDetailsSheet(
             }
 
             Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Button(
                     onClick = onDirections,
                     shape = GlassShapes.Pill,
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    modifier = Modifier.weight(1.25f).heightIn(min = 46.dp),
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowForward,
@@ -143,7 +147,11 @@ fun DestinationDetailsSheet(
                         modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = -90f },
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.destination_directions_action))
+                    Text(
+                        stringResource(R.string.destination_directions_action),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
                 Button(
                     onClick = onStart,
@@ -152,25 +160,33 @@ fun DestinationDetailsSheet(
                         containerColor = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.14f),
                         contentColor = OpenMapsColors.ElectricBlueFilled,
                     ),
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    modifier = Modifier.weight(0.95f).heightIn(min = 46.dp),
                 ) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(5.dp))
-                    Text(stringResource(R.string.nav_start))
+                    Text(
+                        stringResource(R.string.nav_start),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
                 OutlinedButton(
                     onClick = {},
                     enabled = false,
                     shape = GlassShapes.Pill,
-                    modifier = Modifier.heightIn(min = 48.dp),
+                    modifier = Modifier.weight(0.9f).heightIn(min = 46.dp),
                 ) {
                     Icon(painterResource(R.drawable.ic_bookmark), contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(stringResource(R.string.place_save_action))
+                    Text(
+                        stringResource(R.string.place_save_action),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 DestinationDetailsTab.entries.forEach { item ->
                     val selected = item == tab
