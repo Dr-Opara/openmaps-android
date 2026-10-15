@@ -120,7 +120,7 @@ data class MapUiState(
 
     /** Final ~500 m route slice for a future real Arrival Preview renderer. Hidden until supported. */
     val arrivalPreviewPlan: ArrivalPreviewPlan?
-        get() = (routeState as? RouteState.Ready)?.route?.let(ArrivalPreviewPlan::from)
+        get() = (routeState as? RouteState.Ready)?.route?.let { ArrivalPreviewPlan.from(it) }
 
     /** The progress snapshot to render, or null when navigation isn't reporting one. */
     val navigationProgress: RouteProgress?
