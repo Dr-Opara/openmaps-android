@@ -258,7 +258,7 @@ fun PlaceDetailsSheet(
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Text(
                 text = place.name,
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.headlineSmall,
                 color = OpenMapsColors.TextPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -291,11 +291,15 @@ fun PlaceDetailsSheet(
             // Mockup action row: Directions (solid blue) / Start / Save (both a lighter blue fill,
             // not outlined). Save is rendered but permanently disabled — there is no account system
             // yet, so the visual action is preserved while never pretending to persist anything.
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Button(
                     onClick = onDirections,
                     shape = GlassShapes.Pill,
-                    modifier = Modifier.weight(1f).heightIn(min = 46.dp),
+                    modifier = Modifier.weight(1.25f).heightIn(min = 46.dp),
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowForward,
@@ -306,8 +310,10 @@ fun PlaceDetailsSheet(
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = stringResource(R.string.destination_directions_action),
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Button(
@@ -317,7 +323,7 @@ fun PlaceDetailsSheet(
                         containerColor = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.14f),
                         contentColor = OpenMapsColors.ElectricBlueFilled,
                     ),
-                    modifier = Modifier.weight(1f).heightIn(min = 46.dp),
+                    modifier = Modifier.weight(0.95f).heightIn(min = 46.dp),
                 ) {
                     Icon(
                         Icons.Filled.PlayArrow,
@@ -328,7 +334,9 @@ fun PlaceDetailsSheet(
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = stringResource(R.string.nav_start),
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Button(
@@ -341,16 +349,18 @@ fun PlaceDetailsSheet(
                         disabledContainerColor = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.14f),
                         disabledContentColor = OpenMapsColors.ElectricBlueFilled,
                     ),
-                    modifier = Modifier.weight(1f).heightIn(min = 46.dp),
+                    modifier = Modifier.weight(0.9f).heightIn(min = 46.dp),
                 ) {
                     Icon(Icons.Filled.Star, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.place_save_action), style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        stringResource(R.string.place_save_action),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            // Mockup: the media row sits between the actions and the tabs.
-            PlacePhotoStrip(place)
             Spacer(Modifier.height(12.dp))
             PlaceDetailsTabRow(selected = tab, onSelected = { tab = it })
             Spacer(Modifier.height(10.dp))
@@ -382,7 +392,7 @@ private fun PlaceHeroImage(place: Place, onDismiss: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(180.dp)
+            .height(128.dp)
             .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
             .background(place.category.markerColor().copy(alpha = 0.18f)),
         contentAlignment = Alignment.Center,
