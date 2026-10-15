@@ -256,11 +256,20 @@ fun MapScreen(
                         canStart = state.canStartNavigation,
                         isNavigating = state.isNavigating,
                         navigationError = (state.navigationState as? NavigationState.Error)?.reason,
-                        onStart = viewModel::startNavigation,
+                        selectedNavigationMode = state.selectedNavigationMode,
+                        onNavigationModeSelected = viewModel::onNavigationModeSelected,
+                        onStart = viewModel::onStartNavigationRequested,
                         onStop = viewModel::stopNavigation,
                     )
                 }
             }
+        if (state.isLiveSafetyWarningVisible) {
+            LiveSafetyWarningDialog(
+                onUseMapNavigation = viewModel::onUseMapNavigationFromSafety,
+                onConfirmLive = viewModel::onLiveSafetyConfirmed,
+                onDismiss = viewModel::onLiveSafetyDismissed,
+            )
+        }
         }
     }
 }
