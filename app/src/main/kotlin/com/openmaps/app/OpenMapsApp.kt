@@ -188,6 +188,18 @@ private fun AppShell(container: AppContainer) {
             viewModel = viewModel,
             styleProvider = container.mapStyleProvider,
             recentDestinations = searchState.recentSearches,
+            onShareDestination = { destination ->
+                context.shareText(
+                    title = destination.name.ifBlank { "OpenMaps destination" },
+                    text = buildString {
+                        append(destination.name.ifBlank { "OpenMaps destination" })
+                        destination.subtitle.takeIf { it.isNotBlank() }?.let {
+                            append("\n")
+                            append(it)
+                        }
+                    },
+                )
+            },
             onSearchClick = {
                 searchPurpose = SearchPurpose.NewDestination
                 overlay = Overlay.Search
