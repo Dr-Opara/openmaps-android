@@ -144,10 +144,13 @@ fun DestinationDetailsSheet(
 
                 val parkingNearby = parkingNearDestination(destination, nearbyPlaces)
                 Spacer(Modifier.height(10.dp))
-                ArrivalIntelligenceCard(
-                    routeComplexity = arrivalComplexityLabel(readyRoute.maneuvers.map { it.type }),
-                    parkingNearby = parkingNearby,
-                )
+                val routeComplexity = arrivalComplexityLabel(readyRoute.maneuvers.map { it.type })
+                if (routeComplexity != null || parkingNearby.isNotEmpty()) {
+                    ArrivalIntelligenceCard(
+                        routeComplexity = routeComplexity,
+                        parkingNearby = parkingNearby,
+                    )
+                }
             }
 
             Spacer(Modifier.height(14.dp))
@@ -335,7 +338,7 @@ private fun DestinationTripSummary(durationSeconds: Double, distanceMeters: Doub
 
 @Composable
 private fun ArrivalIntelligenceCard(
-    routeComplexity: String,
+    routeComplexity: String?,
     parkingNearby: List<Place>,
 ) {
     Column(
@@ -349,18 +352,20 @@ private fun ArrivalIntelligenceCard(
             style = MaterialTheme.typography.labelLarge,
             color = OpenMapsColors.TextPrimary,
         )
-        Text(
-            text = routeComplexity,
-            style = MaterialTheme.typography.titleMedium,
-            color = OpenMapsColors.ElectricBlueFilled,
-            modifier = Modifier.padding(top = 2.dp),
-        )
-        Text(
-            text = stringResource(R.string.destination_arrival_ease_basis),
-            style = MaterialTheme.typography.bodySmall,
-            color = OpenMapsColors.TextSecondary,
-            modifier = Modifier.padding(top = 2.dp),
-        )
+        routeComplexity?.let { complexity ->
+            Text(
+                text = complexity,
+                style = MaterialTheme.typography.titleMedium,
+                color = OpenMapsColors.ElectricBlueFilled,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            Text(
+                text = stringResource(R.string.destination_arrival_ease_basis),
+                style = MaterialTheme.typography.bodySmall,
+                color = OpenMapsColors.TextSecondary,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
         if (parkingNearby.isNotEmpty()) {
             Text(
                 text = stringResource(R.string.destination_parking_found, parkingNearby.size.coerceAtMost(3)),
@@ -372,7 +377,8 @@ private fun ArrivalIntelligenceCard(
     }
 }
 
-private fun arrivalComplexityLabel(types: List<ManeuverType>): String {
+private fun arrivalComplexityLabel(types: List<ManeuverType>): String? {
+    if (types.isEmpty()) return null
     val final = types.takeLast(6)
     val complex = final.count {
         it in setOf(
@@ -423,7 +429,7 @@ private fun parkingLine(place: Place): String {
         ?.replaceFirstChar { it.uppercase() }
         ?.let(parts::add)
     place.metadata.isPublicAccess?.let { parts += if (it) "Public" else "Private" }
-    place.metadata.feeApplies?.let { parts += if (it) "Fee" else "No fee reported" }
+    place.metadata.feeApplies?.let { parts += if (it) "Fee" else "No fee" }
     return parts.joinToString(" · ")
 }
 
