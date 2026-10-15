@@ -204,6 +204,7 @@
     <string name="place_photos_unavailable">Photos aren\'t available for this place yet.</string>
     <string name="place_nearby_unavailable">No other nearby places to show right now.</string>
     <string name="place_save_action">Save</string>
+    <string name="place_share_action">Share</string>
 
     <!-- Nearby Explore (Phase 12A) -->
     <string name="nearby_title">Nearby</string>
