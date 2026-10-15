@@ -304,7 +304,6 @@ class ArCoreSpatialLocalization(
         } catch (e: CameraNotAvailableException) {
             Log.w(TAG, "AR camera unavailable", e)
             _events.tryEmit(SpatialLocalizationState.Failed(SpatialFailure.CameraUnavailable))
-            return null
         } catch (t: Throwable) {
             // Anything else ARCore throws must degrade Live, never crash it.
             Log.w(TAG, "ARCore session creation failed", t)
@@ -374,6 +373,7 @@ class ArCoreSpatialLocalization(
         } catch (e: CameraNotAvailableException) {
             Log.w(TAG, "ARCore lost the camera", e)
             _events.tryEmit(SpatialLocalizationState.Failed(SpatialFailure.CameraUnavailable))
+            return null
         } catch (t: Throwable) {
             Log.w(TAG, "ARCore frame failed", t)
             _events.tryEmit(SpatialLocalizationState.Failed(SpatialFailure.ArCoreError))
