@@ -249,7 +249,7 @@ fun MapScreen(
                     places = state.visiblePlaces,
                     selectedCategories = state.placeCategoryFilters,
                     onCategoriesChanged = viewModel::onCategoryFilterChanged,
-                    hasCurrentLocation = state.currentLocation != null,
+                    currentLocation = state.currentLocation,
                     onDetails = viewModel::onPlaceSelected,
                     onNavigate = viewModel::onNavigateToPlace,
                     onDismiss = viewModel::onExploreDismissed,
