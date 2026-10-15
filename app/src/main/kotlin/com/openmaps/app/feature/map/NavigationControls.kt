@@ -2,6 +2,7 @@ package com.openmaps.app.feature.map
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -301,6 +303,8 @@ fun NavigationControls(
     canStart: Boolean,
     isNavigating: Boolean,
     navigationError: NavigationError?,
+    selectedNavigationMode: NavigationMode,
+    onNavigationModeSelected: (NavigationMode) -> Unit,
     onSteps: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
@@ -336,9 +340,13 @@ fun NavigationControls(
                 }
             }
         } else {
-            // Mockup Route Preview: a large filled "Start" sharing the row with a lighter
-            // "Steps" button. Start stays the visually dominant action (weight 1.6 vs 1) and both
-            // keep a 52dp target so they are easy to hit without looking for long.
+            NavigationModeSelector(
+                selected = selectedNavigationMode,
+                onSelected = onNavigationModeSelected,
+            )
+            Spacer(Modifier.width(1.dp))
+            // Start launches the selected presentation. Map is the default; Live is opt-in and
+            // will be safety-gated before the camera opens.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -397,6 +405,121 @@ fun NavigationControls(
             }
         }
     }
+}
+
+@Composable
+private fun NavigationModeSelector(
+    selected: NavigationMode,
+    onSelected: (NavigationMode) -> Unit,
+) {
+    Text(
+        text = stringResource(R.string.nav_choose_experience),
+        style = MaterialTheme.typography.labelLarge,
+        color = OpenMapsColors.TextSecondary,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        NavigationModeCard(
+            title = stringResource(R.string.nav_mode_map_title),
+            subtitle = stringResource(R.string.nav_mode_map_body),
+            selected = selected == NavigationMode.Map,
+            onClick = { onSelected(NavigationMode.Map) },
+            modifier = Modifier.weight(1f),
+        )
+        NavigationModeCard(
+            title = stringResource(R.string.nav_mode_live_title),
+            subtitle = stringResource(R.string.nav_mode_live_body),
+            selected = selected == NavigationMode.Live,
+            onClick = { onSelected(NavigationMode.Live) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun NavigationModeCard(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val background = if (selected) OpenMapsColors.ElectricBlueFilled else OpenMapsColors.SurfaceMuted
+    val foreground = if (selected) Color.White else OpenMapsColors.TextPrimary
+    Column(
+        modifier = modifier
+            .heightIn(min = 86.dp)
+            .background(background, GlassShapes.Card)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = foreground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = foreground.copy(alpha = if (selected) 0.86f else 0.70f),
+            modifier = Modifier.padding(top = 4.dp),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** Mandatory acknowledgement shown before any camera-based driving session begins. */
+@Composable
+fun LiveSafetyWarningDialog(
+    onUseMapNavigation: () -> Unit,
+    onConfirmLive: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = stringResource(R.string.live_safety_title),
+                style = MaterialTheme.typography.titleLarge,
+                color = OpenMapsColors.TextPrimary,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(R.string.live_safety_intro),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OpenMapsColors.TextPrimary,
+                )
+                Text(
+                    text = stringResource(R.string.live_safety_eyes),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = OpenMapsColors.TextPrimary,
+                )
+                Text(
+                    text = stringResource(R.string.live_safety_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OpenMapsColors.TextSecondary,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirmLive, shape = GlassShapes.Pill) {
+                Text(stringResource(R.string.live_safety_confirm), maxLines = 1)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onUseMapNavigation) {
+                Text(stringResource(R.string.live_safety_use_map))
+            }
+        },
+    )
 }
 
 /** `@Composable` because `stringResource` is: error copy resolves per configuration. */
