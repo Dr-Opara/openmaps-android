@@ -20,6 +20,7 @@
     <string name="cd_clear_destination">Clear destination</string>
     <string name="cd_more_options">More options</string>
     <string name="panel_title">Explore Nearby Places</string>
+    <string name="home_recent_destinations">Recent destinations</string>
 
     <!-- Map error -->
     <string name="map_unavailable_title">Map unavailable</string>
