@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -69,6 +70,7 @@ fun DestinationDetailsSheet(
     nearbyPlaces: List<Place> = emptyList(),
     onDirections: () -> Unit,
     onStart: () -> Unit,
+    onShare: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -155,14 +157,13 @@ fun DestinationDetailsSheet(
 
             Spacer(Modifier.height(14.dp))
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(
                     onClick = onDirections,
                     shape = GlassShapes.Pill,
-                    modifier = Modifier.weight(1.25f).heightIn(min = 46.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowForward,
@@ -170,11 +171,11 @@ fun DestinationDetailsSheet(
                         tint = Color.White,
                         modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = -90f },
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(7.dp))
                     Text(
                         stringResource(R.string.destination_directions_action),
+                        style = MaterialTheme.typography.labelLarge,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Button(
@@ -184,28 +185,47 @@ fun DestinationDetailsSheet(
                         containerColor = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.14f),
                         contentColor = OpenMapsColors.ElectricBlueFilled,
                     ),
-                    modifier = Modifier.weight(0.95f).heightIn(min = 46.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 ) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(5.dp))
+                    Spacer(Modifier.width(7.dp))
                     Text(
                         stringResource(R.string.nav_start),
+                        style = MaterialTheme.typography.labelLarge,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 OutlinedButton(
                     onClick = {},
                     enabled = false,
                     shape = GlassShapes.Pill,
-                    modifier = Modifier.weight(0.9f).heightIn(min = 46.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
                 ) {
-                    Icon(painterResource(R.drawable.ic_bookmark), contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
+                    Icon(painterResource(R.drawable.ic_bookmark), contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(6.dp))
                     Text(
                         stringResource(R.string.place_save_action),
+                        style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                OutlinedButton(
+                    onClick = onShare,
+                    shape = GlassShapes.Pill,
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        stringResource(R.string.place_share_action),
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
                     )
                 }
             }
