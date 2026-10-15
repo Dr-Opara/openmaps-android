@@ -2,9 +2,9 @@ package com.openmaps.app.core.navigation
 
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.RouteResult
-import kotlin.test.Test
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 class ArrivalPreviewPlanTest {
 
@@ -23,10 +23,12 @@ class ArrivalPreviewPlanTest {
             durationSeconds = 600.0,
         )
 
-        val plan = assertNotNull(ArrivalPreviewPlan.from(route, targetMeters = 300.0))
+        val plan = ArrivalPreviewPlan.from(route, targetMeters = 300.0)
+        assertNotNull(plan)
+        val actual = plan!!
 
-        assertTrue(plan.geometry.size >= 2)
-        assertTrue(plan.geometry.last() == geometry.last())
-        assertTrue(plan.distanceMeters >= 300.0 || plan.geometry == geometry)
+        assertTrue(actual.geometry.size >= 2)
+        assertTrue(actual.geometry.last() == geometry.last())
+        assertTrue(actual.distanceMeters >= 300.0 || actual.geometry == geometry)
     }
 }
