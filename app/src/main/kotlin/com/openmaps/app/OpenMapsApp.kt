@@ -82,6 +82,7 @@ private fun AppShell(container: AppContainer) {
     val liveViewModel: LiveViewModel = viewModel(factory = liveViewModelFactory(container))
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val liveState by liveViewModel.uiState.collectAsStateWithLifecycle()
+    val searchState by searchViewModel.uiState.collectAsStateWithLifecycle()
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
     var searchPurpose by rememberSaveable { mutableStateOf(SearchPurpose.NewDestination) }
     // Bumped to ask the search screen to start voice capture as soon as it appears. An incrementing
@@ -182,6 +183,7 @@ private fun AppShell(container: AppContainer) {
         MapScreen(
             viewModel = viewModel,
             styleProvider = container.mapStyleProvider,
+            recentDestinations = searchState.recentSearches,
             onSearchClick = {
                 searchPurpose = SearchPurpose.NewDestination
                 overlay = Overlay.Search
