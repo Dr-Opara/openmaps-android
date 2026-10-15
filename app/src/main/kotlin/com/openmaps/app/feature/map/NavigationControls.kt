@@ -49,6 +49,7 @@ import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.navigation.RouteProgress
+import com.openmaps.app.core.reporting.DriverReportType
 import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.routing.RouteManeuver
 import java.util.Locale
@@ -492,7 +493,12 @@ private fun NavigationModeCard(
 fun ActiveMapNavigationPanel(
     progress: RouteProgress,
     voiceEnabled: Boolean,
+    driverReportStatus: ExternalActionStatus,
+    tripShareStatus: ExternalActionStatus,
     onVoiceMuteToggled: () -> Unit,
+    onReport: (DriverReportType) -> Unit,
+    onShareTrip: () -> Unit,
+    onDismissExternalStatus: () -> Unit,
     onReroute: () -> Unit,
     onExitNavigation: () -> Unit,
     modifier: Modifier = Modifier,
@@ -536,10 +542,10 @@ fun ActiveMapNavigationPanel(
             }
             DrivingQuickAction(
                 label = stringResource(R.string.nav_action_share),
-                onClick = {},
-                enabled = false,
+                onClick = onShareTrip,
+                enabled = tripShareStatus != ExternalActionStatus.Working,
             ) {
-                Text("↗", style = MaterialTheme.typography.titleMedium, color = OpenMapsColors.TextSecondary)
+                Text("↗", style = MaterialTheme.typography.titleMedium, color = OpenMapsColors.TextPrimary)
             }
             DrivingQuickAction(
                 label = stringResource(R.string.nav_action_reroute),
@@ -662,7 +668,27 @@ fun ActiveMapNavigationPanel(
     }
 
     if (showReports) {
-        DriverReportDialog(onDismiss = { showReports = false })
+        DriverReportDialog(
+            status = driverReportStatus,
+            onReport = {
+                onReport(it)
+                showReports = false
+            },
+            onDismiss = { showReports = false },
+        )
+    }
+
+    if (tripShareStatus == ExternalActionStatus.Unavailable) {
+        AlertDialog(
+            onDismissRequest = onDismissExternalStatus,
+            title = { Text(stringResource(R.string.nav_share_unavailable_title)) },
+            text = { Text(stringResource(R.string.nav_share_unavailable_body)) },
+            confirmButton = {
+                TextButton(onClick = onDismissExternalStatus) {
+                    Text(stringResource(R.string.cd_dismiss))
+                }
+            },
+        )
     }
 }
 
@@ -711,37 +737,43 @@ private fun TripMetric(value: String, label: String, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun DriverReportDialog(onDismiss: () -> Unit) {
+private fun DriverReportDialog(
+    status: ExternalActionStatus,
+    onReport: (DriverReportType) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val reports = listOf(
-        R.string.nav_report_police,
-        R.string.nav_report_traffic,
-        R.string.nav_report_crash,
-        R.string.nav_report_lane_closed,
-        R.string.nav_report_construction,
-        R.string.nav_report_road_hazard,
-        R.string.nav_report_flooding,
-        R.string.nav_report_disabled_vehicle,
-        R.string.nav_report_object_road,
+        DriverReportType.Police to R.string.nav_report_police,
+        DriverReportType.Traffic to R.string.nav_report_traffic,
+        DriverReportType.Crash to R.string.nav_report_crash,
+        DriverReportType.LaneClosed to R.string.nav_report_lane_closed,
+        DriverReportType.Construction to R.string.nav_report_construction,
+        DriverReportType.RoadHazard to R.string.nav_report_road_hazard,
+        DriverReportType.Flooding to R.string.nav_report_flooding,
+        DriverReportType.DisabledVehicle to R.string.nav_report_disabled_vehicle,
+        DriverReportType.ObjectOnRoad to R.string.nav_report_object_road,
     )
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.nav_report_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = stringResource(R.string.nav_report_unavailable),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = OpenMapsColors.TextSecondary,
-                )
+                if (status == ExternalActionStatus.Unavailable) {
+                    Text(
+                        text = stringResource(R.string.nav_report_unavailable),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OpenMapsColors.TextSecondary,
+                    )
+                }
                 reports.chunked(2).forEach { row ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        row.forEach { label ->
+                        row.forEach { (type, label) ->
                             Button(
-                                onClick = {},
-                                enabled = false,
+                                onClick = { onReport(type) },
+                                enabled = status != ExternalActionStatus.Working,
                                 modifier = Modifier.weight(1f),
                                 shape = GlassShapes.Pill,
                             ) {
