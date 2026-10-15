@@ -6,13 +6,16 @@ import android.content.ContextWrapper
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.util.Log
+import android.view.Surface
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.Camera
 import com.google.ar.core.Config
+import com.google.ar.core.Coordinates2d
 import com.google.ar.core.Earth
+import com.google.ar.core.Frame
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingFailureReason
 import com.google.ar.core.TrackingState
@@ -301,6 +304,7 @@ class ArCoreSpatialLocalization(
         } catch (e: CameraNotAvailableException) {
             Log.w(TAG, "AR camera unavailable", e)
             _events.tryEmit(SpatialLocalizationState.Failed(SpatialFailure.CameraUnavailable))
+            return null
         } catch (t: Throwable) {
             // Anything else ARCore throws must degrade Live, never crash it.
             Log.w(TAG, "ARCore session creation failed", t)
@@ -337,13 +341,17 @@ class ArCoreSpatialLocalization(
      * Called once per rendered frame by [CameraBackgroundRenderer]. ARCore is only pumped from the GL
      * thread so `update()` can never be called concurrently with itself.
      */
-    internal fun onDrawFrame() {
-        val activeSession = session ?: return
-        if (boundOwner?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true) return
+    internal fun onDrawFrame(): Frame? {
+        val activeSession = session ?: return null
+        if (boundOwner?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true) return null
         try {
             val view = surfaceView
             if (view != null && view.width > 0 && view.height > 0) {
-                activeSession.setDisplayGeometry(0, view.width, view.height)
+                // ARCore needs the device/display rotation that corresponds to this surface.
+                // Hard-coding ROTATION_0 makes portrait camera frames appear 90 degrees sideways
+                // on devices whose camera sensor is landscape-native (confirmed on Samsung Ultra).
+                val displayRotation = view.display?.rotation ?: Surface.ROTATION_0
+                activeSession.setDisplayGeometry(displayRotation, view.width, view.height)
             }
             val frame = activeSession.update()
             // Publish the camera's world transform before anything can ask for it: anchors and arrows
@@ -362,12 +370,14 @@ class ArCoreSpatialLocalization(
                 )
             }
             _events.tryEmit(toState(frame.camera, activeSession.earth))
+            return frame
         } catch (e: CameraNotAvailableException) {
             Log.w(TAG, "ARCore lost the camera", e)
             _events.tryEmit(SpatialLocalizationState.Failed(SpatialFailure.CameraUnavailable))
         } catch (t: Throwable) {
             Log.w(TAG, "ARCore frame failed", t)
             _events.tryEmit(SpatialLocalizationState.Failed(SpatialFailure.ArCoreError))
+            return null
         }
     }
 
@@ -517,7 +527,10 @@ class ArCoreSpatialLocalization(
             GLES20.glClearColor(0f, 0f, 0f, 1f)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
             // Pump ARCore first so the texture below already holds this frame.
-            onDrawFrame()
+            val frame = this@ArCoreSpatialLocalization.onDrawFrame()
+            if (frame != null) {
+                updateCameraTextureCoordinates(frame)
+            }
             drawCameraBackground()
             // Overlays (Phase 7 anchors / Phase 8 arrows) draw on top of the camera, after it, so
             // they are always composited over a complete frame.
@@ -526,6 +539,23 @@ class ArCoreSpatialLocalization(
                 renderer.drawFrame(overlayAlpha)
                 GLES20.glDisable(GLES20.GL_BLEND)
             }
+        }
+
+        /**
+         * ARCore owns the camera image orientation/crop. The UVs must be transformed for the
+         * current display geometry instead of assuming a fixed landscape sensor orientation.
+         * This keeps the preview upright in portrait and also correct when the device rotates.
+         */
+        private fun updateCameraTextureCoordinates(frame: Frame) {
+            positionBuffer.position(0)
+            texCoordBuffer.position(0)
+            frame.transformCoordinates2d(
+                Coordinates2d.OPENGL_NORMALIZED_DEVICE_COORDINATES,
+                positionBuffer,
+                Coordinates2d.TEXTURE_NORMALIZED,
+                texCoordBuffer,
+            )
+            texCoordBuffer.position(0)
         }
 
         private fun drawCameraBackground() {
