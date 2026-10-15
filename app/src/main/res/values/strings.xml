@@ -155,6 +155,26 @@
     <string name="nav_follow_suspended">Tap recenter to resume</string>
     <string name="nav_error_no_location">We need your location to start navigation.</string>
     <string name="nav_error_no_route">This route doesn\'t have turn-by-turn directions yet.</string>
+    <string name="nav_action_report">Report</string>
+    <string name="nav_action_volume">Volume</string>
+    <string name="nav_action_share">Share</string>
+    <string name="nav_action_reroute">Reroute</string>
+    <string name="nav_exit">EXIT</string>
+    <string name="nav_exit_confirm_title">End navigation?</string>
+    <string name="nav_exit_confirm_body">Your active trip will stop and OpenMaps will return to Discover.</string>
+    <string name="nav_exit_continue">Continue trip</string>
+    <string name="nav_exit_end">End navigation</string>
+    <string name="nav_report_title">Report road condition</string>
+    <string name="nav_report_unavailable">Community report submission is not connected in this build yet. The report categories are shown here so the driving UI can be tested safely without pretending a report was sent.</string>
+    <string name="nav_report_police">Police</string>
+    <string name="nav_report_traffic">Traffic</string>
+    <string name="nav_report_crash">Crash</string>
+    <string name="nav_report_lane_closed">Lane closed</string>
+    <string name="nav_report_construction">Construction</string>
+    <string name="nav_report_road_hazard">Road hazard</string>
+    <string name="nav_report_flooding">Flooding</string>
+    <string name="nav_report_disabled_vehicle">Disabled vehicle</string>
+    <string name="nav_report_object_road">Object in road</string>
 
     <!-- Contextual places (Phase 9) -->
     <string name="place_navigate_action">Navigate</string>
