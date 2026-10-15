@@ -3,9 +3,11 @@ package com.openmaps.app.feature.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.openmaps.app.core.geocoding.GeocodingException
+import com.openmaps.app.core.geocoding.GeocodingSearchContext
 import com.openmaps.app.core.geocoding.GeocodingRepository
 import com.openmaps.app.core.geocoding.RecentSearchStore
 import com.openmaps.app.core.geocoding.SearchResult
+import com.openmaps.app.core.location.UserLocation
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +33,22 @@ class SearchViewModel(
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
     private var searchJob: Job? = null
+    private var searchContext = GeocodingSearchContext()
+
+    /**
+     * Keeps search globally available while biasing ambiguous queries toward the driver's current
+     * position. A missing fix simply means unbiased worldwide search.
+     */
+    fun onLocationBiasChanged(location: UserLocation?) {
+        searchContext = if (location == null) {
+            GeocodingSearchContext()
+        } else {
+            GeocodingSearchContext(
+                latitude = location.latitude,
+                longitude = location.longitude,
+            )
+        }
+    }
 
     fun onQueryChanged(query: String) {
         // A voice search (or any programmatic text change) lands here, so the one search path stays
@@ -47,7 +65,7 @@ class SearchViewModel(
         _uiState.update { it.copy(isSearching = true, error = null) }
         searchJob = viewModelScope.launch {
             delay(debounceMillis)
-            geocodingRepository.search(trimmed)
+            geocodingRepository.search(trimmed, searchContext)
                 .onSuccess { results ->
                     _uiState.update { it.copy(results = results, isSearching = false, error = null) }
                 }
