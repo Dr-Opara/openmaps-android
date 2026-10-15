@@ -97,8 +97,9 @@ fun MapScreen(
             MapUnavailableOverlay(onRetry = viewModel::onRetryMap, modifier = Modifier.fillMaxSize())
         }
 
-        // Mockup Search/Explore: branding left, Map/Live toggle right, then the search field and
-        // the dark category chips directly beneath it.
+        // Map-first home: branding left, Map/Live toggle right, then one dominant destination search
+        // field. Nearby categories live in the bottom Explore sheet instead of permanently covering
+        // the map.
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -127,8 +128,7 @@ fun MapScreen(
                 !state.isExploreOpen &&
                 state.selectedPlace == null
             // Navigation replaces the search affordance for the duration of a trip: the banner is
-            // the driver's primary instruction, and search is a trip-ending action anyway. The
-            // category toggles go with it — Live/active-trip chrome should not grow, not shrink.
+            // the driver's primary instruction, and search is a trip-ending action anyway.
             if (!state.isNavigating) {
                 if (isRoutePreview) {
                     RouteEndpointFields(
@@ -142,12 +142,6 @@ fun MapScreen(
                     MapSearchBar(
                         onSearchClick = onSearchClick,
                         onVoiceSearchClick = onVoiceSearchClick,
-                    )
-                    PlaceCategoryFilterRow(
-                        selected = state.placeCategoryFilters,
-                        onSelectedChanged = viewModel::onCategoryFilterChanged,
-                        // Mockup's compact four-chip strip; the full taxonomy lives in Explore.
-                        categories = HOME_CHIP_CATEGORIES,
                     )
                 }
             } else {
