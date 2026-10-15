@@ -1,5 +1,6 @@
 package com.openmaps.app.feature.live
 
+import android.media.AudioManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +46,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -60,7 +62,6 @@ import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization
 import com.openmaps.app.feature.map.NavigationState
-import com.openmaps.app.BuildConfig
 import com.openmaps.app.R
 import com.openmaps.app.camera.CameraEngineEvent
 import com.openmaps.app.camera.CameraFailure
@@ -80,11 +81,8 @@ import com.openmaps.app.core.roadintelligence.RoadIntelligenceState
 import com.openmaps.app.core.roadintelligence.SpeedUnit
 import com.openmaps.app.core.roadintelligence.RouteAlert
 import com.openmaps.app.core.routing.ManeuverType
-import com.openmaps.app.core.spatial.LimitedReason
 import com.openmaps.app.core.spatial.LiveLocalizationStatus
 import com.openmaps.app.core.spatial.LiveLocalizationStatusMapper
-import com.openmaps.app.core.spatial.LocalizationQuality
-import com.openmaps.app.core.spatial.SpatialFailure
 import com.openmaps.app.core.spatial.SpatialLocalizationState
 import com.openmaps.app.feature.map.ArrivalTimeFormatter
 import com.openmaps.app.feature.map.MapModeToggle
@@ -254,7 +252,7 @@ fun LiveScreen(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .statusBarsPadding()
-                        .padding(top = 12.dp, start = 16.dp, end = 16.dp),
+                        .padding(top = 72.dp, start = 16.dp, end = 16.dp),
                 )
                 // The mockup stacks a compact "Then" pill directly beneath the maneuver card.
                 hud.nextInstruction?.let { then ->
@@ -264,7 +262,7 @@ fun LiveScreen(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .statusBarsPadding()
-                            .padding(top = 112.dp, start = 16.dp, end = 16.dp),
+                            .padding(top = 172.dp, start = 16.dp, end = 16.dp),
                     )
                 }
             }
@@ -274,7 +272,7 @@ fun LiveScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
-                    .padding(top = 12.dp, start = 16.dp, end = 16.dp),
+                    .padding(top = 72.dp, start = 16.dp, end = 16.dp),
             )
 
             is LiveHudState.OffRoute -> LiveStatusHud(
@@ -282,7 +280,7 @@ fun LiveScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
-                    .padding(top = 12.dp, start = 16.dp, end = 16.dp),
+                    .padding(top = 72.dp, start = 16.dp, end = 16.dp),
             )
 
             is LiveHudState.Arrived -> {
@@ -308,15 +306,13 @@ fun LiveScreen(
         val summaryHud = hudState
         val summaryBottomPadding = if (summaryHud is LiveHudState.Maneuver) 40.dp else 120.dp
         if (summaryHud is LiveHudState.Maneuver) {
-            Column(
+            LiveTripSummary(
+                hud = summaryHud,
+                onStopNavigation = onStopNavigation,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(start = 16.dp, end = 16.dp, bottom = summaryBottomPadding),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                LiveTripSummary(hud = summaryHud)
-                LiveEndNavigationButton(onStopNavigation = onStopNavigation)
-            }
+            )
         }
 
         // Localization status (Phase 6). Collected here (not passed down) so the Live HUD does not
@@ -332,7 +328,7 @@ fun LiveScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
-                    .padding(top = if (isNavigating) 166.dp else 96.dp, start = 16.dp, end = 16.dp),
+                    .padding(top = if (isNavigating) 226.dp else 96.dp, start = 16.dp, end = 16.dp),
             )
         }
 
@@ -343,7 +339,7 @@ fun LiveScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(top = if (isNavigating) 214.dp else 230.dp, start = 16.dp, end = 16.dp),
+                .padding(top = if (isNavigating) 270.dp else 230.dp, start = 16.dp, end = 16.dp),
         )
 
         // Mockup: current speed + posted limit, lower-left, above the trip card (and, while
@@ -353,24 +349,9 @@ fun LiveScreen(
             speedLimitAlert = roadIntelligenceState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull(),
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 16.dp, bottom = summaryBottomPadding + 156.dp),
+                .padding(start = 16.dp, bottom = summaryBottomPadding + 132.dp),
         )
 
-        if (BuildConfig.DEBUG) {
-            LocalDebugOverlay(
-                state = spatialState,
-                previewProvider = previewProvider,
-                lastFailure = viewModel.lastSpatialFailure,
-                anchorManager = viewModel.routeAnchorManager,
-                arrowPipeline = viewModel.arrowPipeline,
-                // Debug-only, but it still must not collide with the real bottom stack (trip card +
-                // End Navigation button while navigating) — cleared by the same offset the speed
-                // block uses, since both sit above that same stack.
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 8.dp, bottom = if (isNavigating) summaryBottomPadding + 156.dp else 8.dp),
-            )
-        }
     }
 }
 
@@ -524,126 +505,6 @@ private fun LiveCompactPill(text: String, background: Color, foreground: Color, 
             .background(background)
             .padding(horizontal = 12.dp, vertical = 6.dp),
     )
-}
-
-/**
- * Debug-build-only AR diagnostics: section A1's compact exact-stopping-point label (never a bare
- * "AR: Idle"), which [PreviewProvider] is actually active, accuracy values, and the anchor/arrow
- * pipeline counters (sections A7/A8) that already existed on [RouteAnchorManager]/[ARArrowPipeline]
- * but were never surfaced anywhere. Stripped from release builds by the `if (BuildConfig.DEBUG)`
- * guard at the call site.
- *
- * The anchor/arrow counters are plain mutable fields on their owners, not a `Flow` — reading them
- * here is "best effort, as of this composition", which in practice tracks closely because `state`
- * (this composable's recomposition key) changes on nearly every AR frame while AR is active. A
- * fully reactive instrumentation channel would be more than a debug overlay warrants.
- */
-@Composable
-private fun LocalDebugOverlay(
-    state: SpatialLocalizationState,
-    previewProvider: PreviewProvider,
-    /** See [LiveViewModel.lastSpatialFailure] — the reason a mid-session fallback happened, which
-     * [state] alone can no longer show once the engine has been stopped back to `Idle`. */
-    lastFailure: SpatialLocalizationState?,
-    anchorManager: RouteAnchorManager?,
-    arrowPipeline: ARArrowPipeline,
-    modifier: Modifier = Modifier,
-) {
-    val pose = (state as? SpatialLocalizationState.Tracking)?.pose
-    // Prefer the preserved failure reason only when the live state has nothing more specific to
-    // say (a fresh `Idle` after `stop()`) — any other state (including a *new* attempt already in
-    // progress) is shown as-is, never masked by a stale failure from a previous attempt.
-    val showFallbackReason = state == SpatialLocalizationState.Idle &&
-        previewProvider == PreviewProvider.CameraX &&
-        lastFailure != null
-    Column(
-        modifier = modifier
-            .clip(MaterialTheme.shapes.small)
-            .background(OpenMapsColors.Navy950.copy(alpha = 0.75f))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.End,
-    ) {
-        Text(
-            text = "Camera: ${previewProvider.name}",
-            style = MaterialTheme.typography.labelSmall,
-            color = OpenMapsColors.TextSecondary,
-        )
-        Text(
-            text = if (showFallbackReason) {
-                "${arStateLabel(lastFailure!!)} (fell back)"
-            } else {
-                arStateLabel(state)
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = OpenMapsColors.Cyan,
-        )
-        if (pose != null) {
-            Text(
-                text = "hAcc=${pose.horizontalAccuracyMeters?.let { "%.1f".format(it) } ?: "-"}m " +
-                    "vAcc=${pose.verticalAccuracyMeters?.let { "%.1f".format(it) } ?: "-"}m " +
-                    "hdgAcc=${pose.headingAccuracyDegrees?.let { "%.0f".format(it) } ?: "-"}°",
-                style = MaterialTheme.typography.labelSmall,
-                color = OpenMapsColors.TextSecondary,
-            )
-            Text(
-                text = "%.5f,%.5f hdg=%.0f°".format(pose.latitude, pose.longitude, pose.headingDegrees),
-                style = MaterialTheme.typography.labelSmall,
-                color = OpenMapsColors.TextSecondary,
-            )
-        }
-        if (previewProvider == PreviewProvider.Spatial) {
-            if (anchorManager != null) {
-                Text(
-                    text = "Anchors: active=${anchorManager.size} created=${anchorManager.createdCount} " +
-                        "detached=${anchorManager.detachedCount}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OpenMapsColors.TextSecondary,
-                )
-            }
-            val degraded = arrowPipeline.degradedReason
-            Text(
-                text = "Arrows: sampled=${arrowPipeline.sampledCount()} visible=${arrowPipeline.arrowCount()} " +
-                    (if (arrowPipeline.usingAnchors) "anchored" else "fallback${degraded?.let { " ($it)" } ?: ""}"),
-                style = MaterialTheme.typography.labelSmall,
-                color = OpenMapsColors.TextSecondary,
-            )
-        }
-    }
-}
-
-/**
- * Section A1's compact "exact stopping point" label — never collapses to a bare "AR: Idle".
- * `Idle` only ever means the engine was genuinely never started (Live closed, or stuck on the
- * CameraX provider — see "Camera: CameraX" above, which is what actually explains that case).
- */
-private fun arStateLabel(state: SpatialLocalizationState): String = when (state) {
-    SpatialLocalizationState.Idle -> "AR: Idle (not started)"
-    SpatialLocalizationState.Unsupported -> "AR: Unsupported device"
-    is SpatialLocalizationState.NotInstalled -> "AR: ARCore install/update needed"
-    SpatialLocalizationState.PermissionRequired -> "AR: Camera permission required"
-    SpatialLocalizationState.Initializing -> "AR: Initializing"
-    is SpatialLocalizationState.Limited -> when (state.reason) {
-        LimitedReason.Initializing -> "AR: Initializing"
-        LimitedReason.InsufficientFeatures -> "AR: Low accuracy (insufficient features)"
-        LimitedReason.ExcessiveMotion -> "AR: Low accuracy (excessive motion)"
-        LimitedReason.PoorGeolocation -> "AR: Waiting for location"
-        LimitedReason.WaitingForEarth -> "AR: Waiting for Earth"
-        LimitedReason.EarthPaused -> "AR: Earth paused"
-    }
-    is SpatialLocalizationState.Failed -> when (state.reason) {
-        SpatialFailure.SessionCreationFailed -> "AR: Session creation failed"
-        SpatialFailure.ArCoreError -> "AR: ARCore error"
-        SpatialFailure.EarthUnavailable -> "AR: Earth unavailable (not authorized)"
-        SpatialFailure.GeospatialDisabled -> "AR: Geospatial disabled"
-        SpatialFailure.GeospatialUnsupported -> "AR: Geospatial unsupported on this device"
-        SpatialFailure.CameraUnavailable -> "AR: Camera unavailable"
-    }
-    is SpatialLocalizationState.Tracking -> when {
-        state.pose == null -> "AR: Tracking (no pose yet)"
-        state.pose.isAnchorable -> "AR: Anchorable"
-        state.pose.quality == LocalizationQuality.Fair -> "AR: Tracking (fair)"
-        else -> "AR: Low accuracy"
-    }
 }
 
 /**
@@ -1011,7 +872,6 @@ private fun LiveTopBar(
     voiceEnabled: Boolean = true,
     onVoiceMuteToggled: () -> Unit = {},
 ) {
-    if (isNavigating) return
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1033,7 +893,7 @@ private fun LiveTopBar(
                     tint = OpenMapsColors.TextOnDark,
                 )
             }
-            MapModeToggle(selected = MapMode.Live, onSelected = onModeSelected)
+            MapModeToggle(selected = MapMode.Live, onSelected = onModeSelected, transparent = true)
         }
     }
 }
@@ -1056,42 +916,71 @@ private fun LiveSideControls(
     voiceEnabled: Boolean = true,
     onVoiceMuteToggled: () -> Unit = {},
 ) {
+    val context = LocalContext.current
+    val audioManager = remember(context) { context.getSystemService(AudioManager::class.java) }
+
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        IconButton(
-            onClick = onVoiceMuteToggled,
-            modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White),
+        Row(
+            modifier = Modifier
+                .clip(GlassShapes.Pill)
+                .background(OpenMapsColors.Navy950.copy(alpha = 0.46f))
+                .padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                painter = painterResource(if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off),
-                contentDescription = stringResource(if (voiceEnabled) R.string.live_voice_on else R.string.live_voice_off),
-                tint = OpenMapsColors.Navy900,
-            )
+            IconButton(
+                onClick = { audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0) },
+                modifier = Modifier.size(38.dp),
+            ) {
+                Text("−", style = MaterialTheme.typography.titleLarge, color = Color.White)
+            }
+            IconButton(
+                onClick = onVoiceMuteToggled,
+                modifier = Modifier.size(38.dp),
+            ) {
+                Icon(
+                    painter = painterResource(if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off),
+                    contentDescription = stringResource(if (voiceEnabled) R.string.live_voice_on else R.string.live_voice_off),
+                    tint = Color.White,
+                )
+            }
+            IconButton(
+                onClick = { audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0) },
+                modifier = Modifier.size(38.dp),
+            ) {
+                Text("+", style = MaterialTheme.typography.titleLarge, color = Color.White)
+            }
         }
+
         Box(
-            modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White),
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(OpenMapsColors.Navy950.copy(alpha = 0.46f)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_warning),
                 contentDescription = null,
-                tint = if (hasActiveHazard) Color(0xFFE03131) else OpenMapsColors.TextSecondary,
+                tint = if (hasActiveHazard) Color(0xFFFF6B6B) else Color.White.copy(alpha = 0.82f),
                 modifier = Modifier.size(22.dp),
             )
         }
-        // A direct way back to Map, always one tap — drawn as the mockup's map glyph rather than a
-        // close "X".
+
         IconButton(
             onClick = onBackToMap,
-            modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White),
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(OpenMapsColors.Navy950.copy(alpha = 0.46f)),
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_map),
                 contentDescription = stringResource(R.string.cd_back_to_map),
-                tint = OpenMapsColors.ElectricBlueFilled,
+                tint = Color.White,
             )
         }
     }
@@ -1114,7 +1003,7 @@ private fun VoiceToggle(
         modifier = modifier
             .size(44.dp)
             .clip(CircleShape)
-            .background(OpenMapsColors.Navy950.copy(alpha = 0.72f)),
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.58f)),
     ) {
         Icon(
             painter = painterResource(if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off),
@@ -1136,7 +1025,7 @@ private fun LiveManeuverHud(hud: LiveHudState.Maneuver, modifier: Modifier = Mod
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Navy950.copy(alpha = 0.72f))
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.58f))
             .padding(horizontal = 18.dp, vertical = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1184,7 +1073,7 @@ private fun LiveNextManeuverHud(
     Row(
         modifier = modifier
             .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Navy950.copy(alpha = 0.72f))
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.58f))
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1227,7 +1116,7 @@ private fun LiveStatusHud(title: String, modifier: Modifier = Modifier) {
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Navy950.copy(alpha = 0.72f))
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.58f))
             .padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1248,13 +1137,13 @@ private fun LiveStatusHud(title: String, modifier: Modifier = Modifier) {
  * read at render time rather than stored, so it stays correct without becoming a second estimate.
  */
 @Composable
-private fun LiveTripSummary(hud: LiveHudState.Maneuver, modifier: Modifier = Modifier) {
+private fun LiveTripSummary(hud: LiveHudState.Maneuver, onStopNavigation: () -> Unit, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Surface)
-            .padding(horizontal = 12.dp, vertical = 14.dp),
+            .background(OpenMapsColors.Surface.copy(alpha = 0.90f))
+            .padding(horizontal = 12.dp, vertical = 12.dp),
     ) {
         hud.destinationName?.let { name ->
             Text(
@@ -1285,6 +1174,25 @@ private fun LiveTripSummary(hud: LiveHudState.Maneuver, modifier: Modifier = Mod
                 modifier = Modifier.weight(1f),
             )
         }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(onClick = onStopNavigation) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = null,
+                    tint = OpenMapsColors.TextSecondary,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = stringResource(R.string.nav_stop),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = OpenMapsColors.TextSecondary,
+                )
+            }
+        }
     }
 }
 
@@ -1299,36 +1207,6 @@ private fun LiveTripStatColumn(value: String, label: String, modifier: Modifier 
 @Composable
 private fun LiveTripStatDivider() {
     Box(Modifier.width(1.dp).height(32.dp).background(OpenMapsColors.SurfaceBorder))
-}
-
-/**
- * The mockup's full-width red "End Navigation" button beneath the trip card.
- *
- * Wired to the same [MapViewModel.stopNavigation] the Map screen's "End" control already calls —
- * not a second trip-ending code path, just a second place to reach the existing one, per the
- * brief's "no second navigation state machine".
- */
-@Composable
-private fun LiveEndNavigationButton(onStopNavigation: () -> Unit, modifier: Modifier = Modifier) {
-    Button(
-        onClick = onStopNavigation,
-        shape = GlassShapes.Pill,
-        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE03131), contentColor = Color.White),
-        modifier = modifier.fillMaxWidth().heightIn(min = 52.dp),
-    ) {
-        Icon(
-            Icons.Filled.Close,
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = stringResource(R.string.live_end_navigation),
-            style = MaterialTheme.typography.labelLarge,
-            color = Color.White,
-        )
-    }
 }
 
 @Composable
