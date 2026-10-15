@@ -40,6 +40,8 @@ fun MapScreen(
     viewModel: MapViewModel,
     styleProvider: MapStyleProvider,
     onSearchClick: () -> Unit,
+    /** Opens the search screen straight into voice mode. Null hides the mic rather than showing a dead icon. */
+    onVoiceSearchClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -93,13 +95,14 @@ fun MapScreen(
             MapUnavailableOverlay(onRetry = viewModel::onRetryMap, modifier = Modifier.fillMaxSize())
         }
 
-        // Top: subtle brand + Map/Live toggle, then the search field.
+        // Mockup Search/Explore: branding left, Map/Live toggle right, then the search field and
+        // the dark category chips directly beneath it.
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -107,17 +110,39 @@ fun MapScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 OpenMapsWordmark(Modifier.padding(start = 4.dp))
-                MapModeToggle(selected = state.selectedMapMode, onSelected = viewModel::onModeSelected)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    MapModeToggle(selected = state.selectedMapMode, onSelected = viewModel::onModeSelected)
+                    MapSettingsButton(onClick = onSettingsClick)
+                }
             }
+            // Mockup Route Preview (screen 4): the origin/destination fields and travel-mode row
+            // live at the TOP, replacing the generic search bar — the bottom card then holds only
+            // the summary and Start/Steps. True exactly when BottomPanel's own "preview" branch is
+            // what is rendering at the bottom (not Destination Details/Steps/Explore).
+            val isRoutePreview = state.selectedDestination != null &&
+                !state.isShowingAnyDestinationDetails &&
+                !state.isShowingSteps &&
+                !state.isExploreOpen &&
+                state.selectedPlace == null
             // Navigation replaces the search affordance for the duration of a trip: the banner is
             // the driver's primary instruction, and search is a trip-ending action anyway. The
             // category toggles go with it — Live/active-trip chrome should not grow, not shrink.
             if (!state.isNavigating) {
-                MapSearchBar(onSearchClick = onSearchClick, onSettingsClick = onSettingsClick)
-                PlaceCategoryFilterRow(
-                    selected = state.placeCategoryFilters,
-                    onSelectedChanged = viewModel::onCategoryFilterChanged,
-                )
+                if (isRoutePreview) {
+                    RouteEndpointFields(destination = state.selectedDestination)
+                    RouteModeRow(routeState = state.routeState)
+                } else {
+                    MapSearchBar(
+                        onSearchClick = onSearchClick,
+                        onVoiceSearchClick = onVoiceSearchClick,
+                    )
+                    PlaceCategoryFilterRow(
+                        selected = state.placeCategoryFilters,
+                        onSelectedChanged = viewModel::onCategoryFilterChanged,
+                        // Mockup's compact four-chip strip; the full taxonomy lives in Explore.
+                        categories = HOME_CHIP_CATEGORIES,
+                    )
+                }
             } else {
                 NavigationBanner(
                     navigationState = state.navigationState,
@@ -148,7 +173,13 @@ fun MapScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 CompassButton(bearing = viewModel.compassBearing, onClick = viewModel::onCompassClicked)
+                // Mockup stacks the two circular map controls: white recenter above the filled blue
+                // navigation action.
                 RecenterButton(hasLocation = state.currentLocation != null, onClick = viewModel::onRecenterClicked)
+                NavigationActionButton(
+                    onClick = viewModel::onNavigationActionClicked,
+                    modifier = Modifier.align(Alignment.End),
+                )
             }
             state.locationPrompt?.let { prompt ->
                 LocationPromptCard(
@@ -160,37 +191,72 @@ fun MapScreen(
             }
             val selectedPlace = state.selectedPlace
             when {
+                // Mockup Route Preview: the "Steps" maneuver list takes over the panel region,
+                // layered above the route summary it belongs to.
+                state.isShowingSteps && state.stepsRouteSummary != null -> RouteStepsSheet(
+                    maneuvers = state.stepsRouteSummary?.maneuvers.orEmpty(),
+                    onDismiss = viewModel::onStepsDismissed,
+                )
+
                 // Place details take over the panel region rather than stacking beside it — a
                 // compact presentation, not a second destination summary competing for attention.
                 selectedPlace != null -> PlaceDetailsSheet(
                     place = selectedPlace,
-                    onNavigate = { viewModel.onNavigateToPlace(selectedPlace) },
+                    nearbyPlaces = state.visiblePlaces,
+                    onDirections = { viewModel.onDirectionsRequestedForPlace(selectedPlace) },
+                    onStart = { viewModel.onStartFromPlace(selectedPlace) },
+                    onSelectNearbyPlace = viewModel::onPlaceSelected,
                     onDismiss = viewModel::onPlaceDetailsDismissed,
                 )
 
                 // Part A2/A3: a destination was picked but Directions has not been tapped yet.
-                state.isShowingDestinationDetails -> state.selectedDestination?.let { destination ->
+                // Phase 12A, section D: or the user tapped "Directions" again from Route Preview to
+                // review the destination (isReviewingDirections) — same sheet, but dismissing it
+                // must return to Route Preview rather than clearing the destination/route.
+                state.isShowingAnyDestinationDetails -> state.selectedDestination?.let { destination ->
                     DestinationDetailsSheet(
                         destination = destination,
                         currentLocation = state.currentLocation,
                         onDirections = viewModel::onDirectionsRequested,
-                        onDismiss = viewModel::onDestinationCleared,
+                        // Early Start never skips Route Preview: with no route yet it computes one
+                        // and lands there, where the real Start lives.
+                        onStart = { viewModel.onStartRequestedFromDestination(destination) },
+                        onDismiss = if (state.isReviewingDirections) {
+                            viewModel::onDirectionsReviewDismissed
+                        } else {
+                            viewModel::onDestinationCleared
+                        },
                     )
                 }
+
+                // Phase 12A, section B5: the Explore CTA's bottom sheet. Lower priority than place
+                // details/destination details above, so drilling into a card (Details/Navigate)
+                // naturally takes over this same region instead of fighting it for space.
+                state.isExploreOpen -> NearbyExploreSheet(
+                    placesState = state.placesState,
+                    places = state.visiblePlaces,
+                    selectedCategories = state.placeCategoryFilters,
+                    onCategoriesChanged = viewModel::onCategoryFilterChanged,
+                    hasCurrentLocation = state.currentLocation != null,
+                    onDetails = viewModel::onPlaceSelected,
+                    onNavigate = viewModel::onNavigateToPlace,
+                    onDismiss = viewModel::onExploreDismissed,
+                    onRetry = viewModel::onExploreRetryRequested,
+                )
 
                 else -> {
                     BottomPanel(
                         destination = state.selectedDestination,
                         routeState = state.routeState,
                         onClearDestination = viewModel::onDestinationCleared,
-                    )
-                    NavigationControls(
+                        onExploreClicked = viewModel::onExploreRequested,
+                        onExploreCategoryClicked = viewModel::onExploreCategoryClicked,
+                        onSteps = viewModel::onStepsRequested,
                         canStart = state.canStartNavigation,
                         isNavigating = state.isNavigating,
                         navigationError = (state.navigationState as? NavigationState.Error)?.reason,
                         onStart = viewModel::startNavigation,
                         onStop = viewModel::stopNavigation,
-                        modifier = Modifier.align(Alignment.End),
                     )
                 }
             }

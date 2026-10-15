@@ -12,41 +12,79 @@ import java.net.URL
 import java.net.URLEncoder
 
 /**
- * [PlaceRepository] backed by the public Overpass API (https://overpass-api.de/api/interpreter),
- * which queries OpenStreetMap data directly — free, open, no API key, the same OSM lineage already
- * used for the basemap (OpenFreeMap), geocoding (Nominatim) and routing (Valhalla); see
- * ARCHITECTURE.md "Place data provider".
+ * [PlaceRepository] backed by the public Overpass API, querying OpenStreetMap directly.
  *
- * **Overture Maps was considered and rejected for this phase**: Overture distributes places as
- * cloud-hosted Parquet (S3/Azure blob storage), not a queryable nearby-search HTTP API, so using it
- * from an Android client at request time would mean standing up and operating a server-side tile
- * index — real infrastructure, not a Phase 9 decision. Overpass already is a request/response
- * nearby-search API over the same open dataset the rest of the app depends on.
+ * **Development-only.** The public instances have no SLA, a documented soft rate limit, and ask for a
+ * descriptive `User-Agent`. Before production this is replaced by a contracted/self-hosted provider —
+ * `PlaceRepository` is the seam, so only this class changes. See `CompositePlaceRepository` for how
+ * a second provider slots in.
  *
- * **Development-only constraints** (same category as the tile source, Nominatim and Valhalla — see
- * ARCHITECTURE.md): the public instance has no SLA, a documented soft rate limit, and asks for a
- * descriptive `User-Agent` (set below). **Do not ship to the public on it.** Before production,
- * move to a self-hosted Overpass instance (or a contracted places provider) — only this class needs
- * to change; [PlaceRepository] stays the same.
+ * ### Why it is built this way (Phase 12B, from measured failures)
+ *
+ * The first version asked for all 26 OSM selectors in one query. Measured on the public instance
+ * that took **8.3 s**, against a 10 s read timeout, so a phone regularly timed out; under repeated
+ * load the instance began answering **504** and **429** for even small queries. Three changes follow
+ * from those measurements:
+ *
+ *  1. **`nwr` shorthand, and small selector sets.** One clause per selector instead of a `node` plus
+ *     a `way` clause halves the work Overpass has to plan.
+ *  2. **Sticky endpoint health.** Endpoints are not a fixed preference list: whichever one last
+ *     answered successfully is tried first. Measured during this phase, `overpass-api.de` was
+ *     returning 504 while `maps.mail.ru` was returning HTTP 200 with real data — a fixed-order list
+ *     burns ~12 s failing over on *every* request, which is what made the app look permanently
+ *     broken.
+ *  3. **Bounded attempts.** At most one pass over the endpoint list per request. No retry loops, so
+ *     a bad provider is never hammered.
+ *
+ * **No cache here on purpose.** Caching belongs to [CompositePlaceRepository], which owns the cache
+ * and reports provenance. A second cache inside this class would make "did this come from the
+ * network?" unanswerable, which is exactly the honesty problem Phase 12B set out to fix.
  */
 class OverpassPlaceRepository(
     private val userAgent: String,
-    private val baseUrl: String = "https://overpass-api.de/api/interpreter",
-    private val cache: PlaceCache = PlaceCache(),
+    endpoints: List<String> = DEFAULT_ENDPOINTS,
+    private val attemptTimeoutMillis: Int = ATTEMPT_TIMEOUT_MILLIS,
 ) : PlaceRepository {
+
+    /** Endpoints in initial preference order. */
+    private val endpoints: List<String> = endpoints.ifEmpty { DEFAULT_ENDPOINTS }
+
+    /**
+     * The endpoint that last answered successfully, or null. Persisted for the repository's lifetime
+     * (per app process) so a session learns which mirror is currently healthy.
+     */
+    @Volatile
+    private var preferredEndpoint: String? = null
 
     override suspend fun nearbyPlaces(
         center: Coordinate,
         radiusMeters: Double,
         categories: Set<PlaceCategory>,
-    ): Result<List<Place>> = fetchCached(center, radiusMeters.coerceAtMost(MAX_NEARBY_RADIUS_METERS), categories)
+    ): Result<PlaceQueryResult> = withContext(Dispatchers.IO) {
+        // Empty request is a real, successful empty answer — never a failure.
+        if (categories.isEmpty()) {
+            return@withContext Result.success(PlaceQueryResult(emptyList(), PlaceSource.Empty))
+        }
+        val selectors = PlaceCategoryMapper.overpassSelectors(categories)
+        if (selectors.isEmpty()) {
+            return@withContext Result.success(PlaceQueryResult(emptyList(), PlaceSource.Empty))
+        }
+        val radius = radiusMeters.coerceIn(MIN_NEARBY_RADIUS_METERS, MAX_NEARBY_RADIUS_METERS)
 
-    /**
-     * Queries once over the route's bounding box (plus [corridorMeters] of margin, capped at
-     * [MAX_ROUTE_RADIUS_METERS]) and filters client-side to the actual corridor via
-     * [RouteCorridor.filterToCorridor] — a corridor **approximation**, not per-segment detour
-     * routing, which ROADMAP.md explicitly accepts for Phase 9.
-     */
+        // One small request per chunk. Small selector sets are what the public instance can actually
+        // answer; a failed chunk fails the request rather than silently returning a partial list that
+        // would read as "there is nothing nearby".
+        val collected = ArrayList<Place>()
+        for (chunk in selectors.chunked(SELECTORS_PER_REQUEST)) {
+            val batch = fetchChunk(center, radius, chunk)
+            batch.getOrElse { return@withContext Result.failure(it) }
+            collected += batch.getOrThrow()
+        }
+        // An empty result here is Overpass's genuine answer, not a failure: the area was searched
+        // and had nothing of the requested kind.
+        Result.success(PlaceQueryResult(withDistances(collected.distinctBy { it.id }, center), PlaceSource.Network))
+    }
+
     override suspend fun placesAlongRoute(
         routeGeometry: List<Coordinate>,
         corridorMeters: Double,
@@ -54,53 +92,76 @@ class OverpassPlaceRepository(
     ): Result<List<Place>> {
         if (routeGeometry.size < 2) return Result.success(emptyList())
         val bounds = RouteCorridor.boundingQuery(routeGeometry, corridorMeters, MAX_ROUTE_RADIUS_METERS)
-        return fetchCached(bounds.center, bounds.radiusMeters, categories).map { places ->
-            RouteCorridor.filterToCorridor(places, routeGeometry, corridorMeters)
+        return nearbyPlaces(bounds.center, bounds.radiusMeters, categories).map { result ->
+            RouteCorridor.filterToCorridor(result.places, routeGeometry, corridorMeters)
                 .sortedBy { it.routeDetourMeters ?: Double.MAX_VALUE }
                 .take(MAX_RESULTS)
         }
     }
 
-    private suspend fun fetchCached(
+    /**
+     * One chunk against the endpoint list, best-first, at most one pass.
+     *
+     * Only availability failures (timeout / 5xx / rate limit) advance to the next endpoint — a
+     * malformed body will be malformed everywhere, so retrying it only burns the user's time.
+     */
+    private fun fetchChunk(
         center: Coordinate,
         radiusMeters: Double,
-        categories: Set<PlaceCategory>,
-    ): Result<List<Place>> = withContext(Dispatchers.IO) {
-        if (categories.isEmpty()) return@withContext Result.success(emptyList())
-        cache.get(center, radiusMeters, categories)?.let { return@withContext Result.success(it) }
-        try {
-            val places = fetch(center, radiusMeters, categories)
-            cache.put(center, radiusMeters, categories, places)
-            Result.success(places)
-        } catch (e: CancellationException) {
-            throw e // Never swallow cancellation: a superseded fetch must drop cleanly.
-        } catch (e: PlaceException) {
-            Result.failure(e)
-        } catch (e: SocketTimeoutException) {
-            Result.failure(PlaceException.Timeout)
-        } catch (e: JSONException) {
-            Result.failure(PlaceException.Malformed)
-        } catch (e: IOException) {
-            Result.failure(PlaceException.NoNetwork)
+        selectors: List<String>,
+    ): Result<List<Place>> {
+        var last: PlaceException = PlaceException.NoNetwork
+        for (endpoint in endpointOrder()) {
+            val attempt = runCatching { fetchOnce(endpoint, center, radiusMeters, selectors) }
+            attempt.fold(
+                onSuccess = { places ->
+                    preferredEndpoint = endpoint
+                    return Result.success(places)
+                },
+                onFailure = { error ->
+                    last = when (error) {
+                        is PlaceException -> error
+                        is SocketTimeoutException -> PlaceException.Timeout
+                        is JSONException -> PlaceException.Malformed
+                        else -> PlaceException.NoNetwork
+                    }
+                    // Endpoint-independent: stop rather than repeating a bad parse on every mirror.
+                    if (last === PlaceException.Malformed) return Result.failure(last)
+                },
+            )
         }
+        return Result.failure(last)
     }
 
-    private fun fetch(center: Coordinate, radiusMeters: Double, categories: Set<PlaceCategory>): List<Place> {
-        val connection = URL(baseUrl).openConnection() as HttpURLConnection
+    /** Sticky-healthy endpoint first, then the rest in configured order, without duplicates. */
+    private fun endpointOrder(): List<String> {
+        val preferred = preferredEndpoint ?: return endpoints
+        return listOf(preferred) + endpoints.filter { it != preferred }
+    }
+
+    private fun fetchOnce(
+        endpoint: String,
+        center: Coordinate,
+        radiusMeters: Double,
+        selectors: List<String>,
+    ): List<Place> {
+        val connection = URL(endpoint).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
-        connection.connectTimeout = TIMEOUT_MILLIS
-        connection.readTimeout = TIMEOUT_MILLIS
+        connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+        connection.readTimeout = attemptTimeoutMillis
         connection.doOutput = true
         connection.setRequestProperty("User-Agent", userAgent)
         connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
         try {
-            val body = "data=" + URLEncoder.encode(buildQuery(center, radiusMeters, categories), "UTF-8")
+            val body = "data=" + URLEncoder.encode(buildQuery(center, radiusMeters, selectors), "UTF-8")
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             return when (val code = connection.responseCode) {
                 HttpURLConnection.HTTP_OK -> {
                     val responseBody = connection.inputStream.bufferedReader().use { it.readText() }
-                    withDistances(OverpassResponseParser.parse(responseBody), center)
+                    OverpassResponseParser.parse(responseBody)
                 }
+                // 429 = rate limited, 504 = gateway timeout. Both mean "this mirror is busy right now",
+                // which is exactly the case another mirror is there for.
                 429, 504 -> throw PlaceException.RateLimited
                 else -> throw PlaceException.Server(code)
             }
@@ -109,35 +170,72 @@ class OverpassPlaceRepository(
         }
     }
 
-    /** Stamps straight-line [Place.distanceMeters] from [center] and caps the result count. */
+    /**
+     * Builds one Overpass QL query.
+     *
+     * `nwr` matches nodes, ways and relations in a **single** clause per selector, where the previous
+     * `node` + `way` pair doubled the clause count for no extra coverage. `out body center` bounds
+     * the response and supplies a centroid for ways/areas (a car park or hotel is often mapped as a
+     * polygon, not a point).
+     */
+    private fun buildQuery(center: Coordinate, radiusMeters: Double, selectors: List<String>): String {
+        val radius = radiusMeters.toInt().coerceAtLeast(1)
+        val clauses = selectors.joinToString("\n") { selector ->
+            "  nwr$selector(around:$radius,${center.latitude},${center.longitude});"
+        }
+        return "[out:json][timeout:$OVERPASS_TIMEOUT_SECONDS];\n(\n$clauses\n);\nout body center $MAX_ELEMENTS;"
+    }
+
+    /** Stamps straight-line distance from [center] and caps the result count. */
     private fun withDistances(places: List<Place>, center: Coordinate): List<Place> =
         places
             .map { it.copy(distanceMeters = RouteCorridor.metersBetween(center, Coordinate(it.latitude, it.longitude))) }
             .sortedBy { it.distanceMeters }
             .take(MAX_RESULTS)
 
-    /**
-     * Builds an Overpass QL query for every tag selector [categories] maps to, over both nodes and
-     * ways (a way is returned with its centroid via `out center`, since a parking lot or hotel is
-     * often mapped as a way, not a point). `out body center $MAX_ELEMENTS` is the request-side
-     * bound on how many POIs can come back — Phase 9 explicitly must not fetch an unbounded set.
-     */
-    private fun buildQuery(center: Coordinate, radiusMeters: Double, categories: Set<PlaceCategory>): String {
-        val radius = radiusMeters.toInt().coerceAtLeast(1)
-        val selectors = PlaceCategoryMapper.overpassSelectors(categories)
-        val clauses = selectors.joinToString("\n") { selector ->
-            "  node$selector(around:$radius,${center.latitude},${center.longitude});\n" +
-                "  way$selector(around:$radius,${center.latitude},${center.longitude});"
-        }
-        return "[out:json][timeout:$TIMEOUT_SECONDS];\n(\n$clauses\n);\nout body center $MAX_ELEMENTS;"
-    }
+    companion object {
+        /**
+         * Initial preference order, fastest-measured first — and **global-coverage only**.
+         *
+         * Measured during Phase 12B against the real device location in Texas: `overpass.openstreetmap.fr`
+         * is a full-planet instance that answered in **~0.5–1.4 s** with real named data (Love's Travel
+         * Stop, Starbucks, Pizza Bella). `overpass-api.de` is the canonical global instance but slower
+         * (**~10 s**); `maps.mail.ru` is global and healthy but wildly variable (10 s, >30 s, 17 s).
+         *
+         * **`overpass.osm.ch` is deliberately absent.** It is fast (~840 ms) but serves a *regional*
+         * Swiss extract: for a Texas coordinate it answers `HTTP 200` with an *empty* element list.
+         * Because an empty result is a real answer here (see [nearbyPlaces]), a regional mirror would
+         * silently end the chain with a false "nothing nearby" — the exact dishonesty this phase is
+         * about. Every endpoint listed must serve the whole planet.
+         *
+         * The *sticky* health memory — not this order — decides after the first success, because which
+         * mirror is degraded changes day to day.
+         */
+        val DEFAULT_ENDPOINTS = listOf(
+            "https://overpass.openstreetmap.fr/api/interpreter",
+            "https://overpass-api.de/api/interpreter",
+            "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+        )
 
-    private companion object {
-        const val TIMEOUT_MILLIS = 10_000
-        const val TIMEOUT_SECONDS = 15
-        const val MAX_ELEMENTS = 60
-        const val MAX_RESULTS = 60
+        const val CONNECT_TIMEOUT_MILLIS = 10_000
+
+        /**
+         * Per-attempt read budget. Deliberately *shorter* than the previous 25 s: a slow mirror is
+         * worse than no mirror, because it blocks the UI. Failing over promptly and letting the
+         * composite layer fall back to cache beats waiting.
+         */
+        const val ATTEMPT_TIMEOUT_MILLIS = 12_000
+
+        const val OVERPASS_TIMEOUT_SECONDS = 20
+
+        /** Selector-set size per request. Small enough for a busy public instance to answer. */
+        const val SELECTORS_PER_REQUEST = 4
+
+        const val MIN_NEARBY_RADIUS_METERS = 250.0
         const val MAX_NEARBY_RADIUS_METERS = 3_000.0
         const val MAX_ROUTE_RADIUS_METERS = 8_000.0
+
+        private const val MAX_ELEMENTS = 60
+        private const val MAX_RESULTS = 60
     }
 }

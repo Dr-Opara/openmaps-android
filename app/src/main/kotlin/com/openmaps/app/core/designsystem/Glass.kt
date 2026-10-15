@@ -19,11 +19,28 @@ object GlassShapes {
     val Card = RoundedCornerShape(20.dp)
     val Pill = RoundedCornerShape(percent = 50)
     val Circle: Shape = CircleShape
+
+    /** Medium radius used for list rows and inputs inside a card. */
+    val Row = RoundedCornerShape(14.dp)
 }
 
 /**
- * "Translucent glass" surface: very dark navy at high alpha with a hairline border.
- * (True background blur is not possible over a GL map surface, so this stays a tinted panel.)
+ * The primary surface treatment: an opaque white card with a hairline border.
+ *
+ * Replaces the previous dark translucent panel as the default for Map/Search/Details/Preview. The
+ * mockup's cards are solid white on a light map, not glass — true background blur is also impossible
+ * over a GL map surface, so a translucent fill would only muddy the map underneath.
+ */
+fun Modifier.surfaceCard(shape: Shape = GlassShapes.Card): Modifier =
+    this
+        .background(OpenMapsColors.Surface, shape)
+        .border(1.dp, OpenMapsColors.SurfaceBorder, shape)
+        .clip(shape)
+
+/**
+ * Dark fill for controls that sit directly on the map or over the camera feed (category chips,
+ * Live HUD pills, the Live mode toggle). Kept separate from [surfaceCard] so a screen can mix
+ * light cards with dark controls, exactly as the mockup does.
  */
 fun Modifier.glass(shape: Shape = GlassShapes.Card, alpha: Float = 0.86f): Modifier =
     this

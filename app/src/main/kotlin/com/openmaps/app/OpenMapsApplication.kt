@@ -11,6 +11,7 @@ import com.openmaps.app.core.environment.RoadClassRepository
 import com.openmaps.app.core.location.AndroidLocationRepository
 import com.openmaps.app.core.location.LocationPermissionPrefs
 import com.openmaps.app.core.location.LocationRepository
+import com.openmaps.app.core.places.CompositePlaceRepository
 import com.openmaps.app.core.places.OverpassPlaceRepository
 import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.roadintelligence.DefaultRoadIntelligenceRepository
@@ -19,8 +20,11 @@ import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.core.routing.ValhallaRoutingRepository
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
 import com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization
+import com.openmaps.app.core.voice.VoiceGuidanceEngine
+import com.openmaps.app.core.voice.VoiceGuidancePrefs
 import com.openmaps.app.map.BuildConfigMapStyleProvider
 import com.openmaps.app.map.MapStyleProvider
+import com.openmaps.app.voice.AndroidTextToSpeechEngine
 
 /** Minimal manual dependency container (no DI framework needed at this size). */
 class AppContainer(application: Application) {
@@ -36,9 +40,23 @@ class AppContainer(application: Application) {
         userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
     )
 
-    /** Phase 9 contextual places (restaurants, parking, gas, EV charging, ...). See ARCHITECTURE.md. */
-    val placesRepository: PlaceRepository = OverpassPlaceRepository(
-        userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+    /**
+     * Phase 9 contextual places (restaurants, parking, gas, EV charging, ...).
+     *
+     * Phase 12B wraps the Overpass provider in [CompositePlaceRepository] so the chain is
+     * **cache → provider → stale cache → explicit failure**. That is what makes Nearby Places usable
+     * against a provider that is measurably flaky: whichever mirror is currently healthy answers
+     * first, and a total outage degrades to cached data instead of an error screen.
+     *
+     * **Production seam:** when a contracted/self-hosted places provider exists, add it to [providers]
+     * ahead of Overpass — nothing else changes. The UI never learns which provider answered.
+     */
+    val placesRepository: PlaceRepository = CompositePlaceRepository(
+        providers = listOf(
+            OverpassPlaceRepository(
+                userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+            ),
+        ),
     )
 
     /**
@@ -65,6 +83,19 @@ class AppContainer(application: Application) {
      * deliberately deferred to `start()` so nothing touches the camera at app launch.
      */
     val spatialLocalizationEngine: SpatialLocalizationEngine = ArCoreSpatialLocalization(application)
+
+    /** Delta-spec section 24: persisted language/mute preference, no account required. */
+    val voiceGuidancePrefs: VoiceGuidancePrefs = VoiceGuidancePrefs(application)
+
+    /**
+     * Delta-spec section 14. Constructed eagerly (TTS initialization is itself async and harmless
+     * to kick off at app start — unlike ARCore it never touches the camera or needs an Activity),
+     * seeded from the persisted language/mute preference.
+     */
+    val voiceGuidanceEngine: VoiceGuidanceEngine = AndroidTextToSpeechEngine(application).apply {
+        setLanguage(voiceGuidancePrefs.language())
+        setEnabled(voiceGuidancePrefs.isEnabled())
+    }
 }
 
 class OpenMapsApplication : Application() {

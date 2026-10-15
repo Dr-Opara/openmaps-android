@@ -89,6 +89,7 @@ class LiveHudTest {
         assertEquals("primary line is the current maneuver", "Turn left onto 7th Avenue.", hud.instruction)
         assertEquals(ManeuverType.TurnLeft, hud.type)
         assertEquals("following maneuver is secondary", "Turn right onto 5th Avenue.", hud.nextInstruction)
+        assertEquals("the Then card's icon uses the next maneuver's type", ManeuverType.TurnRight, hud.nextManeuverType)
     }
 
     @Test

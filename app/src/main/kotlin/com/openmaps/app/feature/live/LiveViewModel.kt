@@ -17,6 +17,7 @@ import com.openmaps.app.core.spatial.SpatialLocalizationState
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,7 +66,10 @@ class LiveViewModel(
      * Exactly one engine is true here at any moment: ARCore and CameraX both want the rear camera,
      * and the Android camera stack allows only one owner.
      */
-    private val _previewProvider = MutableStateFlow(chooseInitialProvider())
+    /** The camera-free probe result asked once at construction; [maybeUpgradeFromChecking] re-asks it. */
+    private val initialAvailability: SpatialAvailability = spatialEngine.probeAvailability()
+
+    private val _previewProvider = MutableStateFlow(chooseInitialProvider(initialAvailability))
     val previewProvider: StateFlow<PreviewProvider> = _previewProvider.asStateFlow()
 
     /** True when the AR engine owns the camera and renders the preview itself. */
@@ -75,14 +79,44 @@ class LiveViewModel(
      * Camera-free probe, asked once at construction. Anything other than
      * [SpatialAvailability.Supported] means the CameraX fallback is used from the very first frame.
      */
-    private fun chooseInitialProvider(): PreviewProvider =
-        if (spatialEngine.providesPreview &&
-            spatialEngine.probeAvailability() == SpatialAvailability.Supported
-        ) {
+    private fun chooseInitialProvider(availability: SpatialAvailability): PreviewProvider =
+        if (spatialEngine.providesPreview && availability == SpatialAvailability.Supported) {
             PreviewProvider.Spatial
         } else {
             PreviewProvider.CameraX
         }
+
+    init {
+        // `Checking` means ArCoreApk's own availability check had not settled on this very first
+        // probe (`ArCoreApk.Availability.UNKNOWN_*`) — Google's own guidance is to re-query rather
+        // than treat it as permanent. Collapsing it into "use CameraX forever" (the previous
+        // behaviour) is the root cause of AR being permanently stuck at `Idle` on real devices: the
+        // ARCore engine is never started at all when CameraX is chosen (see `startSpatialLocalization`
+        // and `LiveScreen`'s provider-gated composition), so its state flow never emits anything and
+        // the UI shows nothing but the collector's own placeholder forever.
+        //
+        // `Unsupported`/`NotInstalled` are real, terminal answers and are never retried. Bounded to a
+        // short window (~1.5s) that only ever runs before `startSpatialLocalization` has been called
+        // for real (CameraX is still showing its own "Starting camera…" spinner during this window),
+        // so this can never cause a mid-trip camera handoff.
+        if (initialAvailability == SpatialAvailability.Checking && spatialEngine.providesPreview) {
+            viewModelScope.launch { maybeUpgradeFromChecking() }
+        }
+    }
+
+    private suspend fun maybeUpgradeFromChecking() {
+        repeat(PROVIDER_RECHECK_ATTEMPTS) {
+            delay(PROVIDER_RECHECK_DELAY_MILLIS)
+            when (spatialEngine.probeAvailability()) {
+                SpatialAvailability.Supported -> {
+                    _previewProvider.value = PreviewProvider.Spatial
+                    return
+                }
+                SpatialAvailability.Checking -> Unit // keep retrying
+                SpatialAvailability.Unsupported, SpatialAvailability.NotInstalled -> return
+            }
+        }
+    }
 
     private val eventChannel = Channel<LiveUiEvent>(Channel.BUFFERED)
     val events: Flow<LiveUiEvent> = eventChannel.receiveAsFlow()
@@ -130,6 +164,7 @@ class LiveViewModel(
      */
     fun startSpatialLocalization(lifecycleOwner: LifecycleOwner) {
         if (!canStartCamera) return
+        lastSpatialFailure = null
         spatialEngine.start(lifecycleOwner)
         // Watch for AR dying mid-session and hand the camera back to the CameraX fallback. Without
         // this, a session that fails *after* a successful probe leaves Live with no camera at all.
@@ -140,6 +175,13 @@ class LiveViewModel(
                         state is SpatialLocalizationState.Unsupported ||
                         state is SpatialLocalizationState.NotInstalled
                     ) {
+                        // `spatialEngine.stop()` immediately overwrites the engine's own state with
+                        // `Idle` (section A9's "never leave a stale state" behaviour) — which would
+                        // otherwise destroy the exact diagnostic reason the moment the fallback
+                        // happens, the one thing section A1 explicitly asks never to lose. Captured
+                        // here, before `stop()` runs, for the debug overlay to show instead of a bare
+                        // post-fallback "Idle".
+                        lastSpatialFailure = state
                         spatialEngine.stop()
                         _previewProvider.value = PreviewProvider.CameraX
                     }
@@ -147,6 +189,14 @@ class LiveViewModel(
             }
         }
     }
+
+    /**
+     * The last AR failure/unsupported state observed before a mid-session fallback to CameraX, or
+     * null when no real attempt has failed yet. See the comment in [startSpatialLocalization] for
+     * why this must be captured separately from [SpatialLocalizationEngine.state] itself.
+     */
+    var lastSpatialFailure: SpatialLocalizationState? = null
+        private set
 
     /** Stops and releases AR localization. Idempotent. */
     fun stopSpatialLocalization() {
@@ -254,6 +304,10 @@ class LiveViewModel(
     private companion object {
         /** Live must stay visually restrained — "very low" density (ARCHITECTURE.md). */
         const val MAX_LIVE_PLACE_LABELS = 3
+
+        /** Bounded retries for [maybeUpgradeFromChecking] — about 1.5s total at the delay below. */
+        const val PROVIDER_RECHECK_ATTEMPTS = 6
+        const val PROVIDER_RECHECK_DELAY_MILLIS = 250L
     }
 
     private inline fun MutableStateFlow<LiveUiState>.update(transform: (LiveUiState) -> LiveUiState) {

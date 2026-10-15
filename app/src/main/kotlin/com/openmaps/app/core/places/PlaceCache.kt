@@ -3,18 +3,22 @@ package com.openmaps.app.core.places
 import com.openmaps.app.core.routing.Coordinate
 
 /**
- * Lightweight in-memory nearby-places cache (Phase 9). Avoids re-querying the same area for the
- * same category set within [ttlMillis] — no database, no persistence across process death; this is
- * a Phase-sized concern kept Phase-sized, the same reasoning behind
- * [com.openmaps.app.core.geocoding.RecentSearchStore] staying a flat `SharedPreferences` list.
+ * In-memory nearby-places cache.
  *
- * The cache key buckets the center to [bucketDegrees] so two queries a few tens of meters apart —
- * a user drifting slightly, two camera-idle events in a row — hit the same entry instead of each
- * firing a fresh network request. Pure Kotlin and clock-injectable, so it is unit-testable without
- * `System.currentTimeMillis()` wall-clock flakiness.
+ * Keyed on a **location bucket + category set + radius bucket**, so re-tapping the same category, or
+ * drifting a few tens of metres, is a hit rather than a network request.
+ *
+ * Two read modes matter for reliability:
+ *  - [get] — fresh hit only.
+ *  - [getStale] — any un-expired-softly entry, used **only** when every provider has failed, so a
+ *    transient Overpass outage degrades to slightly old data instead of an error screen. The caller
+ *    flags it as stale in the UI; a stale list is never presented as fresh.
+ *
+ * Pure Kotlin and clock-injectable, so all of this is testable without wall-clock flakiness.
  */
 class PlaceCache(
     private val ttlMillis: Long = DEFAULT_TTL_MILLIS,
+    private val staleTtlMillis: Long = DEFAULT_STALE_TTL_MILLIS,
     private val bucketDegrees: Double = DEFAULT_BUCKET_DEGREES,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
@@ -25,26 +29,34 @@ class PlaceCache(
         val radiusBucket: Int,
     )
 
-    private data class Entry(val places: List<Place>, val expiresAtMillis: Long)
+    private data class Entry(val places: List<Place>, val storedAtMillis: Long)
 
     private val entries = mutableMapOf<Key, Entry>()
 
-    /** Cached places for this query, or null when there is no fresh entry (a miss or an expired one). */
+    /** A fresh hit, or null on a miss/expiry. */
     fun get(center: Coordinate, radiusMeters: Double, categories: Set<PlaceCategory>): List<Place>? {
-        val key = keyFor(center, radiusMeters, categories)
-        val entry = entries[key] ?: return null
-        if (now() >= entry.expiresAtMillis) {
-            entries.remove(key)
+        val entry = entries[keyFor(center, radiusMeters, categories)] ?: return null
+        if (now() - entry.storedAtMillis >= ttlMillis) return null
+        return entry.places
+    }
+
+    /**
+     * The most recent entry for this key within the wider stale window, or null. Used as the last
+     * resort when the provider chain has failed outright.
+     */
+    fun getStale(center: Coordinate, radiusMeters: Double, categories: Set<PlaceCategory>): List<Place>? {
+        val entry = entries[keyFor(center, radiusMeters, categories)] ?: return null
+        if (now() - entry.storedAtMillis >= staleTtlMillis) {
+            entries.remove(keyFor(center, radiusMeters, categories))
             return null
         }
         return entry.places
     }
 
     fun put(center: Coordinate, radiusMeters: Double, categories: Set<PlaceCategory>, places: List<Place>) {
-        entries[keyFor(center, radiusMeters, categories)] = Entry(places, now() + ttlMillis)
+        entries[keyFor(center, radiusMeters, categories)] = Entry(places, now())
     }
 
-    /** Drops every entry. Tests only; production code has no reason to flush this by hand. */
     fun clear() = entries.clear()
 
     private fun keyFor(center: Coordinate, radiusMeters: Double, categories: Set<PlaceCategory>): Key = Key(
@@ -54,11 +66,17 @@ class PlaceCache(
         radiusBucket = Math.round(radiusMeters / RADIUS_BUCKET_METERS).toInt(),
     )
 
-    private companion object {
-        /** Long enough to absorb repeated camera-idle/location ticks over the same area. */
-        const val DEFAULT_TTL_MILLIS = 5 * 60 * 1000L
+    internal companion object {
+        /** Fresh window: long enough to absorb repeated location ticks over the same area. */
+        const val DEFAULT_TTL_MILLIS = 10 * 60 * 1000L
 
-        /** ~550 m at mid US latitudes — small enough that the bucket never masks real movement. */
+        /**
+         * Stale window: how long a cached answer may still rescue a total provider outage. Long
+         * enough to cover a bad cell/connection, short enough that "open nearby" is not misleading.
+         */
+        const val DEFAULT_STALE_TTL_MILLIS = 60 * 60 * 1000L
+
+        /** ~550 m at mid US latitudes — small enough that a bucket never masks real movement. */
         const val DEFAULT_BUCKET_DEGREES = 0.005
 
         const val RADIUS_BUCKET_METERS = 250.0

@@ -483,6 +483,12 @@ class MapLibreMapEngine(
         Expression.literal(PlaceCategory.Parking.name), Expression.color(PLACE_COLOR_PARKING),
         Expression.literal(PlaceCategory.Gas.name), Expression.color(PLACE_COLOR_GAS),
         Expression.literal(PlaceCategory.EvCharging.name), Expression.color(PLACE_COLOR_EV),
+        Expression.literal(PlaceCategory.Bank.name), Expression.color(PLACE_COLOR_BANK),
+        Expression.literal(PlaceCategory.Atm.name), Expression.color(PLACE_COLOR_ATM),
+        Expression.literal(PlaceCategory.Convenience.name), Expression.color(PLACE_COLOR_CONVENIENCE),
+        Expression.literal(PlaceCategory.Medical.name), Expression.color(PLACE_COLOR_MEDICAL),
+        Expression.literal(PlaceCategory.Entertainment.name), Expression.color(PLACE_COLOR_ENTERTAINMENT),
+        Expression.literal(PlaceCategory.Shopping.name), Expression.color(PLACE_COLOR_SHOPPING),
         Expression.color(PLACE_COLOR_DEFAULT),
     )
 
@@ -663,14 +669,20 @@ class MapLibreMapEngine(
         const val PLACE_MARKER_RADIUS = 6f
         const val PLACE_MARKER_STROKE_WIDTH = 1.5f
 
-        val PLACE_COLOR_RESTAURANT: Int = Color.parseColor("#FF8A3D")
+        val PLACE_COLOR_RESTAURANT: Int = Color.parseColor("#FFC107")
         val PLACE_COLOR_COFFEE: Int = Color.parseColor("#A9713A")
-        val PLACE_COLOR_HOTEL: Int = Color.parseColor("#9B6BFF")
+        val PLACE_COLOR_HOTEL: Int = Color.parseColor("#E91E8C")
         val PLACE_COLOR_GROCERY: Int = Color.parseColor("#3DBA6B")
         val PLACE_COLOR_PHARMACY: Int = Color.parseColor("#FF5C7A")
-        val PLACE_COLOR_PARKING: Int = Color.parseColor("#5C7A99")
-        val PLACE_COLOR_GAS: Int = Color.parseColor("#E8C340")
+        val PLACE_COLOR_PARKING: Int = Color.parseColor("#2F7BFF")
+        val PLACE_COLOR_GAS: Int = Color.parseColor("#E03131")
         val PLACE_COLOR_EV: Int = Color.parseColor("#3DD6C6")
+        val PLACE_COLOR_BANK: Int = Color.parseColor("#4A7FE8")
+        val PLACE_COLOR_ATM: Int = Color.parseColor("#6B8FE0")
+        val PLACE_COLOR_CONVENIENCE: Int = Color.parseColor("#8ED16F")
+        val PLACE_COLOR_MEDICAL: Int = Color.parseColor("#E05C5C")
+        val PLACE_COLOR_ENTERTAINMENT: Int = Color.parseColor("#D16FD1")
+        val PLACE_COLOR_SHOPPING: Int = Color.parseColor("#E89B3D")
         val PLACE_COLOR_DEFAULT: Int = Color.parseColor("#B9C6DD")
 
         // Phase 10: road-hazard markers.

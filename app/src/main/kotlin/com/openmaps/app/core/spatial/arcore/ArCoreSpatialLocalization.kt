@@ -156,20 +156,30 @@ class ArCoreSpatialLocalization(
      * device's AR capability without opening a camera or creating a Session, which is exactly what
      * Live needs: decide who owns the camera *before* any camera is opened.
      */
-    override fun probeAvailability(): SpatialAvailability =
-        when (ArCoreApk.getInstance().checkAvailability(context)) {
+    override fun probeAvailability(): SpatialAvailability {
+        val raw = ArCoreApk.getInstance().checkAvailability(context)
+        Log.i(TAG, "probeAvailability: $raw")
+        return mapAvailability(raw)
+    }
+
+    private fun mapAvailability(raw: ArCoreApk.Availability): SpatialAvailability =
+        when (raw) {
             ArCoreApk.Availability.SUPPORTED_INSTALLED -> SpatialAvailability.Supported
             ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED,
             ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD,
             -> SpatialAvailability.NotInstalled
-            // UNSUPPORTED_DEVICE_NOT_CAPABLE, and the UNKNOWN_* family (still being determined, or
-            // the check errored). Treat all of them as "not usable" so Live falls back to CameraX
-            // rather than blocking on an unanswerable question and showing a black screen.
+            // Device genuinely cannot run ARCore. Not fixable by re-querying.
             ArCoreApk.Availability.UNSUPPORTED_DEVICE_NOT_CAPABLE,
+            -> SpatialAvailability.Unsupported
+            // The UNKNOWN_* family means the check itself has not settled yet — Google's guidance is
+            // to re-query, not to treat this as a permanent answer. Collapsing these into Unsupported
+            // (the previous behaviour here) is what let a single unlucky first probe permanently
+            // strand Live on the CameraX fallback with AR never attempted at all — see
+            // `LiveViewModel.chooseInitialProvider`, which now re-probes while this is reported.
             ArCoreApk.Availability.UNKNOWN_ERROR,
             ArCoreApk.Availability.UNKNOWN_CHECKING,
             ArCoreApk.Availability.UNKNOWN_TIMED_OUT,
-            -> SpatialAvailability.Unsupported
+            -> SpatialAvailability.Checking
         }
 
     override fun start(lifecycleOwner: LifecycleOwner) {
@@ -211,8 +221,25 @@ class ArCoreSpatialLocalization(
 
     private fun resumeSession() {
         val owner = boundOwner ?: return
-        if (!owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
-        val activity = context.findActivityOrNull()
+        if (!owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            // Still land on a real state rather than leaving `_events` silent — a silent flow is
+            // indistinguishable from "never started" to anything collecting it with an `Idle`
+            // placeholder (see the Phase 12A AR-diagnostics note in `LiveScreen.LocalDebugOverlay`).
+            _events.tryEmit(SpatialLocalizationState.Initializing)
+            return
+        }
+        // `context` is the process-wide Application context (see `AppContainer`), which
+        // `findActivityOrNull()` can never resolve to an Activity through — `Application` extends
+        // `ContextWrapper`, but its own `baseContext` bottoms out at a bare `ContextImpl`, never an
+        // `Activity`. That made this branch fire unconditionally, on every device, every time,
+        // which is the confirmed real-device root cause of ARCore never starting at all (section
+        // A2's "do not assume Idle is enough information" — the debug overlay used to just say
+        // "Idle" because the engine was never started past this point). The lifecycle owner handed
+        // to `start()` is the real fix: in this single-Activity app it already *is* the hosting
+        // `ComponentActivity` (`LocalLifecycleOwner.current` inside `MainActivity.setContent`), so
+        // it is tried first; `context.findActivityOrNull()` is kept only as a defensive fallback for
+        // a lifecycle owner that is not itself an Activity.
+        val activity = (owner as? Activity) ?: context.findActivityOrNull()
         if (activity == null) {
             _events.tryEmit(SpatialLocalizationState.Failed(SpatialFailure.SessionCreationFailed))
             return
@@ -231,17 +258,26 @@ class ArCoreSpatialLocalization(
             }
 
             if (session == null) {
-                session = Session(context).also { created ->
-                    created.configure(
-                        created.config.apply {
-                            geospatialMode = Config.GeospatialMode.ENABLED // the point of Phase 6
-                            planeFindingMode = Config.PlaneFindingMode.DISABLED // no anchors yet
-                            focusMode = Config.FocusMode.AUTO
-                            updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
-                            lightEstimationMode = Config.LightEstimationMode.AMBIENT_INTENSITY
-                        },
-                    )
+                val created = Session(context)
+                // Checked explicitly (section A3) rather than left to surface as a generic
+                // `configure()` exception: a device/ARCore combination that cannot do Geospatial at
+                // all is a distinct, nameable diagnostic, not "session creation failed".
+                if (!created.isGeospatialModeSupported(Config.GeospatialMode.ENABLED)) {
+                    Log.w(TAG, "Geospatial mode not supported on this device")
+                    created.close()
+                    _events.tryEmit(SpatialLocalizationState.Failed(SpatialFailure.GeospatialUnsupported))
+                    return
                 }
+                created.configure(
+                    created.config.apply {
+                        geospatialMode = Config.GeospatialMode.ENABLED // the point of Phase 6
+                        planeFindingMode = Config.PlaneFindingMode.DISABLED // no anchors yet
+                        focusMode = Config.FocusMode.AUTO
+                        updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
+                        lightEstimationMode = Config.LightEstimationMode.AMBIENT_INTENSITY
+                    },
+                )
+                session = created
                 Log.i(TAG, "ARCore session created with Geospatial mode enabled")
             }
 
@@ -345,24 +381,41 @@ class ArCoreSpatialLocalization(
             }
         }
 
-        // Camera is tracked, but the Earth (geospatial) solution may still be converging or erroring.
-        when (earth?.earthState) {
+        // Camera is tracked, but `session.earth` itself may not have resolved yet — not the same
+        // thing as a poor fix (section A4: never equate Earth existence with active tracking).
+        if (earth == null) return SpatialLocalizationState.Limited(LimitedReason.WaitingForEarth)
+
+        // The Earth (geospatial) solution may still be converging or erroring.
+        when (earth.earthState) {
             Earth.EarthState.ENABLED -> Unit // good; fall through
-            null -> return SpatialLocalizationState.Limited(LimitedReason.PoorGeolocation)
             Earth.EarthState.ERROR_NOT_AUTHORIZED ->
                 return SpatialLocalizationState.Failed(SpatialFailure.EarthUnavailable)
             Earth.EarthState.ERROR_GEOSPATIAL_MODE_DISABLED ->
-                return SpatialLocalizationState.Failed(SpatialFailure.EarthUnavailable)
+                return SpatialLocalizationState.Failed(SpatialFailure.GeospatialDisabled)
             Earth.EarthState.ERROR_APK_VERSION_TOO_OLD ->
                 return SpatialLocalizationState.NotInstalled(requestInstall = true)
             else -> return SpatialLocalizationState.Limited(LimitedReason.PoorGeolocation)
         }
 
+        // `EarthState.ENABLED` is not the same as Earth actively *tracking* (section A4): Earth has
+        // its own TrackingState, distinct from the camera's, and can read PAUSED/STOPPED while the
+        // camera itself is tracking fine.
+        if (earth.trackingState != TrackingState.TRACKING) {
+            return SpatialLocalizationState.Limited(LimitedReason.EarthPaused)
+        }
+
         // GeospatialPose carries position AND heading with their accuracies. Note this heading is
         // device-facing (compass-style, true north), NOT the GPS movement bearing: they differ
         // whenever the device is stationary or sliding, exactly when guidance matters most.
-        val geoPose = earth?.cameraGeospatialPose
-        if (geoPose == null) {
+        //
+        // ARCore's Java nullability annotation on this accessor disagrees with its own documented
+        // behavior — it can genuinely be null while Earth is still converging, immediately after
+        // `earthState` first reports ENABLED — so the null check is kept deliberately despite the
+        // compiler treating it as unreachable.
+        val geoPose = earth.cameraGeospatialPose
+        @Suppress("SENSELESS_COMPARISON")
+        val geoPoseMissing = geoPose == null
+        if (geoPoseMissing) {
             // Tracking, but no geospatial pose yet (still converging).
             return SpatialLocalizationState.Tracking(null)
         }

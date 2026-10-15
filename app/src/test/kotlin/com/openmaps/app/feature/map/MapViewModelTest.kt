@@ -14,7 +14,9 @@ import com.openmaps.app.core.navigation.OffRouteDetector
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PlaceException
+import com.openmaps.app.core.places.PlaceQueryResult
 import com.openmaps.app.core.places.PlaceRepository
+import com.openmaps.app.core.places.PlaceSource
 import com.openmaps.app.core.roadintelligence.RoadEvent
 import com.openmaps.app.core.roadintelligence.RoadEventSeverity
 import com.openmaps.app.core.roadintelligence.RoadEventType
@@ -30,6 +32,10 @@ import com.openmaps.app.core.routing.RouteManeuver
 import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.routing.RoutingException
 import com.openmaps.app.core.routing.RoutingRepository
+import com.openmaps.app.core.voice.VoiceEvent
+import com.openmaps.app.core.voice.VoiceGuidanceEngine
+import com.openmaps.app.core.voice.VoiceGuidanceState
+import com.openmaps.app.core.voice.VoiceLanguage
 import com.openmaps.app.feature.live.LiveReadiness
 import com.openmaps.app.map.CameraState
 import com.openmaps.app.map.MapCommand
@@ -40,6 +46,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -64,17 +71,19 @@ class MapViewModelTest {
     private val placesRepository = FakePlaceRepository()
     private val roadIntelligenceRepository = FakeRoadIntelligenceRepository()
     private val roadClassRepository = FakeRoadClassRepository()
+    private val voiceEngine = FakeVoiceGuidanceEngine()
     private lateinit var viewModel: MapViewModel
 
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
         viewModel = MapViewModel(
-            repository,
-            routingRepository,
-            placesRepository,
-            roadIntelligenceRepository,
-            roadClassRepository,
+            locationRepository = repository,
+            routingRepository = routingRepository,
+            placesRepository = placesRepository,
+            roadIntelligenceRepository = roadIntelligenceRepository,
+            roadClassRepository = roadClassRepository,
+            voiceGuidanceEngine = voiceEngine,
             fixTimeoutMillis = TIMEOUT,
         )
     }
@@ -848,7 +857,10 @@ class MapViewModelTest {
     @Test
     fun categoryFilterChanged_filtersClientSideOnly_neverRefetches() = runTest(dispatcher) {
         placesRepository.nearbyResult = Result.success(
-            listOf(testPlace("gas", PlaceCategory.Gas), testPlace("cafe", PlaceCategory.Coffee)),
+            PlaceQueryResult(
+                listOf(testPlace("gas", PlaceCategory.Gas), testPlace("cafe", PlaceCategory.Coffee)),
+                PlaceSource.Network,
+            ),
         )
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
@@ -879,7 +891,7 @@ class MapViewModelTest {
 
     @Test
     fun placesProviderError_keepsPreviousReadyPlaces_navigationUnaffected() = runTest(dispatcher) {
-        placesRepository.nearbyResult = Result.success(listOf(testPlace("gas", PlaceCategory.Gas)))
+        placesRepository.nearbyResult = Result.success(PlaceQueryResult(listOf(testPlace("gas", PlaceCategory.Gas)), PlaceSource.Network))
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
         assertTrue(viewModel.uiState.value.placesState is PlacesState.Ready)
@@ -895,7 +907,7 @@ class MapViewModelTest {
     @Test
     fun visiblePlaces_capsAreLowerWhileNavigating() = runTest(dispatcher) {
         val many = (1..25).map { testPlace("p$it", PlaceCategory.Coffee) }
-        placesRepository.nearbyResult = Result.success(many)
+        placesRepository.nearbyResult = Result.success(PlaceQueryResult(many, PlaceSource.Network))
         placesRepository.alongRouteResult = Result.success(many)
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
@@ -1391,6 +1403,465 @@ class MapViewModelTest {
 
     // endregion
 
+    // region Phase 12A: Nearby Explore sheet + Route Preview Directions review
+
+    @Test
+    fun onExploreRequested_opensTheSheet() = runTest(dispatcher) {
+        viewModel.onExploreRequested()
+        assertTrue(viewModel.uiState.value.isExploreOpen)
+    }
+
+    @Test
+    fun onExploreDismissed_closesTheSheet() = runTest(dispatcher) {
+        viewModel.onExploreRequested()
+        viewModel.onExploreDismissed()
+        assertFalse(viewModel.uiState.value.isExploreOpen)
+    }
+
+    @Test
+    fun onExploreRequested_withoutALocationFix_opensButNeverFetches() = runTest(dispatcher) {
+        viewModel.onExploreRequested()
+
+        assertTrue(viewModel.uiState.value.isExploreOpen)
+        assertTrue("never a stale/arbitrary origin — section B1", placesRepository.nearbyCenters.isEmpty())
+    }
+
+    @Test
+    fun onExploreRequested_forcesAFetch_whenNothingIsLoadedYet() = runTest(dispatcher) {
+        // The automatic location-driven fetch fails, so there is genuinely nothing to show.
+        placesRepository.nearbyResult = Result.failure(PlaceException.NoNetwork)
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        assertTrue(viewModel.uiState.value.placesState is PlacesState.Error)
+        val fetchesSoFar = placesRepository.nearbyCenters.size
+
+        viewModel.onExploreRequested()
+
+        assertTrue(
+            "a cold open with nothing loaded must never read as a no-op (B4/B9)",
+            placesRepository.nearbyCenters.size > fetchesSoFar,
+        )
+    }
+
+    @Test
+    fun onExploreRequested_doesNotRefetch_whenPlacesAreAlreadyReady() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        assertTrue(viewModel.uiState.value.placesState is PlacesState.Ready)
+        val fetchesSoFar = placesRepository.nearbyCenters.size
+
+        viewModel.onExploreRequested()
+
+        assertEquals(
+            "cache (B10) must be reused — no refetch when there is already something to show",
+            fetchesSoFar,
+            placesRepository.nearbyCenters.size,
+        )
+    }
+
+    @Test
+    fun selectingADestination_closesTheExploreSheet() = runTest(dispatcher) {
+        viewModel.onExploreRequested()
+        assertTrue(viewModel.uiState.value.isExploreOpen)
+
+        viewModel.onDestinationSelected(place("dest", 1.0, 1.0))
+
+        assertFalse("the Explore sheet must not linger under the destination flow", viewModel.uiState.value.isExploreOpen)
+    }
+
+    @Test
+    fun onDirectionsReviewRequested_showsDetails_withoutDiscardingTheRoute() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(route(distanceMeters = 1234.0))
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+
+        viewModel.onDirectionsReviewRequested()
+
+        assertTrue(viewModel.uiState.value.isReviewingDirections)
+        assertTrue(viewModel.uiState.value.isShowingAnyDestinationDetails)
+        assertEquals(
+            "reviewing must not discard the already-computed route",
+            1234.0,
+            (viewModel.uiState.value.routeState as RouteState.Ready).route.distanceMeters,
+            EPS,
+        )
+    }
+
+    @Test
+    fun onDirectionsReviewDismissed_returnsToRoutePreview_routeStillReady() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(route())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsReviewRequested()
+
+        viewModel.onDirectionsReviewDismissed()
+
+        assertFalse(viewModel.uiState.value.isReviewingDirections)
+        assertFalse(viewModel.uiState.value.isShowingAnyDestinationDetails)
+        assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+        assertNotNull("dismissing a review must never clear the destination", viewModel.uiState.value.selectedDestination)
+    }
+
+    @Test
+    fun tappingDirectionsFromTheReviewSheet_resetsTheReviewFlag() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(route())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsReviewRequested()
+
+        viewModel.onDirectionsRequested()
+
+        assertFalse(viewModel.uiState.value.isReviewingDirections)
+        assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+    }
+
+    @Test
+    fun directionsReview_doesNotAffectStartOrTheStartToLiveSequence() = runTest(dispatcher) {
+        // Regression guard (section D5): Start's semantics must be unaffected by the review flow.
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.onDirectionsReviewRequested()
+        viewModel.onDirectionsReviewDismissed()
+        assertTrue(viewModel.uiState.value.canStartNavigation)
+
+        viewModel.startNavigation()
+
+        assertTrue(viewModel.uiState.value.navigationState is NavigationState.Active)
+        assertEquals(MapMode.Live, viewModel.uiState.value.selectedMapMode)
+    }
+
+    // endregion
+
+    // region Delta-spec: Voice guidance dispatch
+
+    @Test
+    fun startingNavigation_speaksNavigationStarted() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+
+        viewModel.startNavigation()
+
+        assertEquals(listOf<VoiceEvent>(VoiceEvent.NavigationStarted), voiceEngine.spoken)
+    }
+
+    @Test
+    fun approachingAManeuver_speaksAStagedAnnouncement() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        // The seeded progress at trip start is already close enough to the first maneuver (~223 m,
+        // on navigableRoute()'s default geometry) to have announced Far during startNavigation()
+        // itself — clear it so this test observes a genuinely *new* stage, not a re-read of that one.
+        voiceEngine.spoken.clear()
+
+        // Close enough to the maneuver to cross all the way into the Immediate band.
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0018)))
+
+        assertTrue(
+            "expected at least one new Maneuver announcement, got ${voiceEngine.spoken}",
+            voiceEngine.spoken.any { it is VoiceEvent.Maneuver },
+        )
+    }
+
+    @Test
+    fun arriving_speaksArrived() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        voiceEngine.spoken.clear()
+
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.009)))
+
+        assertTrue(voiceEngine.spoken.contains(VoiceEvent.Arrived))
+    }
+
+    @Test
+    fun persistentDeviation_speaksReroutingThenRouteUpdated() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        voiceEngine.spoken.clear()
+
+        repeat(OffRouteDetector.DEFAULT_REROUTE_SAMPLES) {
+            repository.emit(LocationUpdate.Fix(at(0.002, 0.003)))
+        }
+
+        assertTrue(voiceEngine.spoken.contains(VoiceEvent.Rerouting))
+        assertTrue(voiceEngine.spoken.contains(VoiceEvent.RouteUpdated))
+    }
+
+    @Test
+    fun stoppingNavigation_stopsAnySpeechInProgress() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+
+        viewModel.stopNavigation()
+
+        assertTrue(voiceEngine.stopCount > 0)
+    }
+
+    @Test
+    fun onVoiceMuteToggled_flipsStateAndForwardsToTheEngine() = runTest(dispatcher) {
+        assertTrue(viewModel.uiState.value.voiceEnabled)
+
+        viewModel.onVoiceMuteToggled()
+
+        assertFalse(viewModel.uiState.value.voiceEnabled)
+        assertEquals(false, voiceEngine.lastEnabled)
+
+        viewModel.onVoiceMuteToggled()
+
+        assertTrue(viewModel.uiState.value.voiceEnabled)
+        assertEquals(true, voiceEngine.lastEnabled)
+    }
+
+    @Test
+    fun onVoiceLanguageChanged_updatesStateAndForwardsToTheEngine() = runTest(dispatcher) {
+        viewModel.onVoiceLanguageChanged(VoiceLanguage.Spanish)
+
+        assertEquals(VoiceLanguage.Spanish, viewModel.uiState.value.voiceLanguage)
+        assertEquals(VoiceLanguage.Spanish, voiceEngine.lastLanguage)
+    }
+
+    // endregion
+
+    // region Delta-spec: Start/Directions from Place Details
+
+    @Test
+    fun onStartFromPlace_withNoExistingRoute_behavesLikeDirections_landsInRoutePreview() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        routingRepository.result = Result.success(route())
+        val target = testPlace("gas-1", PlaceCategory.Gas, latitude = 40.5, longitude = -74.5)
+
+        viewModel.onStartFromPlace(target)
+
+        assertFalse("must not start navigating sight-unseen", viewModel.uiState.value.isNavigating)
+        assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+        assertEquals(40.5, viewModel.uiState.value.selectedDestination!!.latitude, EPS)
+    }
+
+    @Test
+    fun onStartFromPlace_whenAlreadyRoutedToThisExactPlace_startsNavigationDirectly() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        val target = testPlace("dest", PlaceCategory.Restaurant, latitude = 0.009, longitude = 0.0)
+        viewModel.onNavigateToPlace(target) // first tap: Directions-equivalent, computes the route
+        assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+
+        viewModel.onStartFromPlace(target) // second tap: this exact place is already Ready
+
+        assertTrue(viewModel.uiState.value.navigationState is NavigationState.Active)
+    }
+
+    // endregion
+
+    // region Mockup UI/UX pass: discovery tiles, Route Preview Steps, early Start
+
+    /**
+     * A discovery tile (Food / Gas / Hotels / Parking) opens Explore already narrowed to that one
+     * category, so the user never has to repeat the filter they just tapped. It narrows the SAME
+     * filter set the map chips drive — one filter concept, never two.
+     */
+    @Test
+    fun onExploreCategoryClicked_opensExploreNarrowedToThatCategory() = runTest(dispatcher) {
+        startWithPermission()
+
+        viewModel.onExploreCategoryClicked(PlaceCategory.Gas)
+
+        val state = viewModel.uiState.value
+        assertTrue("the Explore sheet must open", state.isExploreOpen)
+        assertEquals(setOf(PlaceCategory.Gas), state.placeCategoryFilters)
+    }
+
+    @Test
+    fun onExploreCategoryClicked_doesNotRefetch_whenPlacesAreAlreadyReady() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        val fetchesAfterFirst = placesRepository.nearbyCenters.size
+        assertTrue("precondition: a nearby fetch already ran", fetchesAfterFirst > 0)
+
+        viewModel.onExploreCategoryClicked(PlaceCategory.Parking)
+
+        assertEquals(
+            "a tile must not trigger a redundant fetch when places are already loaded",
+            fetchesAfterFirst,
+            placesRepository.nearbyCenters.size,
+        )
+    }
+
+    /** "Steps" only ever reveals an already-computed route; it must never request one. */
+    @Test
+    fun onStepsRequested_withoutARoute_doesNothingAndNeverRequestsOne() = runTest(dispatcher) {
+        startWithPermission()
+
+        viewModel.onStepsRequested()
+
+        val state = viewModel.uiState.value
+        assertFalse("nothing to list without a route", state.isShowingSteps)
+        assertTrue("Steps must never request a route", routingRepository.originsReceived.isEmpty())
+    }
+
+    @Test
+    fun onStepsRequested_withARoute_showsThatRoutesManeuversWithoutRefetching() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        val destination = place("IAH", lat = 0.01, lon = 0.0)
+        viewModel.onDestinationSelected(destination)
+        viewModel.onDirectionsRequested()
+        val requestsBeforeSteps = routingRepository.originsReceived.size
+
+        viewModel.onStepsRequested()
+
+        val state = viewModel.uiState.value
+        assertTrue(state.isShowingSteps)
+        assertNotNull(state.stepsRouteSummary)
+        assertEquals(
+            "opening Steps must not replace or re-request the route",
+            requestsBeforeSteps,
+            routingRepository.originsReceived.size,
+        )
+    }
+
+    @Test
+    fun onStepsDismissed_returnsToRoutePreview_routeStillReady() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        viewModel.onDestinationSelected(place("IAH", lat = 0.01, lon = 0.0))
+        viewModel.onDirectionsRequested()
+        viewModel.onStepsRequested()
+
+        viewModel.onStepsDismissed()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.isShowingSteps)
+        assertNull(state.stepsRouteSummary)
+        assertTrue("dismissing Steps must not discard the route", state.routeState is RouteState.Ready)
+    }
+
+    /**
+     * Start on Destination Details with no route yet must land in Route Preview, never jump
+     * straight to navigation — the flow cannot skip the preview step.
+     */
+    @Test
+    fun onStartRequestedFromDestination_withNoRoute_computesItAndStaysInRoutePreview() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        val destination = place("IAH", lat = 0.01, lon = 0.0)
+        viewModel.onDestinationSelected(destination)
+
+        viewModel.onStartRequestedFromDestination(destination)
+
+        val state = viewModel.uiState.value
+        assertTrue("a route must be computed", state.routeState is RouteState.Ready)
+        assertFalse("Start must not skip Route Preview", state.navigationState is NavigationState.Active)
+    }
+
+    @Test
+    fun onStartRequestedFromDestination_whenAlreadyRoutedToIt_startsNavigationDirectly() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        val destination = place("IAH", lat = 0.01, lon = 0.0)
+        viewModel.onDestinationSelected(destination)
+        viewModel.onDirectionsRequested()
+        assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+
+        viewModel.onStartRequestedFromDestination(destination)
+
+        assertTrue(viewModel.uiState.value.navigationState is NavigationState.Active)
+    }
+
+    @Test
+    fun onDirectionsRequestedFromPlaceDetails_landsInRoutePreview_neverLive() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        val target = testPlace("cafe", PlaceCategory.Coffee, latitude = 0.01, longitude = 0.0)
+        viewModel.onPlaceSelected(target)
+
+        viewModel.onDirectionsRequestedForPlace(target)
+
+        val state = viewModel.uiState.value
+        assertTrue("Directions must compute a route", state.routeState is RouteState.Ready)
+        assertFalse("Directions must NOT open Live", state.selectedMapMode == MapMode.Live)
+        assertFalse("Directions must NOT start navigating", state.navigationState is NavigationState.Active)
+    }
+
+    @Test
+    fun onDirectionsRequestedFromPlaceDetails_closesThePlaceSheet() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        val target = testPlace("cafe", PlaceCategory.Coffee, latitude = 0.01, longitude = 0.0)
+        viewModel.onPlaceSelected(target)
+
+        viewModel.onDirectionsRequestedForPlace(target)
+
+        assertNull(viewModel.uiState.value.selectedPlace)
+    }
+
+    @Test
+    fun onStartFromPlace_withNoRoute_landsInRoutePreview_notLive() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        val target = testPlace("cafe", PlaceCategory.Coffee, latitude = 0.01, longitude = 0.0)
+
+        viewModel.onStartFromPlace(target)
+
+        val state = viewModel.uiState.value
+        assertTrue("Start must compute a route first", state.routeState is RouteState.Ready)
+        assertFalse("Start must not skip Route Preview", state.navigationState is NavigationState.Active)
+    }
+
+    /**
+     * Only Driving is routable today; Transit/Walking are rendered but must not be selectable, and
+     * nothing may ever present a fabricated travel time for them.
+     */
+    @Test
+    fun routeModes_exposeOnlyDrivingAsSupported() {
+        assertEquals(listOf(RouteModeOption.Driving), RouteModeOption.entries.filter { it.isSupported })
+        assertFalse(RouteModeOption.Transit.isSupported)
+        assertFalse(RouteModeOption.Walking.isSupported)
+    }
+
+    /** A nearby provider failure must be retryable and must not be reported as "no places". */
+    @Test
+    fun onExploreRetryRequested_clearsTheFailureAndRefetches() = runTest(dispatcher) {
+        placesRepository.nearbyResult = Result.failure(PlaceException.NoNetwork)
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        viewModel.onExploreRequested()
+        assertTrue(viewModel.uiState.value.placesState is PlacesState.Error)
+        val fetchesSoFar = placesRepository.nearbyCenters.size
+
+        placesRepository.nearbyResult = Result.success(PlaceQueryResult(emptyList(), PlaceSource.Network))
+        viewModel.onExploreRetryRequested()
+
+        assertTrue(
+            "retry must actually re-run the fetch",
+            placesRepository.nearbyCenters.size > fetchesSoFar,
+        )
+    }
+
+    // endregion
+
     // region helpers
 
     /**
@@ -1508,17 +1979,43 @@ class MapViewModelTest {
     }
 
     private class FakePlaceRepository : PlaceRepository {
-        var nearbyResult: Result<List<Place>> = Result.success(emptyList())
+        /**
+         * Defaults to one place rather than an empty list. `MapViewModel.adaptiveNearby` widens the
+         * radius when a query comes back *empty*, so an empty default would turn every single fetch
+         * into three repository calls and make call-count assertions meaningless.
+         */
+        var nearbyResult: Result<PlaceQueryResult> = Result.success(
+            PlaceQueryResult(
+                listOf(
+                    Place(
+                        id = "default",
+                        name = "Default Place",
+                        category = PlaceCategory.Restaurant,
+                        latitude = 40.0,
+                        longitude = -74.0,
+                    ),
+                ),
+                PlaceSource.Network,
+            ),
+        )
         var alongRouteResult: Result<List<Place>> = Result.success(emptyList())
         val nearbyCenters = mutableListOf<Coordinate>()
+
+        /** Every requested radius, so adaptive expansion is directly observable in tests. */
+        val nearbyRadii = mutableListOf<Double>()
+
+        /** Categories each call asked for — proves a single-category tap does not fetch everything. */
+        val nearbyCategoryCalls = mutableListOf<Set<PlaceCategory>>()
         val alongRouteCalls = mutableListOf<List<Coordinate>>()
 
         override suspend fun nearbyPlaces(
             center: Coordinate,
             radiusMeters: Double,
             categories: Set<PlaceCategory>,
-        ): Result<List<Place>> {
+        ): Result<PlaceQueryResult> {
             nearbyCenters += center
+            nearbyRadii += radiusMeters
+            nearbyCategoryCalls += categories
             return nearbyResult
         }
 
@@ -1567,6 +2064,38 @@ class MapViewModelTest {
             calls += location
             return result
         }
+    }
+
+    /** Records every speak/stop/setEnabled/setLanguage call — delta-spec voice dispatch tests. */
+    private class FakeVoiceGuidanceEngine : VoiceGuidanceEngine {
+        private val _state = MutableStateFlow(VoiceGuidanceState())
+        override val state: Flow<VoiceGuidanceState> = _state
+
+        val spoken = mutableListOf<VoiceEvent>()
+        var stopCount = 0
+            private set
+        var lastEnabled: Boolean? = null
+            private set
+        var lastLanguage: VoiceLanguage? = null
+            private set
+
+        override fun speak(event: VoiceEvent) {
+            spoken += event
+        }
+
+        override fun setEnabled(enabled: Boolean) {
+            lastEnabled = enabled
+        }
+
+        override fun setLanguage(language: VoiceLanguage) {
+            lastLanguage = language
+        }
+
+        override fun stop() {
+            stopCount++
+        }
+
+        override fun shutdown() = Unit
     }
 
     // endregion

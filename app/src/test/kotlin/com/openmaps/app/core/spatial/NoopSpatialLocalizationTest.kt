@@ -84,7 +84,8 @@ class NoopSpatialLocalizationTest {
 /** Minimal [SpatialLocalizationEngine] double, so LiveViewModel's AR wiring is testable on the JVM. */
 class FakeSpatialLocalization(
     override val providesPreview: Boolean = true,
-    private val availability: SpatialAvailability = SpatialAvailability.Supported,
+    /** `var`, not `val`: tests simulate a probe result changing across retries (e.g. Checking -> Supported). */
+    var availability: SpatialAvailability = SpatialAvailability.Supported,
 ) : SpatialLocalizationEngine {
     private val _state = MutableStateFlow<SpatialLocalizationState>(SpatialLocalizationState.Idle)
     override val state: Flow<SpatialLocalizationState> = _state

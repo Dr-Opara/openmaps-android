@@ -18,6 +18,24 @@ class PlaceCategoryMapperTest {
         assertEquals(PlaceCategory.Parking, PlaceCategoryMapper.categoryFor(mapOf("amenity" to "parking")))
         assertEquals(PlaceCategory.Gas, PlaceCategoryMapper.categoryFor(mapOf("amenity" to "fuel")))
         assertEquals(PlaceCategory.EvCharging, PlaceCategoryMapper.categoryFor(mapOf("amenity" to "charging_station")))
+        assertEquals(PlaceCategory.Bank, PlaceCategoryMapper.categoryFor(mapOf("amenity" to "bank")))
+        assertEquals(PlaceCategory.Atm, PlaceCategoryMapper.categoryFor(mapOf("amenity" to "atm")))
+        assertEquals(PlaceCategory.Convenience, PlaceCategoryMapper.categoryFor(mapOf("shop" to "convenience")))
+        assertEquals(PlaceCategory.Medical, PlaceCategoryMapper.categoryFor(mapOf("amenity" to "clinic")))
+        assertEquals(PlaceCategory.Medical, PlaceCategoryMapper.categoryFor(mapOf("amenity" to "hospital")))
+        assertEquals(PlaceCategory.Medical, PlaceCategoryMapper.categoryFor(mapOf("amenity" to "doctors")))
+        assertEquals(PlaceCategory.Entertainment, PlaceCategoryMapper.categoryFor(mapOf("amenity" to "cinema")))
+        assertEquals(PlaceCategory.Entertainment, PlaceCategoryMapper.categoryFor(mapOf("amenity" to "theatre")))
+        assertEquals(PlaceCategory.Entertainment, PlaceCategoryMapper.categoryFor(mapOf("tourism" to "attraction")))
+        assertEquals(PlaceCategory.Shopping, PlaceCategoryMapper.categoryFor(mapOf("shop" to "mall")))
+        assertEquals(PlaceCategory.Shopping, PlaceCategoryMapper.categoryFor(mapOf("shop" to "department_store")))
+    }
+
+    @Test
+    fun categoryFor_groceryNoLongerClaimsConvenienceStores() {
+        // Phase 12A: shop=convenience was reclassified off Grocery into its own category.
+        assertEquals(PlaceCategory.Convenience, PlaceCategoryMapper.categoryFor(mapOf("shop" to "convenience")))
+        assertEquals(PlaceCategory.Grocery, PlaceCategoryMapper.categoryFor(mapOf("shop" to "supermarket")))
     }
 
     @Test

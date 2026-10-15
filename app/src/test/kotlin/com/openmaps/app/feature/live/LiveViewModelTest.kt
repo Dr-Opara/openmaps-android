@@ -22,12 +22,14 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -231,6 +233,36 @@ class LiveViewModelTest {
     }
 
     @Test
+    fun arFailingMidSession_preservesTheFailureReason_pastTheEngineBeingStoppedBackToIdle() = runTest(dispatcher) {
+        // Section A1: `stop()` immediately overwrites the engine's own state with `Idle` — without
+        // capturing the reason separately, the debug overlay would lose it the instant the fallback
+        // happens, exactly the "returns only AR Idle" failure mode this phase fixes.
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Supported)
+        val vm = LiveViewModel(engine, spatial)
+        vm.onCameraPermissionChanged(CameraPermissionState.Granted)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+        assertNull(vm.lastSpatialFailure)
+
+        spatial.emit(SpatialLocalizationState.Failed(SpatialFailure.GeospatialUnsupported))
+
+        assertEquals(SpatialLocalizationState.Failed(SpatialFailure.GeospatialUnsupported), vm.lastSpatialFailure)
+    }
+
+    @Test
+    fun startingSpatialLocalizationAgain_clearsThePreviousFailureReason() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Supported)
+        val vm = LiveViewModel(engine, spatial)
+        vm.onCameraPermissionChanged(CameraPermissionState.Granted)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+        spatial.emit(SpatialLocalizationState.Failed(SpatialFailure.SessionCreationFailed))
+        assertNotNull(vm.lastSpatialFailure)
+
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+
+        assertNull("a fresh attempt must not carry a stale reason from the last one", vm.lastSpatialFailure)
+    }
+
+    @Test
     fun arBecomingUnsupportedMidSession_alsoFallsBack() = runTest(dispatcher) {
         val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Supported)
         val vm = LiveViewModel(engine, spatial)
@@ -255,6 +287,57 @@ class LiveViewModelTest {
 
         assertEquals(PreviewProvider.Spatial, vm.previewProvider.value)
     }
+
+    // region Phase 12A: AR Idle root-cause fix (transient "Checking" probe result)
+
+    @Test
+    fun checkingArUpgradesToSpatialOnceProbeResolvesSupported() = runTest(dispatcher) {
+        // This is the root-cause fix: a transient `UNKNOWN_CHECKING`-style probe result must not
+        // permanently strand Live on CameraX with AR never even attempted.
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Checking)
+        val vm = LiveViewModel(engine, spatial)
+        assertEquals("must start safely on CameraX while still checking", PreviewProvider.CameraX, vm.previewProvider.value)
+
+        spatial.availability = SpatialAvailability.Supported
+        advanceUntilIdle()
+
+        assertEquals(PreviewProvider.Spatial, vm.previewProvider.value)
+    }
+
+    @Test
+    fun checkingArThatNeverResolves_staysOnCameraXWithBoundedRetries() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Checking)
+        val vm = LiveViewModel(engine, spatial)
+
+        advanceUntilIdle()
+
+        assertEquals(PreviewProvider.CameraX, vm.previewProvider.value)
+        assertTrue("retries must be bounded, not infinite", spatial.probeCount in 1..10)
+    }
+
+    @Test
+    fun checkingArThatResolvesUnsupported_stopsRetryingAndStaysOnCameraX() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Checking)
+        val vm = LiveViewModel(engine, spatial)
+        spatial.availability = SpatialAvailability.Unsupported
+
+        advanceUntilIdle()
+
+        assertEquals(PreviewProvider.CameraX, vm.previewProvider.value)
+    }
+
+    @Test
+    fun terminalUnsupportedProbe_isNeverRetried() = runTest(dispatcher) {
+        // A real, terminal answer must not spend retries re-asking a question already answered.
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Unsupported)
+        LiveViewModel(engine, spatial)
+
+        advanceUntilIdle()
+
+        assertEquals(1, spatial.probeCount)
+    }
+
+    // endregion
 
     @Test
     fun spatialLocalization_isNotStartedWithoutCameraPermission() = runTest(dispatcher) {

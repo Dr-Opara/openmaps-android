@@ -14,7 +14,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,7 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
-import com.openmaps.app.core.designsystem.glass
+import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.navigation.RouteProgress
 import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.routing.RouteManeuver
@@ -150,7 +153,7 @@ fun NavigationBanner(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .glass(GlassShapes.Card)
+            .surfaceCard(GlassShapes.Card)
             .background(background)
             .heightIn(min = 64.dp)
             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -281,60 +284,116 @@ private fun ArrivedRow(foreground: Color) {
 }
 
 /**
- * Start/End row shown beneath the route summary. While a route is merely loaded this is the
- * affordance that begins a trip; during one it ends it.
+ * Route Preview's action block (Phase 12A, section D). Called only once a destination exists
+ * (see `BottomPanel`), so it always renders something rather than the previous "early return to
+ * nothing" — Start is visible, just disabled, from the moment a destination exists, which is the
+ * fix for "Start is too hard to find/see": it no longer appears only once a route has already
+ * loaded, and it is no longer a small right-aligned text link.
+ *
+ *  - Navigating: just "End" (unchanged behaviour/placement).
+ *  - Otherwise: a single visible two-button row — secondary "Directions" (re-opens Destination
+ *    Details to review, without discarding the computed route — [onDirectionsReview]) and a
+ *    primary, filled, high-contrast "Start" (D2: OpenMaps blue, white text, full-width-sharing,
+ *    minimum 48dp touch target).
  */
 @Composable
 fun NavigationControls(
     canStart: Boolean,
     isNavigating: Boolean,
     navigationError: NavigationError?,
+    onSteps: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val errorMessage = navigationError?.let { messageFor(it) }
-    if (!isNavigating && !canStart && errorMessage == null) return
     val startLabel = stringResource(R.string.cd_start_navigation)
     val stopLabel = stringResource(R.string.cd_stop_navigation)
+    val stepsLabel = stringResource(R.string.cd_steps)
 
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Column(modifier = modifier.fillMaxWidth()) {
         if (errorMessage != null) {
             Text(
                 text = errorMessage,
                 style = MaterialTheme.typography.bodySmall,
-                color = OpenMapsColors.Warning,
-                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(bottom = 8.dp),
             )
         }
         if (isNavigating) {
-            // The visible label is "End"; spell out what that means for a screen reader, which
-            // would otherwise announce a bare, ambiguous verb.
-            TextButton(
-                onClick = onStop,
-                modifier = Modifier.semantics { contentDescription = stopLabel },
-            ) {
-                Text(
-                    text = stringResource(R.string.nav_stop),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = OpenMapsColors.TextSecondary,
-                )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                // The visible label is "End"; spell out what that means for a screen reader, which
+                // would otherwise announce a bare, ambiguous verb.
+                TextButton(
+                    onClick = onStop,
+                    modifier = Modifier.semantics { contentDescription = stopLabel },
+                ) {
+                    Text(
+                        text = stringResource(R.string.nav_stop),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = OpenMapsColors.TextSecondary,
+                    )
+                }
             }
         } else {
-            TextButton(
-                onClick = onStart,
-                enabled = canStart,
-                modifier = Modifier.semantics { contentDescription = startLabel },
+            // Mockup Route Preview: a large filled "Start" sharing the row with a lighter
+            // "Steps" button. Start stays the visually dominant action (weight 1.6 vs 1) and both
+            // keep a 52dp target so they are easy to hit without looking for long.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    text = stringResource(R.string.nav_start),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (canStart) OpenMapsColors.ElectricBlue else OpenMapsColors.TextSecondary,
-                )
+                Button(
+                    onClick = onStart,
+                    enabled = canStart,
+                    shape = GlassShapes.Pill,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = OpenMapsColors.ElectricBlueFilled,
+                        contentColor = Color.White,
+                    ),
+                    modifier = Modifier
+                        .weight(1.6f)
+                        .heightIn(min = 52.dp)
+                        .semantics { contentDescription = startLabel },
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = -90f },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.nav_start),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White,
+                    )
+                }
+                Button(
+                    onClick = onSteps,
+                    shape = GlassShapes.Pill,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.14f),
+                        contentColor = OpenMapsColors.ElectricBlueFilled,
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 52.dp)
+                        .semantics { contentDescription = stepsLabel },
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.List,
+                        contentDescription = null,
+                        tint = OpenMapsColors.ElectricBlueFilled,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.nav_steps),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = OpenMapsColors.ElectricBlueFilled,
+                    )
+                }
             }
         }
     }

@@ -26,6 +26,8 @@ sealed interface LiveHudState {
         val instruction: String,
         val distanceToManeuverMeters: Double,
         val nextInstruction: String?,
+        /** The upcoming maneuver's type, for the "Then" card's turn icon — null when there is none. */
+        val nextManeuverType: ManeuverType?,
         val remainingDistanceMeters: Double,
         val remainingDurationSeconds: Double,
         val destinationName: String?,
@@ -87,6 +89,7 @@ object LiveHud {
             nextInstruction = next
                 ?.instruction
                 ?.takeIf { it.isNotBlank() && it != instruction },
+            nextManeuverType = next?.type,
             remainingDistanceMeters = progress.remainingDistanceMeters,
             remainingDurationSeconds = progress.remainingDurationSeconds,
             destinationName = destinationName,

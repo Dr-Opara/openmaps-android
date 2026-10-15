@@ -5,6 +5,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -22,9 +24,12 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -39,25 +44,36 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.glass
+import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
+import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.map.MapMode
 import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** Map | Live segmented toggle, shared by the Map and Live screens. */
+/**
+ * Map | Live toggle, shared by the Map and Live screens.
+ *
+ * Mockup: two **separate** pills with a gap between them, not one segmented capsule — the selected
+ * pill is filled OpenMaps blue, the unselected pill is filled dark navy (the same [glass] treatment
+ * as the category chips), both with white text.
+ */
 @Composable
 fun MapModeToggle(
     selected: MapMode,
@@ -65,49 +81,57 @@ fun MapModeToggle(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier
-            .glass(GlassShapes.Pill)
-            .padding(3.dp)
-            .selectableGroup(),
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         MapMode.entries.forEach { mode ->
             val isSelected = mode == selected
+            val fill = if (isSelected) OpenMapsColors.ElectricBlueFilled else OpenMapsColors.Navy900.copy(alpha = 0.86f)
             Box(
                 modifier = Modifier
-                    .heightIn(min = 40.dp)
-                    .clip(CircleShape)
-                    .drawBehind { if (isSelected) drawRect(OpenMapsColors.ElectricBlueFilled) }
+                    .heightIn(min = 36.dp)
+                    .clip(GlassShapes.Pill)
+                    .background(fill)
+                    .border(1.dp, Color.White.copy(alpha = 0.10f), GlassShapes.Pill)
                     .selectable(selected = isSelected, role = Role.RadioButton, onClick = { onSelected(mode) })
                     .padding(horizontal = 18.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = stringResource(if (mode == MapMode.Map) R.string.mode_map else R.string.mode_live),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (isSelected) Color.White else OpenMapsColors.TextSecondary,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
                 )
             }
         }
     }
 }
 
-/** "Where are you going?" entry point. Opens the placeholder search screen. */
+/**
+ * "Where are you going?" entry point. Opens the search screen.
+ *
+ * White rounded field directly under the header, per the mockup. The microphone is drawn only when
+ * [onVoiceSearchClick] is supplied — the home screen routes it into the real search screen's
+ * recognizer, so it is never a control that does nothing. Mockup: search icon + hint + mic only, no
+ * settings gear inside the field — settings now lives next to the Map/Live toggle (see
+ * [MapSettingsButton]).
+ */
 @Composable
 fun MapSearchBar(
     onSearchClick: () -> Unit,
-    onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onVoiceSearchClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 54.dp)
-            .glass(GlassShapes.Pill)
+            .heightIn(min = 52.dp)
+            .surfaceCard(GlassShapes.Pill)
             .clickable(role = Role.Button, onClick = onSearchClick)
-            .padding(start = 18.dp, end = 4.dp),
+            .padding(start = 18.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Filled.Search, contentDescription = null, tint = OpenMapsColors.ElectricBlue)
+        Icon(Icons.Filled.Search, contentDescription = null, tint = OpenMapsColors.TextSecondary)
         Spacer(Modifier.width(12.dp))
         Text(
             text = stringResource(R.string.map_search_hint),
@@ -115,16 +139,38 @@ fun MapSearchBar(
             color = OpenMapsColors.TextSecondary,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onSettingsClick) {
-            Icon(
-                Icons.Filled.Settings,
-                contentDescription = stringResource(R.string.cd_settings),
-                tint = OpenMapsColors.TextPrimary,
-            )
+        onVoiceSearchClick?.let { onVoice ->
+            IconButton(onClick = onVoice) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_mic),
+                    contentDescription = stringResource(R.string.cd_voice_search),
+                    tint = OpenMapsColors.TextSecondary,
+                )
+            }
         }
     }
 }
 
+/**
+ * Settings entry point, not present in the mockup's search field. The app still needs one reachable
+ * place to change it (Settings > Navigation > Voice Language), so it sits as a small, muted icon
+ * next to the Map/Live toggle instead of inside the pixel-matched search bar.
+ */
+@Composable
+fun MapSettingsButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    IconButton(onClick = onClick, modifier = modifier.size(36.dp)) {
+        Icon(
+            Icons.Filled.Settings,
+            contentDescription = stringResource(R.string.cd_settings),
+            tint = OpenMapsColors.TextSecondary,
+        )
+    }
+}
+
+/**
+ * Floating recenter control: a white circular button on the map, as in the mockup. White rather than
+ * navy so it matches the light map and the white cards above it.
+ */
 @Composable
 fun RecenterButton(
     hasLocation: Boolean,
@@ -135,12 +181,46 @@ fun RecenterButton(
         onClick = onClick,
         modifier = modifier
             .size(52.dp)
-            .glass(GlassShapes.Circle),
+            .surfaceCard(GlassShapes.Circle),
     ) {
         Icon(
             painter = painterResource(R.drawable.ic_my_location),
             contentDescription = stringResource(R.string.cd_recenter),
-            tint = if (hasLocation) OpenMapsColors.ElectricBlue else OpenMapsColors.TextSecondary,
+            tint = if (hasLocation) OpenMapsColors.ElectricBlueFilled else OpenMapsColors.TextSecondary,
+        )
+    }
+}
+
+/**
+ * The blue circular navigation/location action above the recenter control (mockup, bottom-right).
+ *
+ * Distinct from [RecenterButton]: recenter only re-points the camera at the user, whereas this is
+ * the primary "take me there / go" action and is filled with OpenMaps blue to read as the stronger
+ * of the two. Deliberately routes through the same `onNavigateAction` callback the caller wires to
+ * recenter-and-act, so it never becomes a second, divergent navigation entry point.
+ */
+@Composable
+fun NavigationActionButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .size(52.dp)
+            .clip(CircleShape)
+            .background(OpenMapsColors.ElectricBlueFilled)
+            .clip(CircleShape),
+    ) {
+        // `Icons.Filled.Navigation` is not in `material-icons-core` (only 49 icons ship there, and
+        // this project deliberately avoids pulling in the extended set). Reusing the arrow glyph
+        // rotated to point ahead is the same convention `ManeuverGlyph` already documents. Mockup:
+        // a diagonal "send/compass" arrow (~45 degrees), not a straight-up one.
+        Icon(
+            Icons.AutoMirrored.Filled.ArrowForward,
+            contentDescription = stringResource(R.string.cd_navigate_action),
+            tint = Color.White,
+            modifier = Modifier.graphicsLayer { rotationZ = -45f },
         )
     }
 }
@@ -181,6 +261,159 @@ fun CompassButton(
 private const val COMPASS_VISIBLE_THRESHOLD_DEGREES = 1f
 
 /**
+ * Route Preview's origin/destination header: "Your location" above the chosen destination, with a
+ * dotted connector between the two outlined fields (mockup's visual link between them). The
+ * mockup's swap affordance is deliberately not reproduced: OpenMaps routes from the device fix, it
+ * has no second origin to swap to, and a control that does nothing would be a lie.
+ */
+@Composable
+fun RouteEndpointFields(
+    destination: SearchResult?,
+    modifier: Modifier = Modifier,
+) {
+    val connectorX = 14.dp + 9.dp // icon column padding + half the 18dp icon
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .drawBehind {
+                val x = connectorX.toPx()
+                drawLine(
+                    color = OpenMapsColors.SurfaceBorder,
+                    start = androidx.compose.ui.geometry.Offset(x, 46.dp.toPx()),
+                    end = androidx.compose.ui.geometry.Offset(x, size.height - 46.dp.toPx()),
+                    strokeWidth = 2.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx())),
+                )
+            },
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(OpenMapsColors.Surface, GlassShapes.Row)
+                .border(1.dp, OpenMapsColors.SurfaceBorder, GlassShapes.Row)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_my_location),
+                contentDescription = null,
+                tint = OpenMapsColors.ElectricBlueFilled,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = stringResource(R.string.route_origin_your_location),
+                style = MaterialTheme.typography.bodyMedium,
+                color = OpenMapsColors.TextPrimary,
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(OpenMapsColors.Surface, GlassShapes.Row)
+                .border(1.dp, OpenMapsColors.SurfaceBorder, GlassShapes.Row)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                Icons.Filled.Place,
+                contentDescription = null,
+                tint = Color(0xFFE03131),
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = destination?.name?.ifBlank { destination.displayName }
+                    ?: stringResource(R.string.route_destination_placeholder),
+                style = MaterialTheme.typography.bodyMedium,
+                color = OpenMapsColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+/**
+ * The mockup's route-mode row: Driving / Transit / Walking.
+ *
+ * **Only Driving is real.** OpenMaps computes a single driving profile from Valhalla, so Transit and
+ * Walking are rendered but permanently disabled rather than shown with invented travel times. They
+ * are `enabled = false` buttons, not clickable-and-ignored ones, so the control can never be a lie.
+ */
+@Composable
+fun RouteModeRow(
+    routeState: RouteState,
+    modifier: Modifier = Modifier,
+    onModeSelected: (RouteModeOption) -> Unit = {},
+) {
+    val ready = routeState as? RouteState.Ready
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RouteModeOption.entries.forEach { mode ->
+            val isDriving = mode == RouteModeOption.Driving
+            val enabled = isDriving
+            Row(
+                modifier = Modifier
+                    .clip(GlassShapes.Pill)
+                    // Mockup: only the selected (Driving) mode gets a filled pill; Transit/Walking
+                    // sit directly on the card with no chip background.
+                    .then(if (isDriving) Modifier.background(OpenMapsColors.ElectricBlueFilled) else Modifier)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    painter = painterResource(mode.iconRes()),
+                    contentDescription = null,
+                    tint = when {
+                        isDriving -> Color.White
+                        enabled -> OpenMapsColors.ElectricBlueFilled
+                        else -> OpenMapsColors.TextSecondary
+                    },
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = when {
+                        isDriving && ready != null -> "${stringResource(mode.labelRes())} · ${formatDuration(ready.route.durationSeconds)}"
+                        else -> stringResource(mode.labelRes())
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = when {
+                        isDriving -> Color.White
+                        else -> OpenMapsColors.TextSecondary
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** The three travel modes the mockup shows. Only [Driving] is routable today. */
+enum class RouteModeOption(val isSupported: Boolean) {
+    Driving(true),
+    Transit(false),
+    Walking(false),
+}
+
+private fun RouteModeOption.iconRes(): Int = when (this) {
+    RouteModeOption.Driving -> R.drawable.ic_car
+    RouteModeOption.Transit -> R.drawable.ic_transit
+    RouteModeOption.Walking -> R.drawable.ic_walk
+}
+
+private fun RouteModeOption.labelRes(): Int = when (this) {
+    RouteModeOption.Driving -> R.string.route_mode_driving
+    RouteModeOption.Transit -> R.string.route_mode_transit
+    RouteModeOption.Walking -> R.string.route_mode_walking
+}
+
+/**
  * Collapsed bottom panel. Shows a compact destination summary (plus, once Phase 3's route
  * loads, distance/ETA) once a destination is selected, otherwise the Phase 1 placeholder.
  */
@@ -189,12 +422,23 @@ fun BottomPanel(
     destination: SearchResult?,
     routeState: RouteState,
     onClearDestination: () -> Unit,
+    /** Phase 12A, section B5: opens the Nearby/Explore sheet; only reachable with no destination. */
+    onExploreClicked: () -> Unit,
+    /** A discovery tile was tapped: open Explore narrowed to that category. */
+    onExploreCategoryClicked: (PlaceCategory) -> Unit,
+    /** Opens the step list for the computed route (mockup's "Steps" button). */
+    onSteps: () -> Unit,
+    canStart: Boolean,
+    isNavigating: Boolean,
+    navigationError: NavigationError?,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .glass(GlassShapes.Card)
+            .surfaceCard(GlassShapes.Card)
             .padding(horizontal = 20.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -203,42 +447,47 @@ fun BottomPanel(
                 .width(36.dp)
                 .height(4.dp)
                 .clip(CircleShape)
-                .drawBehind { drawRect(Color.White.copy(alpha = 0.28f)) },
+                .drawBehind { drawRect(OpenMapsColors.SurfaceBorder) },
         )
         Spacer(Modifier.height(10.dp))
         if (destination == null) {
-            Text(
-                text = stringResource(R.string.panel_title),
-                style = MaterialTheme.typography.titleMedium,
-                color = OpenMapsColors.TextPrimary,
-                modifier = Modifier.padding(bottom = 6.dp),
-            )
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            // Mockup discovery panel: centered "Explore Nearby Places" heading (whole row tappable,
+            // no chevron) above the category tiles.
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Column(Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(role = Role.Button, onClick = onExploreClicked)
+                        .padding(vertical = 6.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(
-                        text = destination.name.ifBlank { destination.displayName },
+                        text = stringResource(R.string.panel_title),
                         style = MaterialTheme.typography.titleMedium,
                         color = OpenMapsColors.TextPrimary,
-                    )
-                    Text(
-                        text = destination.subtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = OpenMapsColors.TextSecondary,
-                    )
-                    RouteSummaryLine(routeState)
-                }
-                IconButton(onClick = onClearDestination) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = stringResource(R.string.cd_clear_destination),
-                        tint = OpenMapsColors.TextSecondary,
+                        textAlign = TextAlign.Center,
                     )
                 }
+                Spacer(Modifier.height(10.dp))
+                ExploreCategoryTiles(onCategoryClicked = { onExploreCategoryClicked(it) })
             }
+        } else {
+            // Mockup Route Preview: the origin/destination fields now render at the top of the
+            // screen (see MapScreen's isRoutePreview branch) — this card holds only the route
+            // summary (duration, distance, arrival) and Start + Steps.
+            RouteSummaryLine(routeState)
+            Spacer(Modifier.height(12.dp))
+            NavigationControls(
+                canStart = canStart,
+                isNavigating = isNavigating,
+                navigationError = navigationError,
+                onSteps = onSteps,
+                onStart = onStart,
+                onStop = onStop,
+            )
         }
     }
 }
@@ -256,12 +505,29 @@ private fun RouteSummaryLine(routeState: RouteState) {
         RouteState.Idle -> Unit
         RouteState.WaitingForLocation -> RouteStatusText(stringResource(R.string.route_waiting_for_location))
         RouteState.Loading -> RouteLoadingRow()
-        is RouteState.Ready -> RouteStatusText(
-            text = "${formatDistance(routeState.route.distanceMeters)} · " +
-                "${formatDuration(routeState.route.durationSeconds)} · " +
-                "Arrive ${ArrivalTimeFormatter.format(routeState.route.durationSeconds, System.currentTimeMillis())}",
-            color = OpenMapsColors.ElectricBlue,
-        )
+        // Mockup Route Preview: a large duration/distance headline, then the arrival line beneath.
+        // No traffic/quality note here — OpenMaps has no traffic provider, so that line only ever
+        // appears if a real source ever supplies it (see docs/ARCHITECTURE.md road intelligence).
+        is RouteState.Ready -> {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = formatDuration(routeState.route.durationSeconds),
+                    style = MaterialTheme.typography.displaySmall,
+                    color = OpenMapsColors.TextPrimary,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = formatDistance(routeState.route.distanceMeters),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = OpenMapsColors.TextSecondary,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+            }
+            RouteStatusText(
+                text = "Arrive ${ArrivalTimeFormatter.format(routeState.route.durationSeconds, System.currentTimeMillis())}",
+                color = OpenMapsColors.TextSecondary,
+            )
+        }
         is RouteState.Error -> RouteStatusText(stringResource(routeState.reason.toMessageRes()))
     }
 }
@@ -345,7 +611,7 @@ fun LocationPromptCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .glass(GlassShapes.Card)
+            .surfaceCard(GlassShapes.Card)
             .padding(start = 18.dp, top = 14.dp, end = 6.dp, bottom = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.Top) {
@@ -415,7 +681,7 @@ fun LiveFallbackBanner(message: String, onDismiss: () -> Unit, modifier: Modifie
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .glass(GlassShapes.Pill)
+            .surfaceCard(GlassShapes.Pill)
             .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,

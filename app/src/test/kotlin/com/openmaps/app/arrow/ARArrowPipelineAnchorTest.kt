@@ -381,6 +381,35 @@ class ARArrowPipelineAnchorTest {
         assertFalse(pipeline.usingAnchors)
         assertNull(pipeline.degradedReason)
         assertEquals(0, pipeline.arrowCount())
+        assertEquals("section A8: no sampling has happened yet", 0, pipeline.sampledCount())
+    }
+
+    // endregion
+
+    // region Phase 12A, section A8: sampled/visible debug counters
+
+    @Test
+    fun sampledCount_isAtLeastTheVisibleArrowCount() {
+        // Sampling happens before projection/culling, so it can only ever be >= what is actually
+        // drawn — the debug overlay's "sampled N / visible N" relies on this ordering.
+        val pipeline = pipeline()
+        settled(pipeline, anchored = anchors(10.0, 40.0, 80.0, 120.0))
+        assertTrue(pipeline.arrowCount() > 0)
+        assertTrue(pipeline.sampledCount() >= pipeline.arrowCount())
+    }
+
+    @Test
+    fun sampledCount_resetsOnClearAndOnRouteReplaced() {
+        val pipeline = pipeline()
+        settled(pipeline, anchored = anchors(10.0, 40.0, 80.0))
+        assertTrue(pipeline.sampledCount() > 0)
+
+        pipeline.clear()
+        assertEquals(0, pipeline.sampledCount())
+
+        settled(pipeline, anchored = anchors(10.0, 40.0, 80.0))
+        pipeline.onRouteReplaced()
+        assertEquals(0, pipeline.sampledCount())
     }
 
     // endregion

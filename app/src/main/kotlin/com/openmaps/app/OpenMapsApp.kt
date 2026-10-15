@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -81,6 +82,9 @@ private fun AppShell(container: AppContainer) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val liveState by liveViewModel.uiState.collectAsStateWithLifecycle()
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
+    // Bumped to ask the search screen to start voice capture as soon as it appears. An incrementing
+    // counter rather than a boolean so tapping the home mic twice still re-arms the recognizer.
+    var voiceSearchRequest by rememberSaveable { mutableIntStateOf(0) }
 
     // Part A7: reactive (never timer-based) fallback from Live back to Map. Recomputed whenever
     // Live's camera permission/failure state changes; `MapViewModel.onLiveReadinessChanged` itself
@@ -177,6 +181,9 @@ private fun AppShell(container: AppContainer) {
             viewModel = viewModel,
             styleProvider = container.mapStyleProvider,
             onSearchClick = { overlay = Overlay.Search },
+            // Same real launcher as inside the search screen: the home mic and the search-screen mic
+            // are one feature, not two.
+            onVoiceSearchClick = { voiceSearchRequest++; overlay = Overlay.Search },
             onSettingsClick = { overlay = Overlay.Settings },
         )
 
@@ -202,6 +209,9 @@ private fun AppShell(container: AppContainer) {
                 roadIntelligenceState = state.roadIntelligenceState,
                 // Phase 11: the same active environment profile Map mode's camera/places/alerts read.
                 environmentProfile = state.activeProfile,
+                voiceEnabled = state.voiceEnabled,
+                onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
+                onStopNavigation = viewModel::stopNavigation,
             )
         }
 
@@ -217,6 +227,7 @@ private fun AppShell(container: AppContainer) {
                     viewModel.onDestinationSelected(result)
                     overlay = Overlay.None
                 },
+                autoStartVoiceSearch = voiceSearchRequest > 0,
             )
         }
 
@@ -230,6 +241,8 @@ private fun AppShell(container: AppContainer) {
                 styleSource = styleSource,
                 onBack = { overlay = Overlay.None },
                 onOpenAppSettings = { context.openAppSettings() },
+                voiceLanguage = state.voiceLanguage,
+                onVoiceLanguageChanged = viewModel::onVoiceLanguageChanged,
             )
         }
     }

@@ -69,9 +69,107 @@ openmaps.style.devOnly=false
 - ARCore is declared `optional`; the app installs and runs without it, and Live falls back to the CameraX preview.
 - **The default Pixel 8 AVD cannot test AR.** It reports no `android.hardware.camera.ar` feature and has no `com.google.ar.core` package installed, so `probeAvailability()` returns `NotInstalled`/`Unsupported` and Live stays on CameraX. This is a valid test of the fallback path, not of AR.
 - To verify AR for real you need a **physical ARCore-certified device** (Google Play Services for AR present). `adb shell pm list packages | grep google.ar` should show `com.google.ar.core`.
-- Debug builds show a small diagnostics overlay (AR state, horizontal/vertical/heading accuracy, coordinates) in the bottom-right of Live. Use it to tune `LocalizationQualityMapper` thresholds against real accuracy distributions.
+- Debug builds show a small diagnostics overlay in the bottom-right of Live, extended in Phase 12A:
+  which camera provider is active (`Camera: Spatial`/`CameraX`), a compact label naming the exact
+  ARCore condition (never a bare state name), horizontal/vertical/heading accuracy, coordinates,
+  active anchor counts, and arrow-pipeline counts. Use it to tune `LocalizationQualityMapper`
+  thresholds against real accuracy distributions.
 - Check `adb logcat -s ArCoreSpatialLoc` for session lifecycle and failures. Coordinates are never logged.
 - A black Live screen with a working camera permission almost always means AR was selected and then failed; check `PreviewProvider` fell back to `CameraX`.
+- **`AR: Idle` that never changes, even though the camera/HUD work fine**: the overlay's "Camera:"
+  line will read `CameraX` — the ARCore engine was never started at all. Phase 12A found and fixed
+  two real, 100%-reproducible causes of exactly this, confirmed on a physical Samsung device (see
+  ARCHITECTURE.md's "AR stuck at Idle" for the full trace with log evidence):
+  1. A transient `ArCoreApk.checkAvailability()` first result (`UNKNOWN_CHECKING`) being treated as
+     permanently unsupported. `LiveViewModel` now re-probes for ~1.5s and upgrades to the AR surface
+     if it resolves `Supported`.
+  2. `ArCoreSpatialLocalization` being constructed with the `Application` context, from which an
+     `Activity` can never be resolved — this made session creation fail **every single time**, with
+     no exception and no log line, which is what "AR: Session creation failed" with nothing further
+     used to mean. Now resolved from the `LifecycleOwner` passed to `start()` instead.
+  - If the overlay shows `AR: Session creation failed` with a real exception in `adb logcat -s
+    ArCoreSpatialLoc` mentioning `GooglePlayServicesLocationLibraryNotLinkedException`:
+    `play-services-location` is missing from `app/build.gradle.kts` (should already be present after
+    Phase 12A; if this still happens, check the dependency actually resolved).
+  - If the overlay shows `AR: Earth unavailable (not authorized)`: the session and Geospatial mode
+    both work, but this app is not authorized to call the ARCore Geospatial API, so `Earth` never
+    tracks and no anchor is ever created. This is **account provisioning, not a code bug** — it is
+    the only remaining blocker to AR arrows rendering. Follow
+    [ARCore Geospatial provisioning](#arcore-geospatial-provisioning-google-cloud) below, then
+    rebuild.
+
+## ARCore Geospatial provisioning (Google Cloud)
+
+ARCore's Geospatial mode is a **Google Cloud service**, not a local AR feature. Without an
+authorized API key the `Session` still starts and Geospatial still reports as configured, but
+`Earth` reports `ERROR_NOT_AUTHORIZED`, never tracks, and `Earth.createAnchor` is never called — so
+AR arrows silently never appear. This is the single remaining blocker to AR arrows.
+
+This is the **only** part of Phase 12A that needs a human with a Google account. The repository
+already carries the receiving end: `AndroidManifest.xml` declares the `com.google.android.ar.API_KEY`
+meta-data that ARCore reads, and `app/build.gradle.kts` injects its value.
+
+### What this project needs
+
+| Item | Value |
+|---|---|
+| Android package name | `com.openmaps.app` |
+| Debug signing certificate SHA-1 | `F2:D2:9F:2D:FE:0A:0A:90:80:58:3E:EC:3B:BB:5E:C2:9E:A9:A1:40` |
+| Debug signing certificate SHA-256 | `D7:26:66:B2:1D:AA:C3:45:BC:BA:EE:8B:DF:44:A7:89:9C:69:D2:27:CB:A4:C4:68:B7:D7:B3:28:BB:0E:CE:B0` |
+| Certificate DN | `C=US, O=Android, CN=Android Debug` |
+| API to enable | **ARCore API** |
+| Manifest meta-data | `com.google.android.ar.API_KEY` |
+
+> **Exact paste location:** the repository root `local.properties` file, on a line reading
+> `ARCORE_API_KEY=<your key>`. That file is already in `.gitignore` (`/local.properties`), so
+> the key cannot be committed by accident. Nothing needs editing in the app source — the manifest
+> entry and the Gradle manifest-placeholder plumbing are already committed.
+
+> The fingerprints above are from `~/.android/debug.keystore`. They are **machine-specific** — the
+> standard Android debug key is generated per machine. If you build on a different computer, get that
+> machine's fingerprints before creating the restriction:
+> ```powershell
+> keytool -list -v -keystore "$env:USERPROFILE\.android\debug.keystore" -storepass android -keypass android -alias androiddebugkey
+> ```
+> A **release** build signed by your own key needs a **second** API key restricted to the release
+> certificate, because the package+fingerprint pair must match the key actually signing the APK.
+
+### Google Cloud steps
+
+1. Open the [project selector](https://console.cloud.google.com/projectselector) and create a project
+   (or pick an existing one).
+2. Open **APIs & Services → Library**, search **ARCore API**, and click **Enable**.
+   - You do **not** need *Maps SDK for Android*. OpenMaps renders with MapLibre, so the separate
+     `com.google.android.geo.API_KEY` entry shown in Google's codelab does not apply here.
+3. **APIs & Services → Credentials → Create credentials → API key.** Copy the key.
+4. Edit the key → **Edit** → **API restrictions → Android apps** → **Add an item**:
+   - Package name: `com.openmaps.app`
+   - SHA-1 certificate fingerprint: `F2:D2:9F:2D:FE:0A:0A:90:80:58:3E:EC:3B:BB:5E:C2:9E:A9:A1:40`
+   - Then set **Application restrictions → Android apps** (not "None") and save.
+   - Keep **API restrictions → Restrict key → ARCore API**.
+   - If it still fails, Google's own troubleshooting page says to temporarily set restrictions to
+     **None** to prove the key itself works, then re-add them.
+5. Put the key in `local.properties` (git-ignored — never commit it):
+   ```properties
+   ARCORE_API_KEY=AIza...your_key_here
+   ```
+   Alternatives: `-PARCORE_API_KEY=...` or an `ARCORE_API_KEY` environment variable. Resolution
+   order is gradle property → environment variable → `local.properties`.
+6. Rebuild and reinstall: `.\gradlew.bat --stop`, `clean`, `assembleDebug`.
+7. Verify the key actually reached the APK:
+   ```powershell
+   D:\andriod\build-tools\36.0.0\aapt2.exe dump xmltree app\build\outputs\apk\debug\app-debug.apk --file AndroidManifest.xml | Select-String "API_KEY"
+   ```
+   (Substitute your SDK path.) Then outdoors, the Live overlay should stop reading
+   `AR: Earth unavailable (not authorized)`.
+
+### Two things this will still not fix
+
+- **ARCore privacy notice.** Google requires that apps using the Geospatial API *"present the user
+  with a prompt to acknowledge and allow the use of data from their device."* OpenMaps does not yet
+  show one. It does not affect functional testing, but it is a release blocker and is still open.
+- **Coverage.** Geospatial needs VPS coverage or a good open-sky GPS fix. VPS is not available
+  everywhere, and `Earth.trackingState` can stay non-`TRACKING` for reasons unrelated to authorization.
 
 ## AR route anchors and arrows (Phases 7/8)
 

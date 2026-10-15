@@ -12,6 +12,8 @@ import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PlaceCategoryMapper
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceState
+import com.openmaps.app.core.routing.RouteResult
+import com.openmaps.app.core.voice.VoiceLanguage
 import com.openmaps.app.map.CameraState
 import com.openmaps.app.map.MapError
 import com.openmaps.app.map.MapMode
@@ -76,6 +78,27 @@ data class MapUiState(
      * next entered successfully.
      */
     val liveFallbackMessage: String? = null,
+    /**
+     * Phase 12A, section D: the user tapped "Directions" again from Route Preview to review the
+     * destination without discarding the already-computed route. Shows [DestinationDetailsSheet]
+     * over an unchanged [routeState]/[selectedDestination] — distinct from
+     * [isShowingDestinationDetails], which only applies before a route has ever been requested.
+     */
+    val isReviewingDirections: Boolean = false,
+    /** Phase 12A, section B5: the "Explore what's around you" bottom sheet is open. */
+    val isExploreOpen: Boolean = false,
+    /** Mockup Route Preview: the "Steps" maneuver list is open over the route preview. */
+    val isShowingSteps: Boolean = false,
+    /**
+     * The route whose steps [isShowingSteps] is showing. Held alongside the flag rather than
+     * re-read from [routeState] so the list cannot silently change under the user if a reroute
+     * lands while it is open.
+     */
+    val stepsRouteSummary: RouteResult? = null,
+    /** Delta-spec section 25: the compact mute control in Live reads/writes this. */
+    val voiceEnabled: Boolean = true,
+    /** Delta-spec section 24: the selected navigation voice language, set from Settings. */
+    val voiceLanguage: VoiceLanguage = VoiceLanguage.EnglishUs,
 ) {
     /** The centralized Phase 11 tuning for [drivingEnvironment] — see `EnvironmentNavigationProfile`. */
     val activeProfile: EnvironmentNavigationProfile
@@ -102,6 +125,13 @@ data class MapUiState(
      */
     val isShowingDestinationDetails: Boolean
         get() = selectedDestination != null && routeState is RouteState.Idle && selectedPlace == null
+
+    /**
+     * Either the pre-route details step or a post-route "Directions" review ([isReviewingDirections])
+     * — both render [DestinationDetailsSheet], just with a different dismiss action (see `MapScreen`).
+     */
+    val isShowingAnyDestinationDetails: Boolean
+        get() = isShowingDestinationDetails || (isReviewingDirections && selectedDestination != null && selectedPlace == null)
 
     /** True while a trip is underway: following, off route, rerouting, or arrived. */
     val isNavigating: Boolean

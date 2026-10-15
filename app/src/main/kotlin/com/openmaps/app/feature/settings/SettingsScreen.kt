@@ -35,6 +35,7 @@ import com.openmaps.app.BuildConfig
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.location.LocationPermissionState
+import com.openmaps.app.core.voice.VoiceLanguage
 import com.openmaps.app.map.MapStyleSource
 
 @Composable
@@ -44,6 +45,9 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenAppSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Delta-spec section 24. Defaulted so every other existing caller/preview keeps compiling. */
+    voiceLanguage: VoiceLanguage = VoiceLanguage.EnglishUs,
+    onVoiceLanguageChanged: (VoiceLanguage) -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -104,6 +108,39 @@ fun SettingsScreen(
                 modifier = Modifier.padding(bottom = 8.dp),
             )
 
+            SectionHeader(stringResource(R.string.settings_section_navigation))
+            Text(
+                text = stringResource(R.string.settings_voice_language),
+                style = MaterialTheme.typography.bodyLarge,
+                color = OpenMapsColors.TextPrimary,
+                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+            )
+            VoiceLanguage.entries.forEach { language ->
+                val isSelected = language == voiceLanguage
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clickable(role = Role.RadioButton) { onVoiceLanguageChanged(language) }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(language.labelRes()),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isSelected) OpenMapsColors.ElectricBlue else OpenMapsColors.TextSecondary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (isSelected) {
+                        Text(
+                            text = stringResource(R.string.settings_voice_language_selected),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = OpenMapsColors.ElectricBlue,
+                        )
+                    }
+                }
+            }
+
             SectionHeader(stringResource(R.string.settings_section_about))
             SettingsRow(title = stringResource(R.string.app_name), value = stringResource(R.string.tagline))
             HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
@@ -111,6 +148,15 @@ fun SettingsScreen(
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+/** Delta-spec section 18: the five initial language/voice options. */
+private fun VoiceLanguage.labelRes(): Int = when (this) {
+    VoiceLanguage.EnglishUs -> R.string.settings_voice_language_en_us
+    VoiceLanguage.EnglishUk -> R.string.settings_voice_language_en_gb
+    VoiceLanguage.Spanish -> R.string.settings_voice_language_es
+    VoiceLanguage.French -> R.string.settings_voice_language_fr
+    VoiceLanguage.NigerianPidgin -> R.string.settings_voice_language_pidgin
 }
 
 private fun LocationPermissionState.label(): Int = when (this) {
