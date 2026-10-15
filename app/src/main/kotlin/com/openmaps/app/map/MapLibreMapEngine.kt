@@ -652,7 +652,7 @@ class MapLibreMapEngine(
         const val DESTINATION_MARKER_STROKE_WIDTH = 3f
         const val ROUTE_SOURCE_ID = "openmaps-route-source"
         const val ROUTE_LAYER_ID = "openmaps-route-layer"
-        const val ROUTE_LINE_WIDTH = 5f
+        const val ROUTE_LINE_WIDTH = 9f
         const val ROUTE_TRAVELED_SOURCE_ID = "openmaps-route-traveled-source"
         const val ROUTE_TRAVELED_LAYER_ID = "openmaps-route-traveled-layer"
 
