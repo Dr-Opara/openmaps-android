@@ -14,9 +14,13 @@ import com.openmaps.app.core.location.LocationRepository
 import com.openmaps.app.core.places.CompositePlaceRepository
 import com.openmaps.app.core.places.OverpassPlaceRepository
 import com.openmaps.app.core.places.PlaceRepository
+import com.openmaps.app.core.reporting.DriverReportRepository
+import com.openmaps.app.core.reporting.UnavailableDriverReportRepository
 import com.openmaps.app.core.roadintelligence.DefaultRoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.routing.RoutingRepository
+import com.openmaps.app.core.sharing.TripShareRepository
+import com.openmaps.app.core.sharing.UnavailableTripShareRepository
 import com.openmaps.app.core.routing.ValhallaRoutingRepository
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
 import com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization
@@ -36,6 +40,13 @@ class AppContainer(application: Application) {
         userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
     )
     val recentSearchStore: RecentSearchStore = SharedPreferencesRecentSearchStore(application)
+
+    /** Community reporting is intentionally unavailable until a moderated provider is connected. */
+    val driverReportRepository: DriverReportRepository = UnavailableDriverReportRepository()
+
+    /** Live trip sharing is intentionally unavailable until an expiring-token backend is connected. */
+    val tripShareRepository: TripShareRepository = UnavailableTripShareRepository()
+
     val routingRepository: RoutingRepository = ValhallaRoutingRepository(
         userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
     )
