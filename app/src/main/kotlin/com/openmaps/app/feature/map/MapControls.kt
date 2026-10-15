@@ -508,11 +508,21 @@ fun BottomPanel(
                 onPlaceSelected = onPlaceSelected,
             )
         } else {
-            // Mockup Route Preview: the origin/destination fields now render at the top of the
-            // screen (see MapScreen's isRoutePreview branch) — this card holds only the route
-            // summary (duration, distance, arrival) and Start + Steps.
-            RouteSummaryLine(routeState)
+            Text(
+                text = stringResource(R.string.route_preview_title),
+                style = MaterialTheme.typography.titleLarge,
+                color = OpenMapsColors.TextPrimary,
+                modifier = Modifier.align(Alignment.Start),
+            )
+            Text(
+                text = stringResource(R.string.route_preview_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+                color = OpenMapsColors.TextSecondary,
+                modifier = Modifier.align(Alignment.Start).padding(top = 2.dp),
+            )
             Spacer(Modifier.height(12.dp))
+            RoutePreviewSummary(routeState)
+            Spacer(Modifier.height(14.dp))
             NavigationControls(
                 canStart = canStart,
                 isNavigating = isNavigating,
@@ -797,6 +807,82 @@ private fun homeDistanceLabel(meters: Double): String {
 }
 
 private const val HOME_AHEAD_HALF_ANGLE_DEGREES = 55.0
+
+@Composable
+private fun RoutePreviewSummary(routeState: RouteState) {
+    when (routeState) {
+        RouteState.Idle -> Unit
+        RouteState.WaitingForLocation -> RouteStatusText(stringResource(R.string.route_waiting_for_location))
+        RouteState.Loading -> RouteLoadingRow()
+        is RouteState.Error -> RouteStatusText(stringResource(routeState.reason.toMessageRes()))
+        is RouteState.Ready -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                RouteMetricCard(
+                    value = formatDuration(routeState.route.durationSeconds),
+                    label = stringResource(R.string.route_preview_duration),
+                    modifier = Modifier.weight(1f),
+                )
+                RouteMetricCard(
+                    value = formatDistance(routeState.route.distanceMeters),
+                    label = stringResource(R.string.route_preview_distance),
+                    modifier = Modifier.weight(1f),
+                )
+                RouteMetricCard(
+                    value = ArrivalTimeFormatter.format(
+                        routeState.route.durationSeconds,
+                        System.currentTimeMillis(),
+                    ),
+                    label = stringResource(R.string.route_preview_arrival),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (routeState.route.maneuvers.isNotEmpty()) {
+                Text(
+                    text = stringResource(
+                        R.string.route_preview_turn_count,
+                        routeState.route.maneuvers.count { it.type != com.openmaps.app.core.routing.ManeuverType.Start &&
+                            it.type != com.openmaps.app.core.routing.ManeuverType.Continue &&
+                            it.type != com.openmaps.app.core.routing.ManeuverType.Destination },
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OpenMapsColors.TextSecondary,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteMetricCard(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            color = OpenMapsColors.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = OpenMapsColors.TextSecondary,
+            maxLines = 1,
+        )
+    }
+}
 
 /**
  * One compact line under the destination subtitle: loading, error, or "12 mi · 18 min · Arrive
