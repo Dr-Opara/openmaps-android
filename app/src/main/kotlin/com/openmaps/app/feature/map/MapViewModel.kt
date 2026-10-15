@@ -28,6 +28,10 @@ import com.openmaps.app.core.places.PlaceException
 import com.openmaps.app.core.places.PlaceRanking
 import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.places.RouteCorridor
+import com.openmaps.app.core.reporting.DriverReport
+import com.openmaps.app.core.reporting.DriverReportRepository
+import com.openmaps.app.core.reporting.DriverReportType
+import com.openmaps.app.core.reporting.UnavailableDriverReportRepository
 import com.openmaps.app.core.roadintelligence.RoadAlertActivation
 import com.openmaps.app.core.roadintelligence.RoadAlertHysteresis
 import com.openmaps.app.core.roadintelligence.RoadAlertPriority
@@ -40,6 +44,10 @@ import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.routing.RoutingException
 import com.openmaps.app.core.routing.RoutingRepository
+import com.openmaps.app.core.sharing.TripShareRepository
+import com.openmaps.app.core.sharing.TripShareRequest
+import com.openmaps.app.core.sharing.TripShareSession
+import com.openmaps.app.core.sharing.UnavailableTripShareRepository
 import com.openmaps.app.core.voice.NoopVoiceGuidanceEngine
 import com.openmaps.app.core.voice.VoiceAnnouncementPlanner
 import com.openmaps.app.core.voice.VoiceEvent
@@ -82,6 +90,8 @@ class MapViewModel(
     private val placesRepository: PlaceRepository,
     private val roadIntelligenceRepository: RoadIntelligenceRepository,
     private val roadClassRepository: RoadClassRepository,
+    private val driverReportRepository: DriverReportRepository = UnavailableDriverReportRepository(),
+    private val tripShareRepository: TripShareRepository = UnavailableTripShareRepository(),
     /** Delta-spec section 14. Defaults to a no-op so every existing test keeps working with no
      * voice at all; the real TTS engine is supplied by [AppContainer]. */
     private val voiceGuidanceEngine: VoiceGuidanceEngine = NoopVoiceGuidanceEngine(),
@@ -219,6 +229,8 @@ class MapViewModel(
     private var liveAutoFallbackArmed = false
 
     // endregion
+
+    private var activeTripShareSession: TripShareSession? = null
 
     // region Navigation session (Phase 4)
 
@@ -1232,6 +1244,75 @@ class MapViewModel(
         recomputeEnvironment()
     }
 
+    fun onDriverReportRequested(type: DriverReportType) {
+        val location = _uiState.value.currentLocation
+        if (location == null) {
+            _uiState.update { it.copy(driverReportStatus = ExternalActionStatus.Unavailable) }
+            return
+        }
+        _uiState.update { it.copy(driverReportStatus = ExternalActionStatus.Working) }
+        viewModelScope.launch {
+            driverReportRepository.submit(
+                DriverReport(
+                    type = type,
+                    location = location,
+                    createdAtMillis = System.currentTimeMillis(),
+                ),
+            ).onSuccess {
+                _uiState.update { it.copy(driverReportStatus = ExternalActionStatus.Success) }
+            }.onFailure {
+                _uiState.update { it.copy(driverReportStatus = ExternalActionStatus.Unavailable) }
+            }
+        }
+    }
+
+    fun onTripShareRequested() {
+        val state = _uiState.value
+        val destination = state.selectedDestination
+        val location = state.currentLocation
+        if (!state.isNavigating || destination == null || location == null) {
+            _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Unavailable) }
+            return
+        }
+        _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Working) }
+        val remainingSeconds = state.navigationProgress?.remainingDurationSeconds ?: 0.0
+        val expiresInMillis = maxOf(
+            MIN_TRIP_SHARE_EXPIRY_MILLIS,
+            (remainingSeconds * 1_000.0).toLong() + TRIP_SHARE_GRACE_MILLIS,
+        ).coerceAtMost(MAX_TRIP_SHARE_EXPIRY_MILLIS)
+        viewModelScope.launch {
+            tripShareRepository.createSession(
+                TripShareRequest(
+                    destination = destination,
+                    currentLocation = location,
+                    expiresAtMillis = System.currentTimeMillis() + expiresInMillis,
+                ),
+            ).onSuccess { session ->
+                activeTripShareSession = session
+                _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Success) }
+                eventChannel.send(MapUiEvent.ShareTripUrl(session.url))
+            }.onFailure {
+                _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Unavailable) }
+            }
+        }
+    }
+
+    fun onExternalActionStatusDismissed() {
+        _uiState.update {
+            it.copy(
+                driverReportStatus = ExternalActionStatus.Idle,
+                tripShareStatus = ExternalActionStatus.Idle,
+            )
+        }
+    }
+
+    private fun stopTripSharingIfNeeded() {
+        val session = activeTripShareSession ?: return
+        activeTripShareSession = null
+        viewModelScope.launch { tripShareRepository.stopSession(session) }
+        _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Idle) }
+    }
+
     /** Driver-requested alternative route using the same routing seam as automatic off-route recovery. */
     fun onManualRerouteRequested() {
         val state = _uiState.value
@@ -1244,6 +1325,7 @@ class MapViewModel(
 
     /** Explicit red Exit action: end the trip and return to Discover/Home, not Route Preview. */
     fun endNavigationToHome() {
+        stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
         rerouteInFlight = false
@@ -1279,6 +1361,7 @@ class MapViewModel(
 
     /** Ends the trip and returns the map to plain route browsing. Never touches the route itself. */
     fun stopNavigation() {
+        stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
         rerouteInFlight = false
@@ -1348,6 +1431,7 @@ class MapViewModel(
 
     /** Completes the arrival lifecycle and returns to the clean Discover/Home state. */
     private fun finishArrivalToHome() {
+        stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
         rerouteInFlight = false
@@ -1626,6 +1710,9 @@ class MapViewModel(
 
     companion object {
         const val DEFAULT_FIX_TIMEOUT_MILLIS = 20_000L
+        const val MIN_TRIP_SHARE_EXPIRY_MILLIS = 60 * 60 * 1_000L
+        const val TRIP_SHARE_GRACE_MILLIS = 30 * 60 * 1_000L
+        const val MAX_TRIP_SHARE_EXPIRY_MILLIS = 24 * 60 * 60 * 1_000L
         const val ARRIVAL_RETURN_HOME_DELAY_MILLIS = 6_000L
         const val INITIAL_USER_ZOOM = 15.0
         const val RECENTER_MIN_ZOOM = 14.0
