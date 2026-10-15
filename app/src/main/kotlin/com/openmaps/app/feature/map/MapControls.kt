@@ -81,32 +81,52 @@ fun MapModeToggle(
     modifier: Modifier = Modifier,
     transparent: Boolean = false,
 ) {
+    val container = if (transparent) {
+        OpenMapsColors.Navy950.copy(alpha = 0.36f)
+    } else {
+        Color.White.copy(alpha = 0.92f)
+    }
     Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier
+            .clip(GlassShapes.Pill)
+            .background(container)
+            .border(
+                1.dp,
+                if (transparent) Color.White.copy(alpha = 0.10f) else OpenMapsColors.SurfaceBorder,
+                GlassShapes.Pill,
+            )
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         MapMode.entries.forEach { mode ->
             val isSelected = mode == selected
-            val fill = when {
-                transparent && isSelected -> OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.78f)
-                transparent -> OpenMapsColors.Navy950.copy(alpha = 0.42f)
-                isSelected -> OpenMapsColors.ElectricBlueFilled
-                else -> OpenMapsColors.Navy900.copy(alpha = 0.86f)
-            }
             Box(
                 modifier = Modifier
-                    .heightIn(min = 36.dp)
+                    .heightIn(min = 34.dp)
                     .clip(GlassShapes.Pill)
-                    .background(fill)
-                    .border(1.dp, Color.White.copy(alpha = 0.10f), GlassShapes.Pill)
-                    .selectable(selected = isSelected, role = Role.RadioButton, onClick = { onSelected(mode) })
-                    .padding(horizontal = 18.dp),
+                    .background(
+                        when {
+                            isSelected -> OpenMapsColors.ElectricBlueFilled
+                            transparent -> Color.Transparent
+                            else -> Color.Transparent
+                        },
+                    )
+                    .selectable(
+                        selected = isSelected,
+                        role = Role.RadioButton,
+                        onClick = { onSelected(mode) },
+                    )
+                    .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = stringResource(if (mode == MapMode.Map) R.string.mode_map else R.string.mode_live),
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color.White,
+                    color = when {
+                        isSelected -> Color.White
+                        transparent -> Color.White
+                        else -> OpenMapsColors.TextSecondary
+                    },
                 )
             }
         }
@@ -131,10 +151,10 @@ fun MapSearchBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
+            .heightIn(min = 50.dp)
             .surfaceCard(GlassShapes.Pill)
             .clickable(role = Role.Button, onClick = onSearchClick)
-            .padding(start = 18.dp, end = 6.dp),
+            .padding(start = 16.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Filled.Search, contentDescription = null, tint = OpenMapsColors.TextSecondary)
@@ -371,12 +391,12 @@ fun RouteModeRow(
             val enabled = isDriving
             Row(
                 modifier = Modifier
-                    .weight(if (isDriving) 1.45f else 0.78f)
+                    .weight(1f)
                     .clip(GlassShapes.Pill)
                     // Mockup: only the selected (Driving) mode gets a filled pill; Transit/Walking
                     // sit directly on the card with no chip background.
                     .then(if (isDriving) Modifier.background(OpenMapsColors.ElectricBlueFilled) else Modifier)
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .padding(horizontal = 6.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -453,7 +473,7 @@ fun BottomPanel(
         modifier = modifier
             .fillMaxWidth()
             .surfaceCard(GlassShapes.Card)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
