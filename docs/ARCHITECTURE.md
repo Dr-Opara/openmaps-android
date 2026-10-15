@@ -635,20 +635,97 @@ Live degrades, it does not break:
 | Condition | Result |
 | --- | --- |
 | ARCore unsupported / not installed | `probeAvailability()` → CameraX from frame one; HUD silent |
+| ARCore availability still resolving (`Checking`, Phase 12A) | CameraX immediately, with a bounded (~1.5s) re-probe that upgrades to the AR surface if it resolves `Supported` before Live is perceived as ready — see "AR stuck at Idle" below |
 | Camera permission denied | existing Phase 5 permission panel |
 | Session creation fails | `Failed` → runtime guard flips to CameraX |
+| Geospatial mode unsupported on this device (Phase 12A) | checked via `Session.isGeospatialModeSupported` before `configure()`; `Failed(GeospatialUnsupported)` |
 | Earth unresolved (no network) | `Limited(PoorGeolocation)` → chip says "Improving accuracy…" |
+| Earth resolved but not yet tracking (Phase 12A) | `Limited(WaitingForEarth)` / `Limited(EarthPaused)` — distinct from a poor fix |
 | Poor GPS / poor VPS | `Limited` or `Tracking` with low quality → "Improving accuracy…" |
 | Background/foreground | session pause/resume tied to lifecycle; no duplicate session |
 
 Map mode is always available regardless: it never touches the AR engine.
 
+### AR stuck at "Idle" on a real device — root cause and fix (Phase 12A)
+
+Real-device testing (a Samsung Galaxy S26 Ultra, Android 16, ARCore service 1.57.262640093 already
+installed) found arrows never rendering, and the debug overlay permanently reading `AR: Idle` — not
+`Initializing`, not `Limited`, not `Failed`. Four distinct, successive, real issues were found and
+fixed or documented one at a time, each one uncovered only once the previous was resolved (confirmed
+live on the device at every step — section A1's rich diagnostics, below, were what made each one
+visible instead of the whole chain collapsing into one bare "Idle"):
+
+1. **The debug overlay's own placeholder was being mistaken for a real state.** `AR: Idle` is also
+   `collectAsState`'s `initial` value — if `ArCoreSpatialLocalization.start()` is never called at
+   all, the overlay shows that placeholder forever, not a real engine state. This was traced to
+   `LiveViewModel.chooseInitialProvider()` picking ARCore vs. CameraX **exactly once**, synchronously,
+   from a single `probeAvailability()` call; `ArCoreApk.checkAvailability()`'s `UNKNOWN_CHECKING` /
+   `UNKNOWN_TIMED_OUT` / `UNKNOWN_ERROR` are transient per Google's own documentation but were
+   previously all collapsed into `Unsupported`, which could permanently strand Live on CameraX with
+   ARCore never started. Fixed: `SpatialAvailability.Checking` is now its own value; `LiveViewModel`
+   still starts on CameraX when the first probe is `Checking` but launches a bounded re-probe
+   (`PROVIDER_RECHECK_ATTEMPTS` × `PROVIDER_RECHECK_DELAY_MILLIS`, ~1.5s) that upgrades to the AR
+   surface if a retry resolves `Supported`, reusing the same reactive `_previewProvider` mechanism
+   already used for the opposite direction. On the real device the probe actually resolved
+   `SUPPORTED_INSTALLED` immediately every time (confirmed via a temporary, now-permanent
+   `Log.i(TAG, "probeAvailability: $raw")`), so this specific device was never blocked by it — but it
+   is a real, fixed bug per Google's documented API contract, and the fix is retained.
+
+2. **`context.findActivityOrNull()` could never resolve an Activity, on any device, ever.**
+   `ArCoreSpatialLocalization` is constructed in `AppContainer` as `ArCoreSpatialLocalization(application)`
+   — the process-wide `Application` instance. `Application` extends `ContextWrapper`, but its own
+   `baseContext` bottoms out at a bare `ContextImpl`, never an `Activity`, so
+   `resumeSession()`'s `context.findActivityOrNull() == null` guard fired unconditionally and emitted
+   `Failed(SessionCreationFailed)` before ever constructing a `Session` — with no exception and
+   therefore no log line, which is why section A1's overlay previously could say only "Session
+   creation failed" with nothing further to go on. Confirmed live: before the fix, this fired on
+   every Live entry, 100% reproducibly. Fixed: the `LifecycleOwner` passed to `start()` is tried as
+   an `Activity` first (`(owner as? Activity) ?: context.findActivityOrNull()`) — in this
+   single-Activity app, `LocalLifecycleOwner.current` inside `MainActivity.setContent` already *is*
+   the hosting `ComponentActivity`, so this resolves correctly; the context-based lookup is kept only
+   as a defensive fallback.
+3. **ARCore's Geospatial mode requires Google Play Services Location linked into the app binary,
+   and it was never added as a dependency.** With (2) fixed, `Session.configure()` on the real
+   device threw `GooglePlayServicesLocationLibraryNotLinkedException` (full stack trace captured via
+   logcat): *"The Google Fused Location Provider for Android classes must be linked into the app's
+   binary when calling Session.configure() with Geospatial mode enabled."* `com.google.ar:core` does
+   not transitively pull this in. Fixed: added
+   `com.google.android.gms:play-services-location` (see `gradle/libs.versions.toml`,
+   `playServicesLocation`) to `app/build.gradle.kts`.
+4. **Remaining, NOT an app-code bug: no ARCore Geospatial API authorization configured for this
+   app.** With (2) and (3) fixed, the session now creates successfully and Geospatial mode enables
+   (confirmed via logcat: `"ARCore session created with Geospatial mode enabled"`) — but
+   `Earth.earthState` resolves to `ERROR_NOT_AUTHORIZED`, surfaced by the overlay as `AR: Earth
+   unavailable (not authorized) (fell back)`. `AndroidManifest.xml` has no
+   `com.google.android.ar.API_KEY` meta-data, and no Google Cloud project has had the ARCore
+   (Geospatial) API enabled with this app's package name and signing certificate (debug **and**
+   release) registered. This is **account/console provisioning, not a code fix** — the same category
+   as the dev-only Nominatim/Valhalla/Overpass endpoints this document already flags, except this one
+   blocks a feature entirely rather than just being unsuitable for production volume. Until it is
+   provisioned, no device — regardless of hardware — can get past this point, and AR arrows cannot
+   render. See "Open questions" for the action item.
+
+Two secondary diagnosability gaps were also closed: `resumeSession()`'s not-yet-resumed-lifecycle
+branch previously returned without emitting anything (now emits `Initializing`); and the existing
+mid-session AR-failure-falls-back-to-CameraX watcher (`LiveViewModel.startSpatialLocalization`) calls
+`spatialEngine.stop()`, which immediately overwrites the engine's own state with `Idle` — destroying
+the very failure reason the overlay needs to show the instant a fallback happens. Fixed by capturing
+it first into `LiveViewModel.lastSpatialFailure`, which the overlay prefers over a bare post-fallback
+`Idle` (labelled "(fell back)" so it is never confused with a live, in-progress state). `Earth.getTrackingState()`
+was also never inspected separately from `EarthState` (now is — see `WaitingForEarth`/`EarthPaused` above).
+
 ### Debug diagnostics
 
-`BuildConfig.DEBUG`-gated overlay showing AR state, horizontal/vertical/heading accuracy and the
-geospatial coordinates. Stripped from release by the `if (BuildConfig.DEBUG)` guard. Nothing logs
-location continuously — `ArCoreSpatialLocalization` logs only session lifecycle and failures, and no
-coordinate is ever written to logcat.
+`BuildConfig.DEBUG`-gated overlay in `LiveScreen.LocalDebugOverlay`, extended in Phase 12A to show
+the exact stopping point rather than a bare state name: which `PreviewProvider` is active, a compact
+label naming the precise ARCore condition (`arStateLabel` — e.g. "Waiting for Earth", "Geospatial
+disabled", "Anchorable"), horizontal/vertical/heading accuracy and geospatial coordinates, active
+anchor counts (`RouteAnchorManager.size`/`createdCount`/`detachedCount`) and arrow-pipeline counts
+(`ARArrowPipeline.sampledCount()`/`arrowCount()`/`usingAnchors`/`degradedReason`) — all of which
+already existed as instrumentation but were never surfaced anywhere before Phase 12A. Stripped from
+release by the `if (BuildConfig.DEBUG)` guard. Nothing logs location continuously —
+`ArCoreSpatialLocalization` logs only session lifecycle and failures, and no coordinate is ever
+written to logcat.
 
 ## Phase 8 output contract
 
@@ -777,11 +854,17 @@ category set, deduplicated and in a stable (and therefore cache-friendly) order.
 | `Restaurant` | `amenity=restaurant`, `amenity=fast_food` |
 | `Coffee` | `amenity=cafe` |
 | `Hotel` | `tourism=hotel`, `tourism=motel`, `tourism=guest_house` |
-| `Grocery` | `shop=supermarket`, `shop=convenience`, `shop=grocery` |
+| `Grocery` | `shop=supermarket`, `shop=grocery` |
 | `Pharmacy` | `amenity=pharmacy` |
 | `Parking` | `amenity=parking` |
 | `Gas` | `amenity=fuel` |
 | `EvCharging` | `amenity=charging_station` |
+| `Bank` (Phase 12A) | `amenity=bank` |
+| `Atm` (Phase 12A) | `amenity=atm` |
+| `Convenience` (Phase 12A) | `shop=convenience` — split out of `Grocery`, which previously misfiled it |
+| `Medical` (Phase 12A) | `amenity=clinic`, `amenity=hospital`, `amenity=doctors` |
+| `Entertainment` (Phase 12A) | `amenity=cinema`, `amenity=theatre`, `tourism=attraction` |
+| `Shopping` (Phase 12A) | A curated `shop=*` subset: `mall`, `department_store`, `clothes`, `shoes`, `electronics` — not every retail tag OSM has |
 
 ### Caching
 
@@ -925,6 +1008,33 @@ existing `onDestinationSelected` — **the same destination/route path Search al
 second routing system. `PlaceCategoryFilterRow` is the "lightweight toggles" this phase calls for:
 one chip per category (not a grouped taxonomy), client-side only (see Nearby/route-aware filtering
 above).
+
+### Nearby Explore sheet and sponsored-listing seam (Phase 12A)
+
+"Explore what's around you" (`BottomPanel`'s no-destination label) was plain text until Phase 12A —
+tapping it did nothing. It now calls `MapViewModel.onExploreRequested()`, which opens
+`NearbyExploreSheet` (new file, `feature/map/NearbyExploreSheet.kt`) and, only when there is
+genuinely nothing loaded yet (no `Ready`/`Loading` `PlacesState`), forces one fetch from the
+**current real device location** — never the selected destination or a default coordinate.
+
+The sheet deliberately reuses existing state rather than inventing a parallel filter/list concept:
+its category tabs are the same `PlaceCategoryFilterRow`/`placeCategoryFilters` the map's own chips
+use, and its results are `MapUiState.visiblePlaces` — the same ranked/capped list already driving
+map markers, so a card and its map marker can never disagree. Each card shows only fields the
+provider actually supplied (name, category, straight-line distance labeled "away", address,
+open/closed only when `openNow != null` — never a fabricated rating, review, photo or hours) and two
+actions, "Details" (`onPlaceSelected`) and "Navigate" (`onNavigateToPlace`), both the exact same
+calls `PlaceDetailsSheet`'s map-marker flow already used — no second routing system. Results scroll
+horizontally in a `LazyRow` (swipeable by construction, no new dependency). Presented as the same
+non-modal inline glass card `DestinationDetailsSheet`/`PlaceDetailsSheet` already use, rather than
+introducing this codebase's first `ModalBottomSheet`.
+
+**Future sponsored-listing seam, not an ads feature.** `Place.promotionType: PromotionType` (`Organic`
+| `Sponsored`) exists so a future paid-listing provider has one field to check rather than needing a
+retrofit later. `OverpassResponseParser` never produces anything but `Organic` — OSM has no concept
+of a sponsored listing — and nothing in ranking, caching or fetching reads this field. The nearby
+card renders a "Sponsored" label only `if (promotionType == Sponsored)`, which is unreachable today.
+No payment code, no advertiser dashboard, no ranking change.
 
 ### Visual density
 
@@ -1208,10 +1318,24 @@ bounds-fitted camera, and a summary card with distance, duration and arrival tim
 state update, so the camera-first view opens automatically and can never open on top of a navigation
 error. If the camera then proves unusable, `onLiveReadinessChanged` moves the user **back to Map** with
 a short reason — navigation itself is never blocked. `MapViewModel.onModeSelected` disarms that
-fallback, so a manual mode choice is never overridden.
+fallback, so a manual mode choice is never overridden. **`startNavigation()` itself is unmodified by
+Phase 12A below** — the Route Preview UI changed, not this sequence.
 
 `LiveReadiness` is deliberately three-way (`Pending` / `Ready` / `Unusable`) rather than a boolean:
 `Pending` must be allowed to resolve, because a fresh permission prompt is not a denial.
+
+**Route Preview action block (Phase 12A).** Real-device testing found Start rendered as a small,
+right-aligned `TextButton`, easy to miss, and only reachable once a route had already loaded — a
+destination with a route still `Loading` showed no Start affordance at all. `NavigationControls`
+(called from inside `BottomPanel`'s own glass card, not as a separate floating row — "the same
+visible action block") now renders a two-button row once a destination exists and the trip hasn't
+started: a secondary **Directions** button (`onDirectionsReviewRequested` — re-opens Destination
+Details to review the destination **without discarding the already-computed route**, tracked by
+`MapUiState.isReviewingDirections`; dismissing it returns to Route Preview via
+`onDirectionsReviewDismissed` rather than clearing the destination) and a primary, filled, white-
+on-`ElectricBlueFilled` **Start** button with a ≥48dp touch target — visible (disabled) from the
+moment a destination exists, not only once `canStartNavigation` becomes true. Mid-trip still shows
+just "End", unchanged.
 
 ### Environment classification
 

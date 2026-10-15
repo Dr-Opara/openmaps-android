@@ -22,10 +22,16 @@ import com.openmaps.app.core.navigation.RouteProgress
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PlaceCategoryMapper
+import com.openmaps.app.core.places.PlaceQueryResult
+import com.openmaps.app.core.places.PlaceSource
 import com.openmaps.app.core.places.PlaceException
 import com.openmaps.app.core.places.PlaceRanking
 import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.places.RouteCorridor
+import com.openmaps.app.core.reporting.DriverReport
+import com.openmaps.app.core.reporting.DriverReportRepository
+import com.openmaps.app.core.reporting.DriverReportType
+import com.openmaps.app.core.reporting.UnavailableDriverReportRepository
 import com.openmaps.app.core.roadintelligence.RoadAlertActivation
 import com.openmaps.app.core.roadintelligence.RoadAlertHysteresis
 import com.openmaps.app.core.roadintelligence.RoadAlertPriority
@@ -38,6 +44,16 @@ import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.routing.RoutingException
 import com.openmaps.app.core.routing.RoutingRepository
+import com.openmaps.app.core.sharing.TripShareRepository
+import com.openmaps.app.core.sharing.TripShareRequest
+import com.openmaps.app.core.sharing.TripShareSession
+import com.openmaps.app.core.sharing.UnavailableTripShareRepository
+import com.openmaps.app.core.voice.NoopVoiceGuidanceEngine
+import com.openmaps.app.core.voice.VoiceAnnouncementPlanner
+import com.openmaps.app.core.voice.VoiceEvent
+import com.openmaps.app.core.voice.VoiceGuidanceEngine
+import com.openmaps.app.core.voice.VoiceGuidancePrefs
+import com.openmaps.app.core.voice.VoiceLanguage
 import com.openmaps.app.feature.live.LiveReadiness
 import com.openmaps.app.map.CameraState
 import com.openmaps.app.map.MapCommand
@@ -74,10 +90,22 @@ class MapViewModel(
     private val placesRepository: PlaceRepository,
     private val roadIntelligenceRepository: RoadIntelligenceRepository,
     private val roadClassRepository: RoadClassRepository,
+    private val driverReportRepository: DriverReportRepository = UnavailableDriverReportRepository(),
+    private val tripShareRepository: TripShareRepository = UnavailableTripShareRepository(),
+    /** Delta-spec section 14. Defaults to a no-op so every existing test keeps working with no
+     * voice at all; the real TTS engine is supplied by [AppContainer]. */
+    private val voiceGuidanceEngine: VoiceGuidanceEngine = NoopVoiceGuidanceEngine(),
+    /** Null in tests (no Android `Context` there); the real instance is supplied by [AppContainer]. */
+    private val voiceGuidancePrefs: VoiceGuidancePrefs? = null,
     private val fixTimeoutMillis: Long = DEFAULT_FIX_TIMEOUT_MILLIS,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(MapUiState())
+    private val _uiState = MutableStateFlow(
+        MapUiState(
+            voiceEnabled = voiceGuidancePrefs?.isEnabled() ?: true,
+            voiceLanguage = voiceGuidancePrefs?.language() ?: VoiceLanguage.EnglishUs,
+        ),
+    )
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
 
     /** Live bearing in degrees [-180, 180); separate from [uiState] to avoid per-frame recomposition. */
@@ -161,6 +189,33 @@ class MapViewModel(
 
     // endregion
 
+    // region Voice guidance (delta-spec sections 14-26)
+
+    /**
+     * Decides *when* a maneuver/approach announcement should fire (section 16's dedup rules).
+     * Per-trip, like [environmentHysteresis] — reset on a fresh `startNavigation()` and on a
+     * successful reroute, since both produce a new set of maneuvers nothing has been announced for
+     * yet.
+     */
+    private val voicePlanner = VoiceAnnouncementPlanner()
+
+    /** Delta-spec section 25: the compact mute control in Live. Persisted via [voiceGuidancePrefs]. */
+    fun onVoiceMuteToggled() {
+        val enabled = !_uiState.value.voiceEnabled
+        voiceGuidanceEngine.setEnabled(enabled)
+        voiceGuidancePrefs?.setEnabled(enabled)
+        _uiState.update { it.copy(voiceEnabled = enabled) }
+    }
+
+    /** Delta-spec section 24: Settings > Navigation > Voice Language. */
+    fun onVoiceLanguageChanged(language: VoiceLanguage) {
+        voiceGuidanceEngine.setLanguage(language)
+        voiceGuidancePrefs?.setLanguage(language)
+        _uiState.update { it.copy(voiceLanguage = language) }
+    }
+
+    // endregion
+
     // region Start -> Live (Phase 11)
 
     /**
@@ -174,6 +229,8 @@ class MapViewModel(
     private var liveAutoFallbackArmed = false
 
     // endregion
+
+    private var activeTripShareSession: TripShareSession? = null
 
     // region Navigation session (Phase 4)
 
@@ -244,10 +301,15 @@ class MapViewModel(
     }
 
     fun onModeSelected(mode: MapMode) {
-        // A manual mode choice always supersedes the automatic Start -> Live switch (section A7):
-        // once the user has acted, repeated camera-readiness checks must not yank the mode back.
+        // Switching Map <-> Live during an active trip must not restart the route.
         liveAutoFallbackArmed = false
-        _uiState.update { it.copy(selectedMapMode = mode, liveFallbackMessage = null) }
+        _uiState.update {
+            it.copy(
+                selectedMapMode = mode,
+                selectedNavigationMode = if (mode == MapMode.Live) NavigationMode.Live else NavigationMode.Map,
+                liveFallbackMessage = null,
+            )
+        }
     }
 
     /**
@@ -384,16 +446,67 @@ class MapViewModel(
         // result landing after this would show Route Preview for the new pin with the old route.
         routeJob?.cancel()
         routeJob = null
-        _uiState.update { it.copy(selectedDestination = result, routeState = RouteState.Idle) }
+        _uiState.update {
+            it.copy(
+                selectedDestination = result,
+                routeOriginOverride = null,
+                routeState = RouteState.Idle,
+                isReviewingDirections = false,
+                // Picking a destination (including from a Nearby Explore card) always returns to
+                // the main destination flow — the Explore sheet must not linger underneath it.
+                isExploreOpen = false,
+            )
+        }
         moveCamera(CameraState(result.latitude, result.longitude, DESTINATION_ZOOM), durationMillis = 900)
+    }
+
+    /** Route Preview origin editor: choose an address instead of the device's current location. */
+    fun onRouteOriginSelected(result: SearchResult) {
+        routeJob?.cancel()
+        routeJob = null
+        _uiState.update { it.copy(routeOriginOverride = result, routeState = RouteState.Idle) }
+        requestRoute()
+    }
+
+    /** Route Preview destination editor: replace the destination and immediately recalculate. */
+    fun onRouteDestinationSelected(result: SearchResult) {
+        routeJob?.cancel()
+        routeJob = null
+        _uiState.update {
+            it.copy(
+                selectedDestination = result,
+                routeState = RouteState.Idle,
+                isReviewingDirections = false,
+                selectedPlace = null,
+            )
+        }
+        moveCamera(CameraState(result.latitude, result.longitude, DESTINATION_ZOOM), durationMillis = 600)
+        requestRoute()
     }
 
     /**
      * Part A4: "Directions" — computes the route and shows Route Preview, while staying in Map
-     * mode. The only thing that turns a selected destination into a requested route.
+     * mode. The only thing that turns a selected destination into a requested route. Also doubles
+     * as the "Directions" review sheet's own action (section D): recomputing the same
+     * origin/destination is idempotent, so reusing this one routing path rather than adding a
+     * second is deliberate (B7's "no second routing system", applied to D as well).
      */
     fun onDirectionsRequested() {
+        _uiState.update { it.copy(isReviewingDirections = false) }
         requestRoute()
+    }
+
+    /**
+     * Phase 12A, section D: re-opens Destination Details from Route Preview to review the
+     * destination, WITHOUT discarding the already-computed route — [routeState] is untouched.
+     */
+    fun onDirectionsReviewRequested() {
+        _uiState.update { it.copy(isReviewingDirections = true) }
+    }
+
+    /** Returns from the review sheet to Route Preview; the route is still exactly as it was. */
+    fun onDirectionsReviewDismissed() {
+        _uiState.update { it.copy(isReviewingDirections = false) }
     }
 
     /** Clears the destination marker, summary and any route (in flight or loaded). */
@@ -402,7 +515,14 @@ class MapViewModel(
         routeJob = null
         // Clearing the destination ends any trip: the route it was navigating is gone.
         stopNavigation()
-        _uiState.update { it.copy(selectedDestination = null, routeState = RouteState.Idle) }
+        _uiState.update {
+            it.copy(
+                selectedDestination = null,
+                routeOriginOverride = null,
+                routeState = RouteState.Idle,
+                isReviewingDirections = false,
+            )
+        }
     }
 
     // endregion
@@ -421,16 +541,20 @@ class MapViewModel(
      */
     private fun requestRoute() {
         routeJob?.cancel()
-        val destination = _uiState.value.selectedDestination ?: return
-        val origin = _uiState.value.currentLocation
-        if (origin == null) {
+        val state = _uiState.value
+        val destination = state.selectedDestination ?: return
+        val originOverride = state.routeOriginOverride
+        val deviceOrigin = state.currentLocation
+        if (originOverride == null && deviceOrigin == null) {
             _uiState.update { it.copy(routeState = RouteState.WaitingForLocation) }
             return
         }
+        val originCoordinate = originOverride?.let { Coordinate(it.latitude, it.longitude) }
+            ?: Coordinate(deviceOrigin!!.latitude, deviceOrigin.longitude)
         _uiState.update { it.copy(routeState = RouteState.Loading) }
         routeJob = viewModelScope.launch {
             routingRepository.route(
-                origin = Coordinate(origin.latitude, origin.longitude),
+                origin = originCoordinate,
                 destination = Coordinate(destination.latitude, destination.longitude),
             ).onSuccess { route ->
                 _uiState.update { it.copy(routeState = RouteState.Ready(route)) }
@@ -486,6 +610,26 @@ class MapViewModel(
     }
 
     /**
+     * Delta-spec section 6: "Start" from Place Details. If this exact place is already the
+     * `Ready` destination (the user already requested Directions for it earlier in the session),
+     * starts navigation immediately — otherwise behaves exactly like [onNavigateToPlace] (computes
+     * the route into Route Preview, where the real Start lives). Never a second routing system:
+     * both branches reuse [onDestinationSelected]/[onDirectionsRequested]/[startNavigation]
+     * unchanged.
+     */
+    fun onStartFromPlace(place: Place) {
+        val state = _uiState.value
+        val isAlreadyRoutedHere = state.routeState is RouteState.Ready &&
+            state.selectedDestination?.let { it.latitude == place.latitude && it.longitude == place.longitude } == true
+        if (isAlreadyRoutedHere) {
+            onPlaceSelected(null)
+            onStartNavigationRequested()
+        } else {
+            onNavigateToPlace(place)
+        }
+    }
+
+    /**
      * Not navigating: nearby places around the user, refetched only once the user has moved far
      * enough (see [NEARBY_REFETCH_DISTANCE_METERS]) — never on every fix. A no-op while navigating:
      * that case is driven by the route instead (see [fetchPlacesAlongRoute]).
@@ -498,13 +642,183 @@ class MapViewModel(
             Coordinate(location.latitude, location.longitude),
         ) >= NEARBY_REFETCH_DISTANCE_METERS
         if (!movedEnough) return
+        fetchNearbyPlacesAt(location, PlaceCategoryMapper.supportedCategories)
+    }
+
+    /**
+     * The actual nearby-places request, factored out of [maybeFetchNearbyPlaces] so
+     * [onExploreRequested] can force one immediately on a cold open without duplicating the query.
+     */
+    private fun fetchNearbyPlacesAt(location: UserLocation, categories: Set<PlaceCategory>) {
         lastPlacesFetchLocation = location
-        fetchPlaces {
-            placesRepository.nearbyPlaces(
-                center = Coordinate(location.latitude, location.longitude),
-                radiusMeters = NEARBY_RADIUS_METERS,
-                categories = PlaceCategoryMapper.supportedCategories,
-            )
+        val center = Coordinate(location.latitude, location.longitude)
+        fetchPlaces(categories) {
+            adaptiveNearby(center, categories)
+        }
+    }
+
+    /**
+     * Nearby fetch with an **adaptive radius**: start tight (~1.2 km — a dense-urban default) and
+     * widen only when the tighter query genuinely came back **empty**.
+     *
+     * The previous fixed 3 km asked a public, frequently-degraded instance for a large area on
+     * every tap. Widening on demand keeps the common case cheap and only pays for area when the
+     * neighbourhood really is sparse. A *failure* never widens — retrying a broken provider over a
+     * bigger area only multiplies the wait.
+     */
+    private suspend fun adaptiveNearby(
+        center: Coordinate,
+        categories: Set<PlaceCategory>,
+    ): Result<PlaceQueryResult> {
+        var radius = NEARBY_RADIUS_METERS_PRIMARY
+        repeat(MAX_RADIUS_EXPANSIONS) {
+            lastNearbyRadiusMeters = radius
+            val result = placesRepository.nearbyPlaces(center, radius, categories)
+            // Failure, results, or the widest radius reached: done either way.
+            if (result.isFailure) return result
+            if (result.getOrThrow().places.isNotEmpty() || radius >= NEARBY_RADIUS_METERS_MAX) return result
+            radius = (radius * NEARBY_RADIUS_GROWTH).coerceAtMost(NEARBY_RADIUS_METERS_MAX)
+        }
+        return placesRepository.nearbyPlaces(center, NEARBY_RADIUS_METERS_MAX, categories)
+    }
+
+    /**
+     * The radius the last nearby fetch actually used. Exposed for tests and diagnostics; Phase 12B
+     * makes the radius adaptive rather than a single fixed value.
+     */
+    internal var lastNearbyRadiusMeters: Double = NEARBY_RADIUS_METERS_PRIMARY
+        private set
+
+    /**
+     * Phase 12A, section B5: opens the Nearby/Explore sheet from the current real device location
+     * (section B1 — never the destination or a default). Forces one fetch immediately only when
+     * there is genuinely nothing to show yet, so a cold open never reads as a no-op (B4/B9);
+     * otherwise this relies on [maybeFetchNearbyPlaces]'s already-running cadence and
+     * [com.openmaps.app.core.places.PlaceCache] (B10) exactly like every other places fetch.
+     */
+    fun onExploreRequested() {
+        _uiState.update { it.copy(isExploreOpen = true) }
+        val state = _uiState.value
+        val location = state.currentLocation
+        if (location != null && state.placesState !is PlacesState.Ready && state.placesState !is PlacesState.Loading) {
+            fetchNearbyPlacesAt(location, state.placeCategoryFilters)
+        }
+    }
+
+    /**
+     * "Directions" from Place Details (a nearby POI), landing in **Route Preview**.
+     *
+     * Distinct from [onNavigateToPlace], which also selected the destination. Here the destination is
+     * already set — the user tapped the place and saw its details — so this only computes the route
+     * and hands over to Route Preview. It deliberately never starts navigation.
+     */
+    fun onDirectionsRequestedForPlace(place: Place) {
+        val state = _uiState.value
+        val isAlreadyThisPlace = state.selectedDestination?.let {
+            it.latitude == place.latitude && it.longitude == place.longitude
+        } == true
+        if (!isAlreadyThisPlace) {
+            _uiState.update { it.copy(selectedDestination = place.toSearchResult(), selectedPlace = null, isExploreOpen = false) }
+        } else {
+            _uiState.update { it.copy(selectedPlace = null, isExploreOpen = false) }
+        }
+        onDirectionsRequested()
+    }
+
+    /**
+ * Retry after a nearby-places provider failure.
+ *
+ * Clears the failed state first so the sheet immediately shows the loading spinner again rather
+ * than leaving the user staring at the error while the request runs.
+ */
+    fun onExploreRetryRequested() {
+        _uiState.update { it.copy(placesState = PlacesState.Idle) }
+        onExploreRequested()
+    }
+
+    fun onExploreDismissed() {
+        _uiState.update { it.copy(isExploreOpen = false) }
+    }
+
+    /**
+     * A discovery tile in the home panel was tapped (mockup: Food / Gas / Hotels / Parking).
+     *
+     * Opens Explore **already narrowed to that one category**, rather than opening the full list and
+     * making the user repeat the filter. Narrowing here rather than in the sheet keeps a single
+     * filter concept — the same `placeCategoryFilters` the map chips drive — so the chips, the
+     * Explore sheet and this tile never disagree about what is selected.
+     */
+    fun onExploreCategoryClicked(category: PlaceCategory) {
+        _uiState.update { it.copy(placeCategoryFilters = setOf(category), isExploreOpen = true) }
+        val location = _uiState.value.currentLocation
+        if (location != null && _uiState.value.placesState !is PlacesState.Ready) {
+            fetchNearbyPlacesAt(location, setOf(category))
+        }
+    }
+
+    /**
+     * A single category chip was toggled. Phase 12B: this fetches **only** the categories on screen
+     * rather than the whole taxonomy — tapping "Gas" must not issue a 26-selector query.
+     */
+    fun onCategoryChipToggled(category: PlaceCategory) {
+        val current = _uiState.value.placeCategoryFilters
+        val next = if (category in current) current - category else current + category
+        _uiState.update { it.copy(placeCategoryFilters = next) }
+        recomputeVisiblePlaces()
+
+        if (next.isEmpty()) return // nothing selected: pure filtering, nothing to search for
+        if (_uiState.value.isNavigating) return // route drives places while navigating
+        _uiState.value.currentLocation?.let { fetchNearbyPlacesAt(it, next) }
+    }
+
+    /**
+     * "Steps" on Route Preview: reveal the route's maneuver list before starting.
+     *
+     * Purely presentational — it reads the already-computed [RouteState.Ready] route and never
+     * re-requests one, so it cannot race or replace the route the user is about to drive. With no
+     * route yet there is nothing to list, so it is a no-op rather than a fetch.
+     */
+    fun onStepsRequested() {
+        val route = (_uiState.value.routeState as? RouteState.Ready)?.route ?: return
+        _uiState.update { it.copy(isShowingSteps = true, stepsRouteSummary = route) }
+    }
+
+    fun onStepsDismissed() {
+        // Clears the held route as well as the flag: leaving it would keep a stale RouteResult
+        // alive for the rest of the session, and [onStepsRequested] re-reads from [RouteState]
+        // anyway, so nothing needs it once the sheet is closed.
+        _uiState.update { it.copy(isShowingSteps = false, stepsRouteSummary = null) }
+    }
+
+    /**
+     * The mockup's blue circular "navigate" action on the map.
+     *
+     * Reuses the existing recenter path rather than inventing a second camera entry point: with a
+     * route ready it recenters and resumes following (so the driver is looking at the road ahead),
+     * and with no route it is plain recenter. Either way there is exactly one implementation of
+     * "point the map at me".
+     */
+    fun onNavigationActionClicked() {
+        onRecenterClicked()
+    }
+
+    /**
+     * "Start" pressed on Destination Details.
+     *
+     * With a route already computed for this exact destination it starts immediately; otherwise it
+     * computes the route first and the user lands in Route Preview, where the real Start lives. The
+     * flow therefore never skips Route Preview, and this is deliberately the same policy as
+     * [onStartFromPlace] for nearby places — one rule, not two.
+     */
+    fun onStartRequestedFromDestination(destination: SearchResult) {
+        val state = _uiState.value
+        val alreadyRoutedHere = state.routeState is RouteState.Ready &&
+            state.selectedDestination?.let { it.latitude == destination.latitude && it.longitude == destination.longitude } == true
+        if (alreadyRoutedHere) {
+            startNavigation()
+        } else {
+            onDestinationSelected(destination)
+            onDirectionsRequested()
         }
     }
 
@@ -514,29 +828,47 @@ class MapViewModel(
      * covers the whole route's bounding box (capped — see `OverpassPlaceRepository`).
      */
     private fun fetchPlacesAlongRoute(route: RouteResult) {
-        fetchPlaces {
+        fetchPlaces(PlaceCategoryMapper.supportedCategories) {
+            // Route-corridor places are a plain list (no cache/provenance involved on that path), so
+            // it is lifted into the same wrapper every other fetch returns.
             placesRepository.placesAlongRoute(
                 routeGeometry = route.geometry,
                 corridorMeters = ROUTE_CORRIDOR_METERS,
                 categories = PlaceCategoryMapper.supportedCategories,
-            )
+            ).map { places -> PlaceQueryResult(places, PlaceSource.Network) }
         }
     }
 
     /**
-     * Shared fetch plumbing: cancels any in-flight request first (only the latest call's result
-     * can land), and a failure never clears a result that is already showing — places are additive
-     * context, never a core dependency (see "Network/failure handling" in ARCHITECTURE.md).
+     * Shared fetch plumbing: cancels any in-flight request first (only the latest call's result can
+     * land), and a failure never clears a result that is already showing — places are additive
+     * context, never a core dependency.
+     *
+     * [categories] is carried into [PlacesState.Loading] so the sheet can name what it is looking
+     * for ("Finding nearby restaurants…") instead of a generic message.
      */
-    private fun fetchPlaces(request: suspend () -> Result<List<Place>>) {
+    private fun fetchPlaces(
+        categories: Set<PlaceCategory>,
+        request: suspend () -> Result<PlaceQueryResult>,
+    ) {
         placesJob?.cancel()
         if (_uiState.value.placesState !is PlacesState.Ready) {
-            _uiState.update { it.copy(placesState = PlacesState.Loading) }
+            _uiState.update { it.copy(placesState = PlacesState.Loading(categories)) }
         }
         placesJob = viewModelScope.launch {
             request()
-                .onSuccess { places ->
-                    _uiState.update { it.copy(placesState = PlacesState.Ready(places)) }
+                .onSuccess { result ->
+                    // Provenance comes straight from the result, so cached/stale data is never shown
+                    // as if it were live.
+                    _uiState.update {
+                        it.copy(
+                            placesState = PlacesState.Ready(
+                                places = result.places,
+                                fromCache = result.isCached,
+                                stale = result.source == PlaceSource.StaleCache,
+                            ),
+                        )
+                    }
                     recomputeVisiblePlaces()
                 }
                 .onFailure { cause ->
@@ -817,6 +1149,48 @@ class MapViewModel(
      * never moves. The route must also carry maneuvers — a route the provider returned without
      * them can't drive a maneuver banner.
      */
+    /** Route Preview chooses the experience before a trip begins. */
+    fun onNavigationModeSelected(mode: NavigationMode) {
+        _uiState.update {
+            it.copy(
+                selectedNavigationMode = mode,
+                isLiveSafetyWarningVisible = false,
+            )
+        }
+    }
+
+    /** Start button entry point. Live never starts without the mandatory safety acknowledgement. */
+    fun onStartNavigationRequested() {
+        val state = _uiState.value
+        if (state.selectedNavigationMode == NavigationMode.Live) {
+            _uiState.update { it.copy(isLiveSafetyWarningVisible = true) }
+            return
+        }
+        startNavigation()
+    }
+
+    fun onLiveSafetyDismissed() {
+        _uiState.update { it.copy(isLiveSafetyWarningVisible = false) }
+    }
+
+    /** Safety-screen fallback: continue the same route using conventional map navigation. */
+    fun onUseMapNavigationFromSafety() {
+        _uiState.update {
+            it.copy(
+                selectedNavigationMode = NavigationMode.Map,
+                selectedMapMode = MapMode.Map,
+                isLiveSafetyWarningVisible = false,
+            )
+        }
+        startNavigation()
+    }
+
+    /** Deliberate acknowledgement required before the camera-based driving experience begins. */
+    fun onLiveSafetyConfirmed() {
+        _uiState.update { it.copy(isLiveSafetyWarningVisible = false) }
+        startNavigation()
+    }
+
     fun startNavigation() {
         val state = _uiState.value
         val route = (state.routeState as? RouteState.Ready)?.route
@@ -834,20 +1208,23 @@ class MapViewModel(
         navigationFollowSuspended = false
         // A fresh trip must not inherit the previous one's confirmed environment mode.
         environmentHysteresis.reset()
+        // ...nor a previous trip's "already announced this stage" state (section 16).
+        voicePlanner.reset()
+        voiceGuidanceEngine.speak(VoiceEvent.NavigationStarted)
         // Seed progress immediately from the last known fix so the banner has something to show
         // before the next location tick arrives.
         val seeded = state.currentLocation.let { session?.locate(it.toCoordinate()) }
-        // Section A6: Start automatically opens Live — the camera-first product decision — but only
-        // once navigation genuinely became Active; an Error below must never silently open Live on
-        // top of it. `onLiveReadinessChanged` (armed by `liveAutoFallbackArmed`) is what Section A7's
-        // fallback hangs off of if the camera then turns out to be unusable.
+        // Route Preview owns the user's navigation choice. Conventional Map is the default;
+        // Live is opt-in and only reaches this function after the safety acknowledgement.
         val didStart = seeded != null
-        if (didStart) liveAutoFallbackArmed = true
+        val requestedMode = state.selectedNavigationMode
+        liveAutoFallbackArmed = didStart && requestedMode == NavigationMode.Live
         _uiState.update {
             it.copy(
                 navigationFollowSuspended = false,
-                selectedMapMode = if (didStart) MapMode.Live else it.selectedMapMode,
+                selectedMapMode = if (didStart && requestedMode == NavigationMode.Live) MapMode.Live else MapMode.Map,
                 liveFallbackMessage = if (didStart) null else it.liveFallbackMessage,
+                isLiveSafetyWarningVisible = false,
                 navigationState = if (seeded != null) {
                     NavigationState.Active(withOffRouteFlag(seeded, false))
                 } else {
@@ -867,8 +1244,124 @@ class MapViewModel(
         recomputeEnvironment()
     }
 
+    fun onDriverReportRequested(type: DriverReportType) {
+        val location = _uiState.value.currentLocation
+        if (location == null) {
+            _uiState.update { it.copy(driverReportStatus = ExternalActionStatus.Unavailable) }
+            return
+        }
+        _uiState.update { it.copy(driverReportStatus = ExternalActionStatus.Working) }
+        viewModelScope.launch {
+            driverReportRepository.submit(
+                DriverReport(
+                    type = type,
+                    location = location,
+                    createdAtMillis = System.currentTimeMillis(),
+                ),
+            ).onSuccess {
+                _uiState.update { it.copy(driverReportStatus = ExternalActionStatus.Success) }
+            }.onFailure {
+                _uiState.update { it.copy(driverReportStatus = ExternalActionStatus.Unavailable) }
+            }
+        }
+    }
+
+    fun onTripShareRequested() {
+        val state = _uiState.value
+        val destination = state.selectedDestination
+        val location = state.currentLocation
+        if (!state.isNavigating || destination == null || location == null) {
+            _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Unavailable) }
+            return
+        }
+        _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Working) }
+        val remainingSeconds = state.navigationProgress?.remainingDurationSeconds ?: 0.0
+        val expiresInMillis = maxOf(
+            MIN_TRIP_SHARE_EXPIRY_MILLIS,
+            (remainingSeconds * 1_000.0).toLong() + TRIP_SHARE_GRACE_MILLIS,
+        ).coerceAtMost(MAX_TRIP_SHARE_EXPIRY_MILLIS)
+        viewModelScope.launch {
+            tripShareRepository.createSession(
+                TripShareRequest(
+                    destination = destination,
+                    currentLocation = location,
+                    expiresAtMillis = System.currentTimeMillis() + expiresInMillis,
+                ),
+            ).onSuccess { session ->
+                activeTripShareSession = session
+                _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Success) }
+                eventChannel.send(MapUiEvent.ShareTripUrl(session.url))
+            }.onFailure {
+                _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Unavailable) }
+            }
+        }
+    }
+
+    fun onExternalActionStatusDismissed() {
+        _uiState.update {
+            it.copy(
+                driverReportStatus = ExternalActionStatus.Idle,
+                tripShareStatus = ExternalActionStatus.Idle,
+            )
+        }
+    }
+
+    private fun stopTripSharingIfNeeded() {
+        val session = activeTripShareSession ?: return
+        activeTripShareSession = null
+        viewModelScope.launch { tripShareRepository.stopSession(session) }
+        _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Idle) }
+    }
+
+    /** Driver-requested alternative route using the same routing seam as automatic off-route recovery. */
+    fun onManualRerouteRequested() {
+        val state = _uiState.value
+        val location = state.currentLocation ?: return
+        if (!state.isNavigating || rerouteInFlight) return
+        _uiState.update { it.copy(navigationState = NavigationState.Rerouting) }
+        voiceGuidanceEngine.speak(VoiceEvent.Rerouting)
+        requestReroute(location)
+    }
+
+    /** Explicit red Exit action: end the trip and return to Discover/Home, not Route Preview. */
+    fun endNavigationToHome() {
+        stopTripSharingIfNeeded()
+        session = null
+        navigationFollowSuspended = false
+        rerouteInFlight = false
+        liveAutoFallbackArmed = false
+        routeJob?.cancel()
+        routeJob = null
+        _routeProgressView.value = null
+        onNavigationEnded()
+        roadAlertHysteresis.reset()
+        voicePlanner.reset()
+        voiceGuidanceEngine.stop()
+        _uiState.update {
+            it.copy(
+                selectedDestination = null,
+                routeOriginOverride = null,
+                routeState = RouteState.Idle,
+                navigationState = NavigationState.Idle,
+                selectedMapMode = MapMode.Map,
+                selectedNavigationMode = NavigationMode.Map,
+                selectedPlace = null,
+                isReviewingDirections = false,
+                isExploreOpen = false,
+                isShowingSteps = false,
+                stepsRouteSummary = null,
+                navigationFollowSuspended = false,
+                isLiveSafetyWarningVisible = false,
+            )
+        }
+        recomputeVisiblePlaces()
+        recomputeRoadAlerts()
+        recomputeEnvironment()
+    }
+
     /** Ends the trip and returns the map to plain route browsing. Never touches the route itself. */
     fun stopNavigation() {
+        stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
         rerouteInFlight = false
@@ -881,6 +1374,8 @@ class MapViewModel(
         // A new trip must not inherit stale confirm/exit streaks, and route-relative hazard alerts
         // have no "ahead" distance to show once there is no progress to measure from.
         roadAlertHysteresis.reset()
+        voicePlanner.reset()
+        voiceGuidanceEngine.stop()
         recomputeRoadAlerts()
         // No route left to measure maneuver spacing against: back to the safe Unknown default.
         recomputeEnvironment()
@@ -903,8 +1398,17 @@ class MapViewModel(
             // muted overlay would suggest there is still road ahead to drive.
             _routeProgressView.value = null
             _uiState.update { it.copy(navigationState = NavigationState.Arrived(progress)) }
+            voiceGuidanceEngine.speak(VoiceEvent.Arrived)
+            viewModelScope.launch {
+                delay(ARRIVAL_RETURN_HOME_DELAY_MILLIS)
+                if (_uiState.value.navigationState is NavigationState.Arrived) {
+                    finishArrivalToHome()
+                }
+            }
             return
         }
+
+        dispatchVoiceForProgress(progress)
 
         when (activeSession.updateOffRoute(progress)) {
             OffRouteDecision.OnRoute -> {
@@ -919,9 +1423,46 @@ class MapViewModel(
             }
             OffRouteDecision.TriggerReroute -> {
                 _uiState.update { it.copy(navigationState = NavigationState.Rerouting) }
+                voiceGuidanceEngine.speak(VoiceEvent.Rerouting)
                 requestReroute(location)
             }
         }
+    }
+
+    /** Completes the arrival lifecycle and returns to the clean Discover/Home state. */
+    private fun finishArrivalToHome() {
+        stopTripSharingIfNeeded()
+        session = null
+        navigationFollowSuspended = false
+        rerouteInFlight = false
+        liveAutoFallbackArmed = false
+        routeJob?.cancel()
+        routeJob = null
+        _routeProgressView.value = null
+        onNavigationEnded()
+        roadAlertHysteresis.reset()
+        voicePlanner.reset()
+        voiceGuidanceEngine.stop()
+        _uiState.update {
+            it.copy(
+                selectedDestination = null,
+                routeOriginOverride = null,
+                routeState = RouteState.Idle,
+                navigationState = NavigationState.Idle,
+                selectedMapMode = MapMode.Map,
+                selectedNavigationMode = NavigationMode.Map,
+                selectedPlace = null,
+                isReviewingDirections = false,
+                isExploreOpen = false,
+                isShowingSteps = false,
+                stepsRouteSummary = null,
+                navigationFollowSuspended = false,
+                isLiveSafetyWarningVisible = false,
+            )
+        }
+        recomputeVisiblePlaces()
+        recomputeRoadAlerts()
+        recomputeEnvironment()
     }
 
     /**
@@ -964,6 +1505,10 @@ class MapViewModel(
                     // The old route's matched distances are meaningless against new geometry, and a
                     // fresh trip must not inherit the old one's confirm/exit streaks.
                     roadAlertHysteresis.reset()
+                    // Nor the old maneuvers' "already announced this stage" state (section 16) —
+                    // the new route has an entirely different maneuver sequence.
+                    voicePlanner.reset()
+                    voiceGuidanceEngine.speak(VoiceEvent.RouteUpdated)
                     fetchRoadEventsAlongRoute(route)
                     recomputeRoadAlerts()
                     // Deliberately not an `environmentHysteresis.reset()`: a reroute is still the
@@ -987,6 +1532,16 @@ class MapViewModel(
                     eventChannel.trySend(MapUiEvent.RerouteFailed)
                 }
         }
+    }
+
+    /**
+     * Section 16: at most one maneuver announcement (staged far/near/immediate, never repeated)
+     * plus the one-shot "approaching destination" cue, both decided by [voicePlanner] from the
+     * same [RouteProgress] every other per-tick consumer already reads — no second progress model.
+     */
+    private fun dispatchVoiceForProgress(progress: RouteProgress) {
+        voicePlanner.planManeuver(progress)?.let { voiceGuidanceEngine.speak(it) }
+        voicePlanner.planDestinationApproaching(progress)?.let { voiceGuidanceEngine.speak(it) }
     }
 
     /** Pushes the traveled/remaining split to the renderer. */
@@ -1155,6 +1710,10 @@ class MapViewModel(
 
     companion object {
         const val DEFAULT_FIX_TIMEOUT_MILLIS = 20_000L
+        const val MIN_TRIP_SHARE_EXPIRY_MILLIS = 60 * 60 * 1_000L
+        const val TRIP_SHARE_GRACE_MILLIS = 30 * 60 * 1_000L
+        const val MAX_TRIP_SHARE_EXPIRY_MILLIS = 24 * 60 * 60 * 1_000L
+        const val ARRIVAL_RETURN_HOME_DELAY_MILLIS = 6_000L
         const val INITIAL_USER_ZOOM = 15.0
         const val RECENTER_MIN_ZOOM = 14.0
         const val DESTINATION_ZOOM = 15.0
@@ -1163,6 +1722,17 @@ class MapViewModel(
 
         /** Nearby-fetch radius while browsing (not navigating). */
         const val NEARBY_RADIUS_METERS = 1_500.0
+
+        /**
+         * Adaptive-radius ladder (Phase 12B). Start dense-urban and widen only on a genuinely empty
+         * result, so a sparse area costs one extra small request instead of always querying 3 km.
+         */
+        const val NEARBY_RADIUS_METERS_PRIMARY = 1_200.0
+        const val NEARBY_RADIUS_METERS_MAX = 3_000.0
+        const val NEARBY_RADIUS_GROWTH = 2.0
+
+        /** Bounded: at most two widening attempts, then the request ends. No unbounded search. */
+        const val MAX_RADIUS_EXPANSIONS = 2
 
         /** Minimum movement before a nearby refetch — avoids refetching the same area continuously. */
         const val NEARBY_REFETCH_DISTANCE_METERS = 400.0

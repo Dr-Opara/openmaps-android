@@ -1,7 +1,9 @@
 package com.openmaps.app.feature.map
 
+import android.media.AudioManager
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,19 +14,30 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -34,8 +47,9 @@ import androidx.compose.ui.unit.dp
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
-import com.openmaps.app.core.designsystem.glass
+import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.navigation.RouteProgress
+import com.openmaps.app.core.reporting.DriverReportType
 import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.routing.RouteManeuver
 import java.util.Locale
@@ -150,7 +164,7 @@ fun NavigationBanner(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .glass(GlassShapes.Card)
+            .surfaceCard(GlassShapes.Card)
             .background(background)
             .heightIn(min = 64.dp)
             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -281,63 +295,552 @@ private fun ArrivedRow(foreground: Color) {
 }
 
 /**
- * Start/End row shown beneath the route summary. While a route is merely loaded this is the
- * affordance that begins a trip; during one it ends it.
+ * Route Preview's action block (Phase 12A, section D). Called only once a destination exists
+ * (see `BottomPanel`), so it always renders something rather than the previous "early return to
+ * nothing" — Start is visible, just disabled, from the moment a destination exists, which is the
+ * fix for "Start is too hard to find/see": it no longer appears only once a route has already
+ * loaded, and it is no longer a small right-aligned text link.
+ *
+ *  - Navigating: just "End" (unchanged behaviour/placement).
+ *  - Otherwise: a single visible two-button row — secondary "Directions" (re-opens Destination
+ *    Details to review, without discarding the computed route — [onDirectionsReview]) and a
+ *    primary, filled, high-contrast "Start" (D2: OpenMaps blue, white text, full-width-sharing,
+ *    minimum 48dp touch target).
  */
 @Composable
 fun NavigationControls(
     canStart: Boolean,
     isNavigating: Boolean,
     navigationError: NavigationError?,
+    selectedNavigationMode: NavigationMode,
+    onNavigationModeSelected: (NavigationMode) -> Unit,
+    onSteps: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val errorMessage = navigationError?.let { messageFor(it) }
-    if (!isNavigating && !canStart && errorMessage == null) return
     val startLabel = stringResource(R.string.cd_start_navigation)
     val stopLabel = stringResource(R.string.cd_stop_navigation)
+    val stepsLabel = stringResource(R.string.cd_steps)
 
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Column(modifier = modifier.fillMaxWidth()) {
         if (errorMessage != null) {
             Text(
                 text = errorMessage,
                 style = MaterialTheme.typography.bodySmall,
-                color = OpenMapsColors.Warning,
-                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(bottom = 8.dp),
             )
         }
         if (isNavigating) {
-            // The visible label is "End"; spell out what that means for a screen reader, which
-            // would otherwise announce a bare, ambiguous verb.
-            TextButton(
-                onClick = onStop,
-                modifier = Modifier.semantics { contentDescription = stopLabel },
-            ) {
-                Text(
-                    text = stringResource(R.string.nav_stop),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = OpenMapsColors.TextSecondary,
-                )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                // The visible label is "End"; spell out what that means for a screen reader, which
+                // would otherwise announce a bare, ambiguous verb.
+                TextButton(
+                    onClick = onStop,
+                    modifier = Modifier.semantics { contentDescription = stopLabel },
+                ) {
+                    Text(
+                        text = stringResource(R.string.nav_stop),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = OpenMapsColors.TextSecondary,
+                    )
+                }
             }
         } else {
-            TextButton(
+            NavigationModeSelector(
+                selected = selectedNavigationMode,
+                onSelected = onNavigationModeSelected,
+            )
+            Spacer(Modifier.width(1.dp))
+            Button(
                 onClick = onStart,
                 enabled = canStart,
-                modifier = Modifier.semantics { contentDescription = startLabel },
+                shape = GlassShapes.Pill,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = OpenMapsColors.ElectricBlueFilled,
+                    contentColor = Color.White,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 54.dp)
+                    .semantics { contentDescription = startLabel },
             ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = -90f },
+                )
+                Spacer(Modifier.width(8.dp))
                 Text(
-                    text = stringResource(R.string.nav_start),
+                    text = if (selectedNavigationMode == NavigationMode.Live) {
+                        stringResource(R.string.nav_start_live)
+                    } else {
+                        stringResource(R.string.nav_start_map)
+                    },
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (canStart) OpenMapsColors.ElectricBlue else OpenMapsColors.TextSecondary,
+                    color = Color.White,
+                )
+            }
+            TextButton(
+                onClick = onSteps,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .semantics { contentDescription = stepsLabel },
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.List,
+                    contentDescription = null,
+                    tint = OpenMapsColors.ElectricBlueFilled,
+                    modifier = Modifier.size(17.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = stringResource(R.string.nav_steps),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = OpenMapsColors.ElectricBlueFilled,
                 )
             }
         }
     }
+}
+
+@Composable
+private fun NavigationModeSelector(
+    selected: NavigationMode,
+    onSelected: (NavigationMode) -> Unit,
+) {
+    Text(
+        text = stringResource(R.string.nav_choose_experience),
+        style = MaterialTheme.typography.titleMedium,
+        color = OpenMapsColors.TextPrimary,
+        modifier = Modifier.padding(bottom = 2.dp),
+    )
+    Text(
+        text = stringResource(R.string.nav_choose_experience_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = OpenMapsColors.TextSecondary,
+        modifier = Modifier.padding(bottom = 10.dp),
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        NavigationModeCard(
+            title = stringResource(R.string.nav_mode_map_title),
+            subtitle = stringResource(R.string.nav_mode_map_body),
+            selected = selected == NavigationMode.Map,
+            onClick = { onSelected(NavigationMode.Map) },
+            modifier = Modifier.weight(1f),
+        )
+        NavigationModeCard(
+            title = stringResource(R.string.nav_mode_live_title),
+            subtitle = stringResource(R.string.nav_mode_live_body),
+            selected = selected == NavigationMode.Live,
+            onClick = { onSelected(NavigationMode.Live) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun NavigationModeCard(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val background = if (selected) OpenMapsColors.ElectricBlueFilled else OpenMapsColors.SurfaceMuted
+    val foreground = if (selected) Color.White else OpenMapsColors.TextPrimary
+    Column(
+        modifier = modifier
+            .heightIn(min = 104.dp)
+            .background(background, GlassShapes.Card)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = foreground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = foreground.copy(alpha = if (selected) 0.86f else 0.70f),
+            modifier = Modifier.padding(top = 4.dp),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * Conventional Map Navigation bottom experience.
+ *
+ * The compact action strip is deliberately smaller than the trip summary. The trip figures and
+ * red Exit are the persistent, highest-priority controls at the bottom of the driving screen.
+ */
+@Composable
+fun ActiveMapNavigationPanel(
+    progress: RouteProgress,
+    voiceEnabled: Boolean,
+    driverReportStatus: ExternalActionStatus,
+    tripShareStatus: ExternalActionStatus,
+    onVoiceMuteToggled: () -> Unit,
+    onReport: (DriverReportType) -> Unit,
+    onShareTrip: () -> Unit,
+    onDismissExternalStatus: () -> Unit,
+    onReroute: () -> Unit,
+    onExitNavigation: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var showVolume by remember { mutableStateOf(false) }
+    var showReports by remember { mutableStateOf(false) }
+    var confirmExit by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val audioManager = remember(context) { context.getSystemService(AudioManager::class.java) }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DrivingQuickAction(
+                label = stringResource(R.string.nav_action_report),
+                onClick = { showReports = true },
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_warning),
+                    contentDescription = null,
+                    tint = OpenMapsColors.Warning,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            DrivingQuickAction(
+                label = stringResource(R.string.nav_action_volume),
+                onClick = { showVolume = !showVolume },
+            ) {
+                Icon(
+                    painter = painterResource(if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off),
+                    contentDescription = null,
+                    tint = OpenMapsColors.TextPrimary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            DrivingQuickAction(
+                label = stringResource(R.string.nav_action_share),
+                onClick = onShareTrip,
+                enabled = tripShareStatus != ExternalActionStatus.Working,
+            ) {
+                Text("↗", style = MaterialTheme.typography.titleMedium, color = OpenMapsColors.TextPrimary)
+            }
+            DrivingQuickAction(
+                label = stringResource(R.string.nav_action_reroute),
+                onClick = onReroute,
+            ) {
+                Text("↻", style = MaterialTheme.typography.titleLarge, color = OpenMapsColors.ElectricBlueFilled)
+            }
+        }
+
+        if (showVolume) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .background(OpenMapsColors.Surface, GlassShapes.Pill)
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = {
+                        audioManager?.adjustStreamVolume(
+                            AudioManager.STREAM_MUSIC,
+                            AudioManager.ADJUST_LOWER,
+                            0,
+                        )
+                    },
+                ) {
+                    Text("−", style = MaterialTheme.typography.titleLarge, color = OpenMapsColors.TextPrimary)
+                }
+                TextButton(onClick = onVoiceMuteToggled) {
+                    Icon(
+                        painter = painterResource(if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off),
+                        contentDescription = stringResource(if (voiceEnabled) R.string.live_voice_on else R.string.live_voice_off),
+                        tint = OpenMapsColors.TextPrimary,
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        audioManager?.adjustStreamVolume(
+                            AudioManager.STREAM_MUSIC,
+                            AudioManager.ADJUST_RAISE,
+                            0,
+                        )
+                    },
+                ) {
+                    Text("+", style = MaterialTheme.typography.titleLarge, color = OpenMapsColors.TextPrimary)
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .surfaceCard(GlassShapes.Card)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            TripMetric(
+                value = formatNavigationDuration(progress.remainingDurationSeconds),
+                label = stringResource(R.string.live_stat_to_arrive),
+                modifier = Modifier.weight(1f),
+            )
+            TripMetric(
+                value = formatNavigationDistance(progress.remainingDistanceMeters),
+                label = stringResource(R.string.live_stat_remaining),
+                modifier = Modifier.weight(1f),
+            )
+            TripMetric(
+                value = ArrivalTimeFormatter.format(
+                    progress.remainingDurationSeconds,
+                    System.currentTimeMillis(),
+                ),
+                label = stringResource(R.string.live_stat_arrival),
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                onClick = { confirmExit = true },
+                shape = GlassShapes.Pill,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFC62828),
+                    contentColor = Color.White,
+                ),
+                modifier = Modifier.heightIn(min = 44.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.nav_exit),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White,
+                )
+            }
+        }
+    }
+
+    if (confirmExit) {
+        AlertDialog(
+            onDismissRequest = { confirmExit = false },
+            title = { Text(stringResource(R.string.nav_exit_confirm_title)) },
+            text = { Text(stringResource(R.string.nav_exit_confirm_body)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmExit = false
+                        onExitNavigation()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFC62828),
+                        contentColor = Color.White,
+                    ),
+                    shape = GlassShapes.Pill,
+                ) {
+                    Text(stringResource(R.string.nav_exit_end))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmExit = false }) {
+                    Text(stringResource(R.string.nav_exit_continue))
+                }
+            },
+        )
+    }
+
+    if (showReports) {
+        DriverReportDialog(
+            status = driverReportStatus,
+            onReport = {
+                onReport(it)
+                showReports = false
+            },
+            onDismiss = { showReports = false },
+        )
+    }
+
+    if (tripShareStatus == ExternalActionStatus.Unavailable) {
+        AlertDialog(
+            onDismissRequest = onDismissExternalStatus,
+            title = { Text(stringResource(R.string.nav_share_unavailable_title)) },
+            text = { Text(stringResource(R.string.nav_share_unavailable_body)) },
+            confirmButton = {
+                TextButton(onClick = onDismissExternalStatus) {
+                    Text(stringResource(R.string.cd_dismiss))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun DrivingQuickAction(
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    icon: @Composable () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .heightIn(min = 44.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        icon()
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (enabled) OpenMapsColors.TextPrimary else OpenMapsColors.TextSecondary.copy(alpha = 0.45f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun TripMetric(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            color = OpenMapsColors.TextPrimary,
+            maxLines = 1,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = OpenMapsColors.TextSecondary,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun DriverReportDialog(
+    status: ExternalActionStatus,
+    onReport: (DriverReportType) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val reports = listOf(
+        DriverReportType.Police to R.string.nav_report_police,
+        DriverReportType.Traffic to R.string.nav_report_traffic,
+        DriverReportType.Crash to R.string.nav_report_crash,
+        DriverReportType.LaneClosed to R.string.nav_report_lane_closed,
+        DriverReportType.Construction to R.string.nav_report_construction,
+        DriverReportType.RoadHazard to R.string.nav_report_road_hazard,
+        DriverReportType.Flooding to R.string.nav_report_flooding,
+        DriverReportType.DisabledVehicle to R.string.nav_report_disabled_vehicle,
+        DriverReportType.ObjectOnRoad to R.string.nav_report_object_road,
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.nav_report_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (status == ExternalActionStatus.Unavailable) {
+                    Text(
+                        text = stringResource(R.string.nav_report_unavailable),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OpenMapsColors.TextSecondary,
+                    )
+                }
+                reports.chunked(2).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        row.forEach { (type, label) ->
+                            Button(
+                                onClick = { onReport(type) },
+                                enabled = status != ExternalActionStatus.Working,
+                                modifier = Modifier.weight(1f),
+                                shape = GlassShapes.Pill,
+                            ) {
+                                Text(
+                                    text = stringResource(label),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cd_dismiss))
+            }
+        },
+    )
+}
+
+/** Mandatory acknowledgement shown before any camera-based driving session begins. */
+@Composable
+fun LiveSafetyWarningDialog(
+    onUseMapNavigation: () -> Unit,
+    onConfirmLive: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = stringResource(R.string.live_safety_title),
+                style = MaterialTheme.typography.titleLarge,
+                color = OpenMapsColors.TextPrimary,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(R.string.live_safety_intro),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OpenMapsColors.TextPrimary,
+                )
+                Text(
+                    text = stringResource(R.string.live_safety_eyes),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = OpenMapsColors.TextPrimary,
+                )
+                Text(
+                    text = stringResource(R.string.live_safety_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OpenMapsColors.TextSecondary,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirmLive, shape = GlassShapes.Pill) {
+                Text(stringResource(R.string.live_safety_confirm), maxLines = 1)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onUseMapNavigation) {
+                Text(stringResource(R.string.live_safety_use_map))
+            }
+        },
+    )
 }
 
 /** `@Composable` because `stringResource` is: error copy resolves per configuration. */

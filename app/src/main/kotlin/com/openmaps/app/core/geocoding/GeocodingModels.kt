@@ -19,6 +19,56 @@ data class SearchResult(
             val cityState = listOfNotNull(city, state).joinToString(", ").ifBlank { null }
             return listOfNotNull(address, cityState).joinToString(", ").ifBlank { displayName }
         }
+
+    /**
+     * Which Search Results tab this result belongs to (the mockup's All / Places / Addresses /
+     * Categories).
+     *
+     * Classified **from the data Nominatim actually returns**, never guessed: a result only counts
+     * as [Places] when it carries a real `category`, and only as [Addresses] when it carries a real
+     * street `address`. That keeps the tabs honest — a query in an area with no POIs shows an honest
+     * empty Places tab instead of re-listing the same addresses under a label they do not match.
+     */
+    val resultKind: SearchResultKind
+        get() = when {
+            hasBusinessCategory() -> SearchResultKind.Place
+            !address.isNullOrBlank() -> SearchResultKind.Address
+            else -> SearchResultKind.Other
+        }
+
+    /**
+     * True when Nominatim returned a `category`/`type` that names a point of interest, e.g.
+     * "restaurant", "hotel", "tourist attraction". Street types ("residential", "secondary") are
+     * road classifications rather than business categories and must not read as a place.
+     */
+    fun hasBusinessCategory(): Boolean {
+        val raw = category?.trim()?.lowercase().orEmpty()
+        if (raw.isEmpty()) return false
+        if (raw in ROAD_TYPES) return false
+        return true
+    }
+
+    private companion object {
+        /** Nominatim `type` values that describe a road, not a business. */
+        val ROAD_TYPES = setOf(
+            "residential", "secondary", "tertiary", "primary", "trunk", "motorway", "unclassified",
+            "living_street", "pedestrian", "service", "track", "path", "footway", "cycleway",
+            "road", "motorway_link", "trunk_link", "primary_link", "secondary_link", "tertiary_link",
+        )
+    }
+}
+
+/**
+ * The Search Results tabs. [All] is the unfiltered list; the other three partition it by what the
+ * provider actually told us about each result.
+ */
+enum class SearchResultKind {
+    /** Named businesses and POIs — Nominatim returned a real category for them. */
+    Place,
+    /** Street addresses — Nominatim returned a real street address. */
+    Address,
+    /** Anything else (localities, administrative areas, junctions). */
+    Other,
 }
 
 /**

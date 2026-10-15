@@ -1,4 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+// Explicit import: inside a Gradle script `java` resolves to Gradle's `java` extension, not the
+// package, so `java.util.Properties` does not compile without this.
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -19,6 +22,36 @@ val styleUrl = providers.gradleProperty("openmaps.style.url").orElse(defaultStyl
 val styleName = providers.gradleProperty("openmaps.style.name").orElse("OpenFreeMap Liberty").get()
 val styleDevOnly = providers.gradleProperty("openmaps.style.devOnly").orElse("true").get().toBoolean()
 
+// ---------------------------------------------------------------------------
+// ARCore Geospatial API key.
+//
+// ARCore's Geospatial mode is a Google Cloud service, so it needs an API key
+// in AndroidManifest under the meta-data name `com.google.android.ar.API_KEY`.
+// Without it the session starts, but `Earth` reports
+// `ERROR_NOT_AUTHORIZED` and never tracks -- which is why AR arrows silently
+// never appear. See docs/SETUP.md "ARCore Geospatial provisioning" for the
+// Google Cloud side; this block is only the delivery mechanism.
+//
+// Resolution order (first non-empty wins):
+//   1. -PARCORE_API_KEY=...   (CI / one-off)
+//   2. ARCORE_API_KEY          (environment)
+//   3. local.properties        -> ARCORE_API_KEY=...   (dev, git-ignored)
+//
+// It is deliberately NEVER committed, and defaults to empty so that a build
+// without credentials still compiles, installs, and falls back to the CameraX
+// path exactly as before.
+// ---------------------------------------------------------------------------
+val localProperties = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+// Note: `orElse(null)` is illegal in Gradle's Provider API (IllegalArgumentException), so the
+// local.properties fallback is coerced to "" here rather than passed straight in.
+val arcoreApiKey = providers.gradleProperty("ARCORE_API_KEY")
+    .orElse(providers.environmentVariable("ARCORE_API_KEY"))
+    .orElse(localProperties.getProperty("ARCORE_API_KEY") ?: "")
+    .getOrElse("")
+
 android {
     namespace = "com.openmaps.app"
     compileSdk = 35
@@ -33,6 +66,9 @@ android {
         buildConfigField("String", "MAP_STYLE_URL", "\"$styleUrl\"")
         buildConfigField("String", "MAP_STYLE_NAME", "\"$styleName\"")
         buildConfigField("boolean", "MAP_STYLE_DEV_ONLY", styleDevOnly.toString())
+
+        // Feeds the `com.google.android.ar.API_KEY` meta-data in AndroidManifest.xml.
+        manifestPlaceholders["ARCORE_API_KEY"] = arcoreApiKey
     }
 
     buildTypes {
@@ -102,6 +138,11 @@ dependencies {
     // ARCore (Phase 6, Geospatial/Earth localization). Support is runtime-checked; the CameraX
     // engine remains the fallback when ARCore is unsupported, not installed, or unusable.
     implementation(libs.google.ar.core)
+    // Required by ARCore's Geospatial mode at runtime, not merely transitively — confirmed on a
+    // physical device in Phase 12A (see ARCHITECTURE.md "AR stuck at Idle"): without this,
+    // Session.configure(GeospatialMode.ENABLED) throws
+    // GooglePlayServicesLocationLibraryNotLinkedException and the session never starts.
+    implementation(libs.google.play.services.location)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

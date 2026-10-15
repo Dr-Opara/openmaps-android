@@ -105,6 +105,13 @@ enum class LimitedReason {
 
     /** Weak or absent GPS, so the Earth pose is poorly constrained. */
     PoorGeolocation,
+
+    /** Camera is tracking but `session.earth` has not resolved yet (not the same as a poor fix). */
+    WaitingForEarth,
+
+    /** `Earth.getTrackingState()` is PAUSED — distinct from `EarthState`, which can read ENABLED
+     * while the Earth pose itself is not currently being tracked (section A4). */
+    EarthPaused,
 }
 
 /** Why localization failed. */
@@ -115,8 +122,17 @@ enum class SpatialFailure {
     /** ARCore reported an unrecoverable error for this session. */
     ArCoreError,
 
-    /** Earth could not be resolved (no network, or no Earth data for this area). */
+    /** Earth could not be resolved (`Earth.EarthState.ERROR_NOT_AUTHORIZED`). */
     EarthUnavailable,
+
+    /** `Earth.EarthState.ERROR_GEOSPATIAL_MODE_DISABLED` — distinct from [EarthUnavailable] so the
+     * debug overlay can name the exact ARCore condition instead of one generic bucket. */
+    GeospatialDisabled,
+
+    /** This device/ARCore version does not support Geospatial mode at all
+     * (`Session.isGeospatialModeSupported` returned false) — checked before `configure()` so this
+     * never falls through to the generic [SessionCreationFailed]. */
+    GeospatialUnsupported,
 
     /** Camera permission was revoked or the camera is held by another app. */
     CameraUnavailable,
@@ -141,4 +157,13 @@ enum class SpatialAvailability {
 
     /** Supported in principle, but the ARCore service is missing or too old (install/update). */
     NotInstalled,
+
+    /**
+     * `ArCoreApk.checkAvailability()` returned one of the `UNKNOWN_*` values (`UNKNOWN_CHECKING`,
+     * `UNKNOWN_TIMED_OUT`, `UNKNOWN_ERROR`) — Google's own guidance is that these are transient and
+     * should be re-queried, **not** treated as a permanent answer. Collapsing this into [Unsupported]
+     * (an earlier revision) is what let a single unlucky first probe permanently strand Live on the
+     * CameraX fallback with AR never even attempted — see `LiveViewModel.chooseInitialProvider`.
+     */
+    Checking,
 }

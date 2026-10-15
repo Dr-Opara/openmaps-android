@@ -149,6 +149,31 @@ class OverpassResponseParserTest {
     }
 
     @Test
+    fun parse_newPhase12ACategories_mapCorrectlyAndNeverInventMetadata() {
+        val body = """
+            {"elements":[
+              {"type":"node","id":20,"lat":1.0,"lon":2.0,"tags":{"amenity":"bank","name":"First Bank"}},
+              {"type":"node","id":21,"lat":1.0,"lon":2.0,"tags":{"amenity":"atm"}},
+              {"type":"node","id":22,"lat":1.0,"lon":2.0,"tags":{"shop":"convenience","name":"Quick Stop"}},
+              {"type":"node","id":23,"lat":1.0,"lon":2.0,"tags":{"amenity":"hospital","name":"General Hospital"}},
+              {"type":"node","id":24,"lat":1.0,"lon":2.0,"tags":{"amenity":"cinema","name":"Grand Cinema"}},
+              {"type":"node","id":25,"lat":1.0,"lon":2.0,"tags":{"shop":"mall","name":"Big Mall"}}
+            ]}
+        """.trimIndent()
+        val places = OverpassResponseParser.parse(body).associateBy { it.id }
+
+        assertEquals(PlaceCategory.Bank, places["node/20"]!!.category)
+        assertEquals(PlaceCategory.Atm, places["node/21"]!!.category)
+        assertEquals("ATM", places["node/21"]!!.name) // missing name falls back to the category default
+        assertEquals(PlaceCategory.Convenience, places["node/22"]!!.category)
+        assertEquals(PlaceCategory.Medical, places["node/23"]!!.category)
+        assertEquals(PlaceCategory.Entertainment, places["node/24"]!!.category)
+        assertEquals(PlaceCategory.Shopping, places["node/25"]!!.category)
+        // None of these categories have category-specific metadata (section B2) — never invented.
+        places.values.forEach { assertEquals(PlaceMetadata(), it.metadata) }
+    }
+
+    @Test
     fun parse_streetAddress_combinesHouseNumberAndStreet() {
         val body = """
             {"elements":[

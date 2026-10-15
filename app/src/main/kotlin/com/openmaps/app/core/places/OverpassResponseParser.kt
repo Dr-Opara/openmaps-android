@@ -91,7 +91,9 @@ internal object OverpassResponseParser {
         )
 
         PlaceCategory.Restaurant, PlaceCategory.Coffee, PlaceCategory.Hotel,
-        PlaceCategory.Grocery, PlaceCategory.Pharmacy,
+        PlaceCategory.Grocery, PlaceCategory.Pharmacy, PlaceCategory.Bank, PlaceCategory.Atm,
+        PlaceCategory.Convenience, PlaceCategory.Medical, PlaceCategory.Entertainment,
+        PlaceCategory.Shopping,
         -> PlaceMetadata()
     }
 
@@ -116,6 +118,12 @@ internal object OverpassResponseParser {
         PlaceCategory.Parking -> "Parking"
         PlaceCategory.Gas -> "Gas station"
         PlaceCategory.EvCharging -> "EV charging"
+        PlaceCategory.Bank -> "Bank"
+        PlaceCategory.Atm -> "ATM"
+        PlaceCategory.Convenience -> "Convenience store"
+        PlaceCategory.Medical -> "Medical"
+        PlaceCategory.Entertainment -> "Entertainment"
+        PlaceCategory.Shopping -> "Shopping"
     }
 
     private fun JSONObject.toStringMap(): Map<String, String> {

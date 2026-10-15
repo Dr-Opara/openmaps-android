@@ -69,6 +69,10 @@ class ARArrowPipeline(
     var degradedReason: String? = null
         private set
 
+    /** Nodes [ARArrowSampler] produced before projection/culling — debug overlay only (section A8). */
+    @Volatile
+    private var lastSampledCount: Int = 0
+
     /** True once [onSurfaceCreated] has run; before that there is no GL context to draw with. */
     private var glReady = false
 
@@ -129,6 +133,7 @@ class ARArrowPipeline(
             isArrived = false,
             remainingDistanceMeters = remaining,
         )
+        lastSampledCount = nodes.size
         if (nodes.isEmpty()) {
             current = emptyList()
             usingAnchors = false
@@ -178,6 +183,7 @@ class ARArrowPipeline(
         gate.reset()
         usingAnchors = false
         degradedReason = null
+        lastSampledCount = 0
     }
 
     /**
@@ -194,6 +200,7 @@ class ARArrowPipeline(
         current = emptyList()
         usingAnchors = false
         degradedReason = null
+        lastSampledCount = 0
     }
 
     // endregion
@@ -214,6 +221,9 @@ class ARArrowPipeline(
 
     /** Diagnostics for the debug overlay; not shown in release. */
     fun arrowCount(): Int = current.size
+
+    /** Nodes sampled before projection/culling — "sampled N / visible N" in the debug overlay. */
+    fun sampledCount(): Int = lastSampledCount
 
     /** Nearest drawn arrow's distance in metres, or null when nothing is drawn. */
     fun nearestArrowMeters(): Double? = current.minOfOrNull { it.node.distanceAheadMeters }

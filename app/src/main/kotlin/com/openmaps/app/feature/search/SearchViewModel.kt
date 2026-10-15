@@ -33,7 +33,9 @@ class SearchViewModel(
     private var searchJob: Job? = null
 
     fun onQueryChanged(query: String) {
-        _uiState.update { it.copy(query = query) }
+        // A voice search (or any programmatic text change) lands here, so the one search path stays
+        // the one path — no separate "search this spoken phrase" branch that could diverge.
+        _uiState.update { it.copy(query = query, pendingVoiceQuery = null) }
         searchJob?.cancel()
 
         val trimmed = query.trim()
@@ -57,12 +59,59 @@ class SearchViewModel(
         }
     }
 
+    /** Switches the visible result bucket. Never re-queries — it partitions the same result list. */
+    fun onTabSelected(tab: SearchTab) {
+        _uiState.update { it.copy(selectedTab = tab) }
+    }
+
+    /** The recognizer started listening. */
+    fun onVoiceSearchStarted() {
+        _uiState.update { it.copy(voiceState = VoiceSearchState.Listening) }
+    }
+
+    /** No recognizer on the device, or it refused to start. Surfaced, never silently ignored. */
+    fun onVoiceSearchUnavailable() {
+        _uiState.update { it.copy(voiceState = VoiceSearchState.Unavailable) }
+    }
+
+    fun onVoiceSearchFailed(message: String) {
+        _uiState.update { it.copy(voiceState = VoiceSearchState.Failed(message)) }
+    }
+
+    /** The user dismissed the recognizer without saying anything. */
+    fun onVoiceSearchCancelled() {
+        _uiState.update { it.copy(voiceState = VoiceSearchState.Idle) }
+    }
+
+    /** Clears any voice error banner once it has been seen. */
+    fun onVoiceSearchMessageShown() {
+        _uiState.update { it.copy(voiceState = VoiceSearchState.Idle) }
+    }
+
+    /**
+     * The recognizer returned [text]. Runs the normal debounced search and leaves the phrase in the
+     * field so the user can see and correct what was heard — nothing is hidden.
+     */
+    fun onVoiceSearchResult(text: String) {
+        _uiState.update { it.copy(voiceState = VoiceSearchState.Idle) }
+        onQueryChanged(text)
+    }
+
     /** Bookkeeping for a selection (fresh result or a re-tapped recent): records it and resets the session. */
     fun onResultSelected(result: SearchResult) {
         searchJob?.cancel()
         recentSearchStore.record(result)
         _uiState.update {
-            it.copy(query = "", results = emptyList(), isSearching = false, error = null, recentSearches = recentSearchStore.load())
+            it.copy(
+                query = "",
+                results = emptyList(),
+                isSearching = false,
+                error = null,
+                recentSearches = recentSearchStore.load(),
+                // Reset to All so reopening search never shows a stale, now-empty filtered tab.
+                selectedTab = SearchTab.All,
+                voiceState = VoiceSearchState.Idle,
+            )
         }
     }
 

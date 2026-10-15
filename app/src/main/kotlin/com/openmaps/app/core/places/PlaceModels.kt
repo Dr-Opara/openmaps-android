@@ -13,6 +13,28 @@ enum class PlaceCategory {
     Parking,
     Gas,
     EvCharging,
+    Bank,
+    Atm,
+    /** Convenience stores (`shop=convenience`) — split out from [Grocery] in Phase 12A. */
+    Convenience,
+    /** Clinics, hospitals and doctors' offices. */
+    Medical,
+    /** Cinemas, theatres and tourist attractions. */
+    Entertainment,
+    /** A curated `shop=*` subset (malls, department stores, clothing/shoes/electronics). */
+    Shopping,
+}
+
+/**
+ * Provider-neutral seam for a future sponsored-listing feature (section C of the Phase 12A brief).
+ * No ranking, payment, or advertiser code reads this yet — [OverpassResponseParser] only ever
+ * produces [Organic], since OSM has no concept of a sponsored listing. It exists so that if/when a
+ * sponsored-listing provider is added, every nearby-place surface already has one labeled field to
+ * check rather than needing to retrofit one later.
+ */
+enum class PromotionType {
+    Organic,
+    Sponsored,
 }
 
 /**
@@ -54,6 +76,8 @@ data class Place(
     /** Only set when the provider actually reports opening-hours state; never guessed. */
     val openNow: Boolean? = null,
     val metadata: PlaceMetadata = PlaceMetadata(),
+    /** Always [PromotionType.Organic] today — see [PromotionType]'s doc comment. */
+    val promotionType: PromotionType = PromotionType.Organic,
 )
 
 /**

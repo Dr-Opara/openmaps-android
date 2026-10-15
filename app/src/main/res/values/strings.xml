@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">OpenMaps</string>
+    <!-- Two-tone wordmark: "Open" dark, "Maps" in OpenMaps blue (see Brand.kt). -->
+    <string name="brand_open">Open</string>
+    <string name="brand_maps">Maps</string>
     <string name="tagline">See What\'s Ahead</string>
 
     <!-- Map screen -->
@@ -9,11 +12,23 @@
     <string name="mode_live">Live</string>
     <string name="cd_settings">Settings</string>
     <string name="cd_recenter">Recenter on my location</string>
+    <string name="cd_navigate_action">Navigate</string>
+    <string name="cd_voice_search">Search by voice</string>
     <string name="cd_compass">Reset map to north</string>
     <string name="cd_dismiss">Dismiss</string>
     <string name="cd_back">Back</string>
     <string name="cd_clear_destination">Clear destination</string>
-    <string name="panel_title">Explore what\'s around you</string>
+    <string name="cd_more_options">More options</string>
+    <string name="panel_title">Explore Nearby Places</string>
+    <string name="home_recent_destinations">Recent destinations</string>
+    <string name="home_explore_title">Discover around you</string>
+    <string name="home_explore_subtitle">Nearby places, useful stops, and what’s ahead</string>
+    <string name="home_see_all">See all</string>
+    <string name="home_near_you_now">Near You Now</string>
+    <string name="home_near_you_now_subtitle">Useful places closest to your current location</string>
+    <string name="home_whats_ahead">What’s Ahead</string>
+    <string name="home_whats_ahead_subtitle">Places in the direction you’re moving</string>
+    <string name="home_recent_destinations_subtitle">Jump back to a recent destination</string>
 
     <!-- Map error -->
     <string name="map_unavailable_title">Map unavailable</string>
@@ -55,20 +70,47 @@
     <string name="live_permission_action_settings">Open settings</string>
     <string name="cd_back_to_map">Back to map</string>
     <string name="live_navigating">Navigating</string>
+    <string name="live_voice_on">Voice</string>
+    <string name="live_voice_off">Muted</string>
     <string name="live_destination_format">To %1$s</string>
-    <string name="live_remaining_format">%1$s left · %2$s</string>
     <string name="live_turn_in_format">in %1$s</string>
     <string name="live_then_format">Then %1$s</string>
+    <string name="live_then_label">Then</string>
+    <string name="live_speed_limit_label">LIMIT</string>
+    <string name="live_stat_remaining">remaining</string>
+    <string name="live_stat_to_arrive">to arrive</string>
+    <string name="live_stat_arrival">arrival</string>
+    <string name="live_end_navigation">End Navigation</string>
+    <string name="live_arrived_title_new">You have arrived</string>
     <string name="live_rerouting">Rerouting…</string>
     <string name="live_off_route">Off route</string>
     <string name="live_arrived_title">You\'ve arrived</string>
     <string name="live_arrived_action">Back to map</string>
+    <string name="live_safety_title">Drive safely with OpenMaps Live</string>
+    <string name="live_safety_intro">OpenMaps Live uses your camera to place navigation guidance over the road ahead.</string>
+    <string name="live_safety_eyes">Keep your eyes on the road at all times.</string>
+    <string name="live_safety_body">Do not interact with OpenMaps while driving unless it is safe and lawful. Follow traffic signs, road conditions, and applicable laws. OpenMaps guidance may be delayed, incomplete, or inaccurate. Camera guidance does not replace your responsibility to drive safely.</string>
+    <string name="live_safety_use_map">Use Map Navigation</string>
+    <string name="live_safety_confirm">I Understand — Start Live</string>
 
     <!-- Search -->
     <string name="search_title">Search destinations</string>
     <string name="search_recent_header">Recent</string>
     <string name="search_recent_empty">Places you search for will appear here.</string>
     <string name="cd_clear_query">Clear search</string>
+    <string name="cd_close_search">Close search</string>
+    <string name="search_filter_all">All</string>
+    <string name="search_filter_places">Places</string>
+    <string name="search_filter_addresses">Addresses</string>
+    <string name="search_filter_categories">Categories</string>
+    <string name="search_no_results_for_tab">No %1$s in these results. Try another tab.</string>
+    <string name="search_categories_header">Browse categories</string>
+    <string name="search_category_nearby_hint">Find nearby</string>
+    <string name="search_category_no_match">No matching category.</string>
+    <string name="voice_search_prompt">Where are you going?</string>
+    <string name="voice_search_listening">Listening…</string>
+    <string name="voice_search_unavailable">Voice search isn\'t available on this device.</string>
+    <string name="voice_search_failed">Voice search didn\'t work. Try again or type your search.</string>
     <string name="search_loading">Searching…</string>
     <string name="search_no_results">No results found. Try a different search.</string>
     <string name="search_error_no_network">You\'re offline. Check your connection and try again.</string>
@@ -85,11 +127,37 @@
     <string name="route_error_server">Something went wrong on our end. Try again.</string>
     <string name="route_error_malformed">We couldn\'t read that response. Try again.</string>
     <string name="route_error_no_route">No route found to this destination.</string>
+    <string name="route_origin_your_location">Your location</string>
+    <string name="route_destination_placeholder">Choose a destination</string>
+    <string name="route_mode_driving">Driving</string>
+    <string name="route_mode_transit">Transit</string>
+    <string name="route_mode_walking">Walking</string>
+    <string name="route_preview_title">Route preview</string>
+    <string name="route_preview_subtitle">Review your trip and choose how you want to navigate.</string>
+    <string name="route_preview_duration">time</string>
+    <string name="route_preview_distance">distance</string>
+    <string name="route_preview_arrival">arrival</string>
+    <string name="route_preview_turn_count">%1$d turns</string>
+    <string name="nav_steps">Steps</string>
+    <string name="cd_steps">Show turn-by-turn steps</string>
+    <string name="nav_steps_unavailable">No turn-by-turn steps for this route.</string>
+    <string name="nav_choose_experience">Choose navigation view</string>
+    <string name="nav_choose_experience_hint">Switch between traditional map guidance and OpenMaps Live without changing your route.</string>
+    <string name="nav_start_map">Start Map Navigation</string>
+    <string name="nav_start_live">Start Live Camera</string>
+    <string name="nav_mode_map_title">Map Navigation</string>
+    <string name="nav_mode_map_body">Traditional turn-by-turn map guidance</string>
+    <string name="nav_mode_live_title">Live Camera</string>
+    <string name="nav_mode_live_body">Camera + AR road guidance</string>
 
     <!-- Spatial localization (Phase 6) -->
     <string name="spatial_locating">Locating…</string>
     <string name="spatial_improving">Improving accuracy…</string>
     <string name="spatial_ready">Ready</string>
+    <!-- Production AR wording: never exposes ARCore state names to normal users. -->
+    <string name="ar_aligning">Aligning navigation…</string>
+    <string name="ar_locating_road">Locating road…</string>
+    <string name="ar_improving_position">Improving position accuracy…</string>
 
     <!-- Navigation (Phase 4) -->
     <string name="nav_start">Start</string>
@@ -108,12 +176,71 @@
     <string name="nav_follow_suspended">Tap recenter to resume</string>
     <string name="nav_error_no_location">We need your location to start navigation.</string>
     <string name="nav_error_no_route">This route doesn\'t have turn-by-turn directions yet.</string>
+    <string name="nav_action_report">Report</string>
+    <string name="nav_action_volume">Volume</string>
+    <string name="nav_action_share">Share</string>
+    <string name="nav_action_reroute">Reroute</string>
+    <string name="nav_exit">EXIT</string>
+    <string name="nav_exit_confirm_title">End navigation?</string>
+    <string name="nav_exit_confirm_body">Your active trip will stop and OpenMaps will return to Discover.</string>
+    <string name="nav_exit_continue">Continue trip</string>
+    <string name="nav_exit_end">End navigation</string>
+    <string name="nav_report_title">Report road condition</string>
+    <string name="nav_report_unavailable">Community report submission is not connected in this build yet. The report categories are shown here so the driving UI can be tested safely without pretending a report was sent.</string>
+    <string name="nav_report_police">Police</string>
+    <string name="nav_report_traffic">Traffic</string>
+    <string name="nav_report_crash">Crash</string>
+    <string name="nav_report_lane_closed">Lane closed</string>
+    <string name="nav_report_construction">Construction</string>
+    <string name="nav_report_road_hazard">Road hazard</string>
+    <string name="nav_report_flooding">Flooding</string>
+    <string name="nav_report_disabled_vehicle">Disabled vehicle</string>
+    <string name="nav_report_object_road">Object in road</string>
+    <string name="nav_share_unavailable_title">Live trip sharing isn’t available yet</string>
+    <string name="nav_share_unavailable_body">OpenMaps has the secure temporary-sharing workflow in place, but no expiring-link backend is connected in this build. Your live location is not sent anywhere.</string>
 
     <!-- Contextual places (Phase 9) -->
     <string name="place_navigate_action">Navigate</string>
+    <string name="place_open_now">Open</string>
+    <string name="place_closed_now">Closed</string>
+
+    <!-- Place Details tabs (delta-spec sections 4-5) -->
+    <string name="place_tab_overview">Overview</string>
+    <string name="place_tab_reviews">Reviews</string>
+    <string name="place_tab_photos">Photos</string>
+    <string name="place_tab_nearby">Nearby</string>
+    <string name="place_reviews_unavailable">Reviews aren\'t available for this place yet.</string>
+    <string name="place_photos_unavailable">Photos aren\'t available for this place yet.</string>
+    <string name="place_nearby_unavailable">No other nearby places to show right now.</string>
+    <string name="place_save_action">Save</string>
+    <string name="place_share_action">Share</string>
+
+    <!-- Nearby Explore (Phase 12A) -->
+    <string name="nearby_title">Nearby</string>
+    <string name="nearby_near_you_now">Near You Now</string>
+    <string name="nearby_whats_ahead">What’s Ahead</string>
+    <string name="nearby_whats_ahead_hint">Places in the direction you’re moving, using your real location bearing.</string>
+    <string name="nearby_suggested_stops">Suggested Stops</string>
+    <string name="nearby_suggested_stops_hint">Useful places surfaced from the current route corridor.</string>
+    <string name="nearby_finding">Finding places nearby…</string>
+    <string name="nearby_empty_category_format">No nearby %1$s found</string>
+    <string name="nearby_empty_generic">No nearby places found</string>
+    <string name="nearby_error">Nearby places unavailable right now</string>
+    <string name="nearby_waiting_for_location">Waiting for your location…</string>
+    <string name="nearby_sponsored">Sponsored</string>
+    <string name="nearby_showing_cached">Showing saved results — couldn\'t reach the places service.</string>
+    <string name="nearby_details_action">Details</string>
+    <string name="cd_close_explore">Close nearby places</string>
 
     <!-- Destination details (Phase 11) -->
     <string name="destination_directions_action">Directions</string>
+    <string name="destination_trip_time">time</string>
+    <string name="destination_trip_distance">distance</string>
+    <string name="destination_trip_arrival">arrival</string>
+    <string name="destination_arrival_ease">Arrival Ease</string>
+    <string name="destination_arrival_ease_basis">Estimated from the final route geometry. Parking is only shown when provider data supports it.</string>
+    <string name="destination_parking_nearby">Parking near destination</string>
+    <string name="destination_parking_found">%1$d parking option(s) found near the destination</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>
@@ -126,6 +253,14 @@
     <string name="settings_perm_denied">Not allowed</string>
     <string name="settings_perm_blocked">Blocked in system settings</string>
     <string name="settings_open_app_settings">Open app settings</string>
+    <string name="settings_section_navigation">Navigation</string>
+    <string name="settings_voice_language">Voice language</string>
+    <string name="settings_voice_language_selected">Selected</string>
+    <string name="settings_voice_language_en_us">English (US)</string>
+    <string name="settings_voice_language_en_gb">English (UK)</string>
+    <string name="settings_voice_language_es">Spanish</string>
+    <string name="settings_voice_language_fr">French</string>
+    <string name="settings_voice_language_pidgin">Nigerian Pidgin</string>
     <string name="settings_section_map">Map</string>
     <string name="settings_map_style">Map style</string>
     <string name="settings_map_dev_only">Development only</string>

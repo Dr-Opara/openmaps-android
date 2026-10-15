@@ -23,12 +23,29 @@ object PlaceCategoryMapper {
         TagMapping("tourism", "motel", PlaceCategory.Hotel),
         TagMapping("tourism", "guest_house", PlaceCategory.Hotel),
         TagMapping("shop", "supermarket", PlaceCategory.Grocery),
-        TagMapping("shop", "convenience", PlaceCategory.Grocery),
         TagMapping("shop", "grocery", PlaceCategory.Grocery),
         TagMapping("amenity", "pharmacy", PlaceCategory.Pharmacy),
         TagMapping("amenity", "parking", PlaceCategory.Parking),
         TagMapping("amenity", "fuel", PlaceCategory.Gas),
         TagMapping("amenity", "charging_station", PlaceCategory.EvCharging),
+        TagMapping("amenity", "bank", PlaceCategory.Bank),
+        TagMapping("amenity", "atm", PlaceCategory.Atm),
+        // Phase 12A: split from Grocery — a convenience store is a distinct errand from a
+        // supermarket trip, and the user explicitly asked for it as its own category.
+        TagMapping("shop", "convenience", PlaceCategory.Convenience),
+        TagMapping("amenity", "clinic", PlaceCategory.Medical),
+        TagMapping("amenity", "hospital", PlaceCategory.Medical),
+        TagMapping("amenity", "doctors", PlaceCategory.Medical),
+        TagMapping("amenity", "cinema", PlaceCategory.Entertainment),
+        TagMapping("amenity", "theatre", PlaceCategory.Entertainment),
+        TagMapping("tourism", "attraction", PlaceCategory.Entertainment),
+        // A curated `shop=*` subset for Shopping, not every retail tag OSM has — see
+        // PlaceCategory.Shopping's doc comment.
+        TagMapping("shop", "mall", PlaceCategory.Shopping),
+        TagMapping("shop", "department_store", PlaceCategory.Shopping),
+        TagMapping("shop", "clothes", PlaceCategory.Shopping),
+        TagMapping("shop", "shoes", PlaceCategory.Shopping),
+        TagMapping("shop", "electronics", PlaceCategory.Shopping),
     )
 
     /**

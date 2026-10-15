@@ -189,6 +189,93 @@ Phase 8's **spatial placement seam** — and only that seam — was re-pointed a
   tagged construction, no sub-"Moderate" weather, no tagged `maxspeed` way in range), so an actual
   alert rendering live was not separately observed — worth a specific follow-up
 
+## Phase 12A — physical device defects, local discovery, Route Preview UX (code complete; AR blocked on API provisioning)
+
+Picks up directly from Phase 12's "BLOCKED on hardware" status: a physical Samsung device (Android
+16, ARCore 1.57.262640093) became available mid-phase, so this phase includes real on-device
+findings, not just unit tests — the first since Phase 5.
+
+- **AR root cause: four distinct issues, found one at a time on real hardware, not one bug.** See
+  ARCHITECTURE.md's "AR stuck at Idle" for the full trace. Two were real app-code bugs, now fixed:
+  (1) a transient ARCore-availability probe result (`UNKNOWN_CHECKING`) was treated as permanently
+  unsupported — `SpatialAvailability.Checking` plus a bounded re-probe in `LiveViewModel` fixes it;
+  (2) `ArCoreSpatialLocalization` was constructed with the `Application` context, from which
+  `findActivityOrNull()` can never resolve an `Activity` — confirmed 100% reproducible on-device,
+  fixed by resolving the Activity from the `LifecycleOwner` passed to `start()` instead; (3) ARCore's
+  Geospatial mode requires `com.google.android.gms:play-services-location` linked into the binary,
+  which was missing — added. The fourth is **not an app-code bug**: no Google Cloud project has the
+  ARCore Geospatial API enabled with this app's package name + signing certificates registered, so
+  `Earth.earthState` resolves `ERROR_NOT_AUTHORIZED` even with a fully correct session. **This blocks
+  AR arrows on every device until it is provisioned** — see "Open questions".
+- **Rich AR debug diagnostics** (section A1 of the brief): the overlay now shows which camera
+  provider is active, a compact exact-stopping-point label (never a bare "Idle"), the reason
+  preserved across a mid-session fallback to CameraX (previously destroyed by `stop()`'s own `Idle`
+  emission), active anchor counts and arrow-pipeline sampled/visible counts — all four root-cause
+  layers above were diagnosed *through this overlay*, confirming it does what section A1 asked.
+- **6 new nearby-place categories**: Bank, ATM, Convenience (split out of Grocery), Medical,
+  Entertainment, Shopping — 14 total, each mapped to real OSM tags (`PlaceCategoryMapper`), with
+  matching marker colors on both the 2D map and the nearby cards.
+- **A real "Explore what's around you"**: previously static text; now opens `NearbyExploreSheet,` a
+  swipeable card carousel reusing the existing category-filter state and ranked places list (no
+  parallel filter/list concept), with loading/empty/error copy and Details/Navigate actions reusing
+  the existing place→destination flow. Confirmed working on-device (category chips, empty-state copy
+  for a failed fetch).
+- **Future sponsored-listing seam** (`Place.promotionType`): `Organic`/`Sponsored`, always `Organic`
+  today, no ranking/payment/ads code — see ARCHITECTURE.md's Contextual places section.
+- **Route Preview action block**: Start was a small, right-aligned `TextButton`, invisible until a
+  route had already loaded. Now a filled, white-on-blue, ≥48dp button next to a secondary
+  "Directions" (review, without discarding the computed route), inside the same card as the
+  destination/ETA summary, visible (disabled) from the moment a destination exists. Confirmed
+  working on-device, including the Start → Live handoff and Map↔Live↔Map continuity.
+- 547 unit tests total (up from 529), 0 failures. `assembleDebug`, `testDebugUnitTest` and `lint`
+  all pass clean (0 errors, 40 warnings — unchanged baseline, zero new lint issues).
+- **On real hardware**: launch, location, category chips, Explore sheet, destination selection,
+  Route Preview with the new action block, Start → Live, Map↔Live↔Map (×2), and the full AR
+  diagnostic chain above were all exercised with no crash (`adb logcat` crash buffer and
+  `FATAL EXCEPTION` both checked clean across the session). AR arrows themselves remain unobserved —
+  blocked on Geospatial API provisioning (see above), not on anything exercised here.
+
+### Phase 12A delta — Live-first polish, Place Details tabs, voice guidance
+
+A follow-on spec landed mid-phase, integrated into the same working tree (no duplicate repository,
+nearby-discovery, Start button or AR renderer):
+
+- **"Explore Nearby Places"** replaces "Explore what's around you" — centered, no chevron, whole
+  card tappable (unchanged behavior, copy/layout only).
+- **Place Details now has tabs**: Overview (existing real fields), Reviews/Photos (honest "not
+  available yet" state — no provider supplies either today; the tab structure exists so one can be
+  plugged in later), Nearby (reuses `MapUiState.visiblePlaces`, no second fetch). Directions/Start
+  are the two primary actions; Start starts navigation directly only when this exact place is
+  already the `Ready` route, otherwise it behaves like Directions (`MapViewModel.onStartFromPlace`).
+- **Live**: current speed and the posted limit now display independently (never one implying the
+  other exists); arrival auto-returns to Map after a short confirmation window (manual button still
+  works); the AR arrow sampler/anchor spacing was reviewed against the spec's maneuver-emphasis
+  requirements and already satisfies them (real route-geometry tangent heading, distance-based
+  scale, tightened spacing near maneuvers) — no changes needed there, only confirmed by code review
+  (AR itself is still blocked on Geospatial API provisioning, so this could not be confirmed visually).
+- **Voice guidance, new**: `core/voice` (provider-neutral `VoiceGuidanceEngine`, `VoiceEvent`,
+  deterministic per-language templates, a staged-announcement planner) plus
+  `voice/AndroidTextToSpeechEngine` (the one file touching `android.speech.tts`, mirroring
+  `spatial/arcore`'s pattern). Five languages (English US/UK, Spanish, French, Nigerian Pidgin),
+  always real templates, never a runtime translation call. Mute + language are both local
+  `SharedPreferences` settings, no account. Voice is additive — nothing in `NavigationSession`/
+  `RouteProgressTracker` reads from it, and a TTS failure never blocks navigation.
+- A `<queries>` entry for `android.intent.action.TTS_SERVICE` was added proactively (API 30+
+  package-visibility), since this phase had already found one real "works on the device but the app
+  can't see it" bug (ARCore's Activity-resolution issue) and this is the exact same class of risk
+  for TTS engine discovery.
+- 579 unit tests total (up from 547), 0 failures. `assembleDebug`, `testDebugUnitTest` and `lint`
+  all pass clean (0 errors, 43 warnings — unchanged baseline).
+- **On real hardware**: app installs and runs with all of the above, no crash. TTS genuinely
+  initializes — confirmed via logcat (`com.google.android.tts` loading real en-US voice model
+  resources). One real device-specific finding: Samsung's bundled TTS engine (`SamsungTTS`)
+  rejected the app's package (`"is not allowed [-4]"`); Android's TTS framework fell back to
+  Google's TTS engine transparently, which is the expected, correct behavior for the
+  engine-agnostic `TextToSpeech(context) { callback }` constructor this code uses — not a bug, but
+  worth knowing about on Samsung devices specifically. The device's screen lock interrupted the
+  session before the newest UI (Place Details tabs, Settings language picker, audible announcements)
+  could be visually/audibly re-confirmed — see FIELD_TEST_REPORT.md.
+
 ## Next, not started (awaiting approval)
 
 Tentative order; each needs its own scope decision.
@@ -244,6 +331,33 @@ without knowing how it was produced. Also makes the destination→route flow a d
   transient PackageManager inconsistency) and could no longer deliver taps or text reliably. Those are
   unit-tested only.
 - **On-device validation is the open item.** No mode other than `Unknown` has been observed resolving.
+
+## Phase 12 — reliability + field testing (started, BLOCKED on hardware)
+
+Goal is to prove the shipped journey on a real ARCore phone and on real roads, not to add features.
+No application code was changed: no field defect was observed, and none could be, because no device
+was available. Full record in [`FIELD_TEST_REPORT.md`](FIELD_TEST_REPORT.md).
+
+- **Non-field validation passed on a clean tree at `0c1194a`.** `clean`, `assembleDebug`,
+  `:app:testDebugUnitTest --rerun --no-build-cache` (529 tests, 0 failures) and `lint` (0 errors,
+  40 dependency-freshness/hygiene warnings) all succeed. APK
+  `app/build/outputs/apk/debug/app-debug.apk`, 60.72 MB, SHA-256
+  `8FC4151E4B92C7BD8A30EF4D334BD9FE05D1907C4335617F14C277C2E8CB783C`.
+- **BLOCKED: no physical device is connected** (`adb devices -l` empty, no Android/ADB USB device).
+  Phase 12 explicitly cannot be completed from emulator-only testing, so the phase is marked
+  incomplete. The `Pixel_8` AVD was deliberately not used to claim completion.
+- **All 27 field areas are `NOT RUN`**, and are preserved as an executable checklist in the report:
+  clean install, first-launch permissions, Explore/Map, search→directions→preview, Start→Live ×10,
+  ARCore Earth tracking, arrow stability, road alignment, altitude/0.35 m lift, Map↔Live ×20,
+  rerouting, arrival, GPS drift, environment modes, road intelligence, speed, places, network loss,
+  background/foreground, screen lock, 30–60 min long session, battery, thermal, performance and
+  failure recovery.
+- **Two Windows build-workflow hazards recorded** (not app defects): `clean` and `lintReportDebug`
+  both fail when a running Gradle daemon holds the lint-cache jars (`IOException` /
+  `FileSystemException ... used by another process`). Run `.\gradlew.bat --stop` before `clean`.
+- **Every prior on-device caveat carries forward unresolved** — AR anchoring, environment modes
+  other than `Unknown`, live road-intelligence alert rendering, and the fixed 0.35 m arrow lift on
+  real grades and overpasses.
 
 ## Phase 11 prerequisites
 
@@ -353,6 +467,24 @@ Before turn-by-turn can start, these Phase 3 decisions need to be either confirm
 
 ## Open questions
 
+- **Blocking AR arrows entirely as of Phase 12A**: no Google Cloud project has the ARCore Geospatial
+  API enabled with this app's package name (`com.openmaps.app`) and signing certificate SHA-1
+  (debug **and** release) registered, so `Earth.earthState` resolves `ERROR_NOT_AUTHORIZED` even
+  with a fully correct ARCore session (confirmed on a physical device). This is account-level
+  provisioning, not something fixable in application code.
+  - **Now documented and, on the app side, already wired.** `AndroidManifest.xml` declares the
+    `com.google.android.ar.API_KEY` meta-data that ARCore reads, and `app/build.gradle.kts` injects
+    the value from `-PARCORE_API_KEY` / `local.properties` / the `ARCORE_API_KEY` environment
+    variable, defaulting to empty so credential-less builds still compile and fall back to CameraX.
+  - **Remaining action is one human step in Google Cloud**: create/select a project, enable the
+    **ARCore API**, create an API key, and restrict it to *Android apps* → package
+    `com.openmaps.app` + this machine's debug certificate SHA-1
+    (`F2:D2:9F:2D:FE:0A:0A:90:80:58:3E:EC:3B:BB:5E:C2:9E:A9:A1:40`). A release build needs a second
+    key restricted to the release certificate.
+  - Full step-by-step, including how to read the fingerprints off any machine and how to verify the
+    key reached the APK: **SETUP.md → "ARCore Geospatial provisioning (Google Cloud)"**.
+  - Still open and *not* fixed by the key: Google's requirement that Geospatial apps show the user a
+    privacy/data-use prompt. OpenMaps has no such prompt yet — a release blocker, not a test blocker.
 - Which production tile host, and what volume do we expect at launch?
 - Which production geocoding provider, and at what volume?
 - Which production routing provider, and at what volume?

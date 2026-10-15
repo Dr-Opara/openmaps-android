@@ -39,7 +39,13 @@ import kotlinx.coroutines.flow.map
 fun MapScreen(
     viewModel: MapViewModel,
     styleProvider: MapStyleProvider,
+    recentDestinations: List<com.openmaps.app.core.geocoding.SearchResult> = emptyList(),
+    onShareDestination: (com.openmaps.app.core.geocoding.SearchResult) -> Unit = {},
     onSearchClick: () -> Unit,
+    onRouteOriginClick: () -> Unit = {},
+    onRouteDestinationClick: () -> Unit = {},
+    /** Opens the search screen straight into voice mode. Null hides the mic rather than showing a dead icon. */
+    onVoiceSearchClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -93,13 +99,15 @@ fun MapScreen(
             MapUnavailableOverlay(onRetry = viewModel::onRetryMap, modifier = Modifier.fillMaxSize())
         }
 
-        // Top: subtle brand + Map/Live toggle, then the search field.
+        // Map-first home: branding left, Map/Live toggle right, then one dominant destination search
+        // field. Nearby categories live in the bottom Explore sheet instead of permanently covering
+        // the map.
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -107,17 +115,37 @@ fun MapScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 OpenMapsWordmark(Modifier.padding(start = 4.dp))
-                MapModeToggle(selected = state.selectedMapMode, onSelected = viewModel::onModeSelected)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    MapModeToggle(selected = state.selectedMapMode, onSelected = viewModel::onModeSelected)
+                    MapSettingsButton(onClick = onSettingsClick)
+                }
             }
+            // Mockup Route Preview (screen 4): the origin/destination fields and travel-mode row
+            // live at the TOP, replacing the generic search bar — the bottom card then holds only
+            // the summary and Start/Steps. True exactly when BottomPanel's own "preview" branch is
+            // what is rendering at the bottom (not Destination Details/Steps/Explore).
+            val isRoutePreview = state.selectedDestination != null &&
+                !state.isShowingAnyDestinationDetails &&
+                !state.isShowingSteps &&
+                !state.isExploreOpen &&
+                state.selectedPlace == null
             // Navigation replaces the search affordance for the duration of a trip: the banner is
-            // the driver's primary instruction, and search is a trip-ending action anyway. The
-            // category toggles go with it — Live/active-trip chrome should not grow, not shrink.
+            // the driver's primary instruction, and search is a trip-ending action anyway.
             if (!state.isNavigating) {
-                MapSearchBar(onSearchClick = onSearchClick, onSettingsClick = onSettingsClick)
-                PlaceCategoryFilterRow(
-                    selected = state.placeCategoryFilters,
-                    onSelectedChanged = viewModel::onCategoryFilterChanged,
-                )
+                if (isRoutePreview) {
+                    RouteEndpointFields(
+                        destination = state.selectedDestination,
+                        origin = state.routeOriginOverride,
+                        onOriginClick = onRouteOriginClick,
+                        onDestinationClick = onRouteDestinationClick,
+                    )
+                    RouteModeRow(routeState = state.routeState)
+                } else {
+                    MapSearchBar(
+                        onSearchClick = onSearchClick,
+                        onVoiceSearchClick = onVoiceSearchClick,
+                    )
+                }
             } else {
                 NavigationBanner(
                     navigationState = state.navigationState,
@@ -148,7 +176,13 @@ fun MapScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 CompassButton(bearing = viewModel.compassBearing, onClick = viewModel::onCompassClicked)
+                // Mockup stacks the two circular map controls: white recenter above the filled blue
+                // navigation action.
                 RecenterButton(hasLocation = state.currentLocation != null, onClick = viewModel::onRecenterClicked)
+                NavigationActionButton(
+                    onClick = viewModel::onNavigationActionClicked,
+                    modifier = Modifier.align(Alignment.End),
+                )
             }
             state.locationPrompt?.let { prompt ->
                 LocationPromptCard(
@@ -160,40 +194,109 @@ fun MapScreen(
             }
             val selectedPlace = state.selectedPlace
             when {
+                // Active conventional Map Navigation gets its own compact driving controls and trip
+                // summary. It must not reuse Route Preview's Start/Steps panel.
+                state.isNavigating && state.selectedMapMode == com.openmaps.app.map.MapMode.Map &&
+                    state.navigationProgress != null -> ActiveMapNavigationPanel(
+                    progress = state.navigationProgress!!,
+                    voiceEnabled = state.voiceEnabled,
+                    driverReportStatus = state.driverReportStatus,
+                    tripShareStatus = state.tripShareStatus,
+                    onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
+                    onReport = viewModel::onDriverReportRequested,
+                    onShareTrip = viewModel::onTripShareRequested,
+                    onDismissExternalStatus = viewModel::onExternalActionStatusDismissed,
+                    onReroute = viewModel::onManualRerouteRequested,
+                    onExitNavigation = viewModel::endNavigationToHome,
+                )
+
+                // Mockup Route Preview: the "Steps" maneuver list takes over the panel region,
+                // layered above the route summary it belongs to.
+                state.isShowingSteps && state.stepsRouteSummary != null -> RouteStepsSheet(
+                    maneuvers = state.stepsRouteSummary?.maneuvers.orEmpty(),
+                    onDismiss = viewModel::onStepsDismissed,
+                )
+
                 // Place details take over the panel region rather than stacking beside it — a
                 // compact presentation, not a second destination summary competing for attention.
                 selectedPlace != null -> PlaceDetailsSheet(
                     place = selectedPlace,
-                    onNavigate = { viewModel.onNavigateToPlace(selectedPlace) },
+                    nearbyPlaces = state.visiblePlaces,
+                    onDirections = { viewModel.onDirectionsRequestedForPlace(selectedPlace) },
+                    onStart = { viewModel.onStartFromPlace(selectedPlace) },
+                    onSelectNearbyPlace = viewModel::onPlaceSelected,
                     onDismiss = viewModel::onPlaceDetailsDismissed,
                 )
 
                 // Part A2/A3: a destination was picked but Directions has not been tapped yet.
-                state.isShowingDestinationDetails -> state.selectedDestination?.let { destination ->
+                // Phase 12A, section D: or the user tapped "Directions" again from Route Preview to
+                // review the destination (isReviewingDirections) — same sheet, but dismissing it
+                // must return to Route Preview rather than clearing the destination/route.
+                state.isShowingAnyDestinationDetails -> state.selectedDestination?.let { destination ->
                     DestinationDetailsSheet(
                         destination = destination,
                         currentLocation = state.currentLocation,
+                        routeState = state.routeState,
+                        nearbyPlaces = state.visiblePlaces,
                         onDirections = viewModel::onDirectionsRequested,
-                        onDismiss = viewModel::onDestinationCleared,
+                        // Early Start never skips Route Preview: with no route yet it computes one
+                        // and lands there, where the real Start lives.
+                        onStart = { viewModel.onStartRequestedFromDestination(destination) },
+                        onShare = { onShareDestination(destination) },
+                        onDismiss = if (state.isReviewingDirections) {
+                            viewModel::onDirectionsReviewDismissed
+                        } else {
+                            viewModel::onDestinationCleared
+                        },
                     )
                 }
+
+                // Phase 12A, section B5: the Explore CTA's bottom sheet. Lower priority than place
+                // details/destination details above, so drilling into a card (Details/Navigate)
+                // naturally takes over this same region instead of fighting it for space.
+                state.isExploreOpen -> NearbyExploreSheet(
+                    placesState = state.placesState,
+                    places = state.visiblePlaces,
+                    selectedCategories = state.placeCategoryFilters,
+                    onCategoriesChanged = viewModel::onCategoryFilterChanged,
+                    currentLocation = state.currentLocation,
+                    hasRoute = state.routeState is RouteState.Ready,
+                    onDetails = viewModel::onPlaceSelected,
+                    onNavigate = viewModel::onNavigateToPlace,
+                    onDismiss = viewModel::onExploreDismissed,
+                    onRetry = viewModel::onExploreRetryRequested,
+                )
 
                 else -> {
                     BottomPanel(
                         destination = state.selectedDestination,
                         routeState = state.routeState,
+                        currentLocation = state.currentLocation,
+                        nearbyPlaces = state.visiblePlaces,
+                        recentDestinations = recentDestinations,
+                        onRecentSelected = viewModel::onDestinationSelected,
+                        onPlaceSelected = viewModel::onPlaceSelected,
                         onClearDestination = viewModel::onDestinationCleared,
-                    )
-                    NavigationControls(
+                        onExploreClicked = viewModel::onExploreRequested,
+                        onExploreCategoryClicked = viewModel::onExploreCategoryClicked,
+                        onSteps = viewModel::onStepsRequested,
                         canStart = state.canStartNavigation,
                         isNavigating = state.isNavigating,
                         navigationError = (state.navigationState as? NavigationState.Error)?.reason,
-                        onStart = viewModel::startNavigation,
+                        selectedNavigationMode = state.selectedNavigationMode,
+                        onNavigationModeSelected = viewModel::onNavigationModeSelected,
+                        onStart = viewModel::onStartNavigationRequested,
                         onStop = viewModel::stopNavigation,
-                        modifier = Modifier.align(Alignment.End),
                     )
                 }
             }
+        if (state.isLiveSafetyWarningVisible) {
+            LiveSafetyWarningDialog(
+                onUseMapNavigation = viewModel::onUseMapNavigationFromSafety,
+                onConfirmLive = viewModel::onLiveSafetyConfirmed,
+                onDismiss = viewModel::onLiveSafetyDismissed,
+            )
+        }
         }
     }
 }

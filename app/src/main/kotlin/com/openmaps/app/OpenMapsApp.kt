@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -54,6 +55,7 @@ import com.openmaps.app.feature.splash.SplashScreen
 import com.openmaps.app.map.MapMode
 
 private enum class Overlay { None, Search, Settings }
+private enum class SearchPurpose { NewDestination, RouteOrigin, RouteDestination }
 
 /**
  * App root: splash, then one persistent shell.
@@ -80,7 +82,12 @@ private fun AppShell(container: AppContainer) {
     val liveViewModel: LiveViewModel = viewModel(factory = liveViewModelFactory(container))
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val liveState by liveViewModel.uiState.collectAsStateWithLifecycle()
+    val searchState by searchViewModel.uiState.collectAsStateWithLifecycle()
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
+    var searchPurpose by rememberSaveable { mutableStateOf(SearchPurpose.NewDestination) }
+    // Bumped to ask the search screen to start voice capture as soon as it appears. An incrementing
+    // counter rather than a boolean so tapping the home mic twice still re-arms the recognizer.
+    var voiceSearchRequest by rememberSaveable { mutableIntStateOf(0) }
 
     // Part A7: reactive (never timer-based) fallback from Live back to Map. Recomputed whenever
     // Live's camera permission/failure state changes; `MapViewModel.onLiveReadinessChanged` itself
@@ -146,6 +153,10 @@ private fun AppShell(container: AppContainer) {
                 }
                 MapUiEvent.OpenAppSettings -> context.openAppSettings()
                 MapUiEvent.OpenLocationSettings -> context.startSafely(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                is MapUiEvent.ShareTripUrl -> context.shareText(
+                    title = "OpenMaps trip",
+                    text = event.url,
+                )
                 // Purely informational: the old route is still active and usable, so there is
                 // nothing to launch and nothing to recover from here. Deliberately a no-op — the
                 // visible cue is the OffRoute state on the banner itself.
@@ -176,7 +187,38 @@ private fun AppShell(container: AppContainer) {
         MapScreen(
             viewModel = viewModel,
             styleProvider = container.mapStyleProvider,
-            onSearchClick = { overlay = Overlay.Search },
+            recentDestinations = searchState.recentSearches,
+            onShareDestination = { destination ->
+                context.shareText(
+                    title = destination.name.ifBlank { "OpenMaps destination" },
+                    text = buildString {
+                        append(destination.name.ifBlank { "OpenMaps destination" })
+                        destination.subtitle.takeIf { it.isNotBlank() }?.let {
+                            append("\n")
+                            append(it)
+                        }
+                    },
+                )
+            },
+            onSearchClick = {
+                searchPurpose = SearchPurpose.NewDestination
+                overlay = Overlay.Search
+            },
+            onRouteOriginClick = {
+                searchPurpose = SearchPurpose.RouteOrigin
+                overlay = Overlay.Search
+            },
+            onRouteDestinationClick = {
+                searchPurpose = SearchPurpose.RouteDestination
+                overlay = Overlay.Search
+            },
+            // Same real launcher as inside the search screen: the home mic and the search-screen mic
+            // are one feature, not two.
+            onVoiceSearchClick = {
+                searchPurpose = SearchPurpose.NewDestination
+                voiceSearchRequest++
+                overlay = Overlay.Search
+            },
             onSettingsClick = { overlay = Overlay.Settings },
         )
 
@@ -202,6 +244,15 @@ private fun AppShell(container: AppContainer) {
                 roadIntelligenceState = state.roadIntelligenceState,
                 // Phase 11: the same active environment profile Map mode's camera/places/alerts read.
                 environmentProfile = state.activeProfile,
+                voiceEnabled = state.voiceEnabled,
+                onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
+                driverReportStatus = state.driverReportStatus,
+                tripShareStatus = state.tripShareStatus,
+                onReport = viewModel::onDriverReportRequested,
+                onShareTrip = viewModel::onTripShareRequested,
+                onDismissExternalStatus = viewModel::onExternalActionStatusDismissed,
+                onReroute = viewModel::onManualRerouteRequested,
+                onExitNavigation = viewModel::endNavigationToHome,
             )
         }
 
@@ -214,9 +265,22 @@ private fun AppShell(container: AppContainer) {
                 viewModel = searchViewModel,
                 onBack = { overlay = Overlay.None },
                 onResultSelected = { result ->
-                    viewModel.onDestinationSelected(result)
+                    when (searchPurpose) {
+                        SearchPurpose.NewDestination -> viewModel.onDestinationSelected(result)
+                        SearchPurpose.RouteOrigin -> viewModel.onRouteOriginSelected(result)
+                        SearchPurpose.RouteDestination -> viewModel.onRouteDestinationSelected(result)
+                    }
+                    searchPurpose = SearchPurpose.NewDestination
                     overlay = Overlay.None
                 },
+                onCategorySelected = { category ->
+                    // Categories are a discovery action, not a fabricated geocoding result.
+                    // Reuse the existing Nearby pipeline with the selected category.
+                    searchPurpose = SearchPurpose.NewDestination
+                    overlay = Overlay.None
+                    viewModel.onExploreCategoryClicked(category)
+                },
+                autoStartVoiceSearch = voiceSearchRequest > 0,
             )
         }
 
@@ -230,6 +294,8 @@ private fun AppShell(container: AppContainer) {
                 styleSource = styleSource,
                 onBack = { overlay = Overlay.None },
                 onOpenAppSettings = { context.openAppSettings() },
+                voiceLanguage = state.voiceLanguage,
+                onVoiceLanguageChanged = viewModel::onVoiceLanguageChanged,
             )
         }
     }
@@ -245,6 +311,14 @@ private fun Context.openAppSettings() {
     startSafely(
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
     )
+}
+
+private fun Context.shareText(title: String, text: String) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    startSafely(Intent.createChooser(send, title))
 }
 
 private fun Context.startSafely(intent: Intent) {

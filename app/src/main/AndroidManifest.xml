@@ -36,6 +36,20 @@
         android:glEsVersion="0x00030000"
         android:required="false" />
 
+    <!--
+      Delta-spec section 14 (voice guidance): package-visibility declaration for API 30+. Without
+      this, `android.speech.tts.TextToSpeech`'s internal engine-discovery query can come back empty
+      on some OS versions even when a TTS engine is genuinely installed, which would silently
+      disable voice with no exception to diagnose — the exact "works on the device but the app
+      can't see it" failure mode this phase already found once for ARCore (see ARCHITECTURE.md's
+      "AR stuck at Idle"), so it is declared proactively here rather than waiting to rediscover it.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:name=".OpenMapsApplication"
         android:allowBackup="false"
@@ -64,6 +78,26 @@
         <meta-data
             android:name="com.google.ar.core"
             android:value="optional" />
+
+        <!--
+          ARCore Geospatial authorization (the blocker behind "AR arrows never appear").
+
+          `com.google.android.ar.API_KEY` is the exact meta-data name Google documents for
+          Geospatial/Cloud Anchors on Android; the session itself reads it, which is why
+          ARCore 1.56's `Session` has no API-key constructor. With no valid key here, the
+          session still starts but `Earth` reports ERROR_NOT_AUTHORIZED, so Earth never tracks
+          and no anchor is ever created.
+
+          The value is injected from `ARCORE_API_KEY` (see app/build.gradle.kts) so the
+          key never enters version control. With nothing configured it resolves to an empty
+          string, which behaves exactly like the key being absent: Live falls back to CameraX.
+
+          Note there is deliberately no `com.google.android.geo.API_KEY` entry here: that key
+          belongs to the Google Maps SDK, and OpenMaps renders with MapLibre, so it is not needed.
+        -->
+        <meta-data
+            android:name="com.google.android.ar.API_KEY"
+            android:value="${ARCORE_API_KEY}" />
     </application>
 
 </manifest>

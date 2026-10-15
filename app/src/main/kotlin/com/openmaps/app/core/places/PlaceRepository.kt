@@ -14,12 +14,19 @@ import com.openmaps.app.core.routing.Coordinate
  */
 interface PlaceRepository {
 
-    /** Places within [radiusMeters] of [center], restricted to [categories]. */
+    /**
+     * Places within [radiusMeters] of [center], restricted to [categories].
+     *
+     * Returns a [PlaceQueryResult] rather than a bare list so **provenance survives the seam**: the
+     * UI must be able to tell live data from cached data, and Phase 12B's whole point was to stop
+     * presenting a stale or failed answer as if it were live. An empty list is a *success* with
+     * `places = emptyList()`; a provider failure is `Result.failure`.
+     */
     suspend fun nearbyPlaces(
         center: Coordinate,
         radiusMeters: Double,
         categories: Set<PlaceCategory>,
-    ): Result<List<Place>>
+    ): Result<PlaceQueryResult>
 
     /**
      * Places within [corridorMeters] of [routeGeometry], restricted to [categories].

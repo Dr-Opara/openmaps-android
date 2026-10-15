@@ -16,6 +16,10 @@ camerax = "1.4.2"
 # ARCore (Phase 6, spatial localization). Latest stable; requires minSdk 24 (we are 26) and is
 # ARM64 + x86_64 device compatible. Support is ALWAYS runtime-checked (ArCoreApk), never assumed.
 arcore = "1.56.0"
+# Required by ARCore's Geospatial mode at runtime (not just transitively) — Session.configure()
+# throws GooglePlayServicesLocationLibraryNotLinkedException with GeospatialMode.ENABLED otherwise.
+# Confirmed on a physical device in Phase 12A; see ARCHITECTURE.md "AR stuck at Idle" for the trace.
+playServicesLocation = "21.3.0"
 junit = "4.13.2"
 json = "20260814"
 
@@ -51,6 +55,7 @@ androidx-camera-view = { group = "androidx.camera", name = "camera-view", versio
 # ArCoreApk and only constructs a Session when ARCore can actually run; otherwise it stays on the
 # CameraX path. `optional = true` in the manifest keeps the app installable without ARCore.
 google-ar-core = { group = "com.google.ar", name = "core", version.ref = "arcore" }
+google-play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 json = { group = "org.json", name = "json", version.ref = "json" }
