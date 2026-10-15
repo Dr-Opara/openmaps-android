@@ -108,6 +108,10 @@ data class MapUiState(
     val voiceEnabled: Boolean = true,
     /** Delta-spec section 24: the selected navigation voice language, set from Settings. */
     val voiceLanguage: VoiceLanguage = VoiceLanguage.EnglishUs,
+    /** Community report submission state; unavailable until a real moderated provider is wired. */
+    val driverReportStatus: ExternalActionStatus = ExternalActionStatus.Idle,
+    /** Temporary live-trip sharing state; unavailable until an expiring-link provider is wired. */
+    val tripShareStatus: ExternalActionStatus = ExternalActionStatus.Idle,
 ) {
     /** The centralized Phase 11 tuning for [drivingEnvironment] — see `EnvironmentNavigationProfile`. */
     val activeProfile: EnvironmentNavigationProfile
@@ -185,6 +189,13 @@ enum class NavigationMode {
     Live,
 }
 
+enum class ExternalActionStatus {
+    Idle,
+    Working,
+    Success,
+    Unavailable,
+}
+
 enum class LocationPrompt {
     Loading,
     AllowLocation,
@@ -199,6 +210,7 @@ sealed interface MapUiEvent {
     data object RequestLocationPermission : MapUiEvent
     data object OpenAppSettings : MapUiEvent
     data object OpenLocationSettings : MapUiEvent
+    data class ShareTripUrl(val url: String) : MapUiEvent
 
     /**
      * A reroute attempted during navigation failed. The old route is still active and the user is
