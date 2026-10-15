@@ -32,6 +32,10 @@ data class MapUiState(
     /** Last settled camera (updated when the camera goes idle). Used to restore the view. */
     val cameraState: CameraState = CameraState.UnitedStates,
     val selectedMapMode: MapMode = MapMode.Map,
+    /** Navigation presentation chosen on Route Preview. Map is the safe/default first-run choice. */
+    val selectedNavigationMode: NavigationMode = NavigationMode.Map,
+    /** Live requires a deliberate safety acknowledgement before the camera driving experience starts. */
+    val isLiveSafetyWarningVisible: Boolean = false,
     val isMapReady: Boolean = false,
     val error: MapError? = null,
     /** The prompt the user dismissed, if any. Re-shows automatically if the situation changes. */
@@ -175,6 +179,12 @@ data class MapUiState(
 }
 
 /** One user-facing location situation. The UI maps each to copy and a primary action. */
+/** The two first-class turn-by-turn experiences OpenMaps offers. */
+enum class NavigationMode {
+    Map,
+    Live,
+}
+
 enum class LocationPrompt {
     Loading,
     AllowLocation,
