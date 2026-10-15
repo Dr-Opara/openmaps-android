@@ -432,6 +432,7 @@ class MapViewModel(
         _uiState.update {
             it.copy(
                 selectedDestination = result,
+                routeOriginOverride = null,
                 routeState = RouteState.Idle,
                 isReviewingDirections = false,
                 // Picking a destination (including from a Nearby Explore card) always returns to
@@ -440,6 +441,30 @@ class MapViewModel(
             )
         }
         moveCamera(CameraState(result.latitude, result.longitude, DESTINATION_ZOOM), durationMillis = 900)
+    }
+
+    /** Route Preview origin editor: choose an address instead of the device's current location. */
+    fun onRouteOriginSelected(result: SearchResult) {
+        routeJob?.cancel()
+        routeJob = null
+        _uiState.update { it.copy(routeOriginOverride = result, routeState = RouteState.Idle) }
+        requestRoute()
+    }
+
+    /** Route Preview destination editor: replace the destination and immediately recalculate. */
+    fun onRouteDestinationSelected(result: SearchResult) {
+        routeJob?.cancel()
+        routeJob = null
+        _uiState.update {
+            it.copy(
+                selectedDestination = result,
+                routeState = RouteState.Idle,
+                isReviewingDirections = false,
+                selectedPlace = null,
+            )
+        }
+        moveCamera(CameraState(result.latitude, result.longitude, DESTINATION_ZOOM), durationMillis = 600)
+        requestRoute()
     }
 
     /**
@@ -474,7 +499,12 @@ class MapViewModel(
         // Clearing the destination ends any trip: the route it was navigating is gone.
         stopNavigation()
         _uiState.update {
-            it.copy(selectedDestination = null, routeState = RouteState.Idle, isReviewingDirections = false)
+            it.copy(
+                selectedDestination = null,
+                routeOriginOverride = null,
+                routeState = RouteState.Idle,
+                isReviewingDirections = false,
+            )
         }
     }
 
@@ -494,16 +524,20 @@ class MapViewModel(
      */
     private fun requestRoute() {
         routeJob?.cancel()
-        val destination = _uiState.value.selectedDestination ?: return
-        val origin = _uiState.value.currentLocation
-        if (origin == null) {
+        val state = _uiState.value
+        val destination = state.selectedDestination ?: return
+        val originOverride = state.routeOriginOverride
+        val deviceOrigin = state.currentLocation
+        if (originOverride == null && deviceOrigin == null) {
             _uiState.update { it.copy(routeState = RouteState.WaitingForLocation) }
             return
         }
+        val originCoordinate = originOverride?.let { Coordinate(it.latitude, it.longitude) }
+            ?: Coordinate(deviceOrigin!!.latitude, deviceOrigin.longitude)
         _uiState.update { it.copy(routeState = RouteState.Loading) }
         routeJob = viewModelScope.launch {
             routingRepository.route(
-                origin = Coordinate(origin.latitude, origin.longitude),
+                origin = originCoordinate,
                 destination = Coordinate(destination.latitude, destination.longitude),
             ).onSuccess { route ->
                 _uiState.update { it.copy(routeState = RouteState.Ready(route)) }
