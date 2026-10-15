@@ -404,8 +404,16 @@ private fun LiveRoadAlertHud(
     // queue with warnings under the maneuver card.
     val topAlert = roadState.activeAlerts.firstOrNull { it !is RouteAlert.SpeedLimit } ?: return
     val distance = RoadAlertPresentation.distanceAheadLabel(topAlert)
+    val delay = RoadAlertPresentation.delayLabel(topAlert)
+    val detail = listOfNotNull(distance, delay).joinToString(" · ")
     LiveCompactPill(
-        text = if (distance != null) "${RoadAlertPresentation.headline(topAlert)} $distance" else RoadAlertPresentation.headline(topAlert),
+        text = buildString {
+            append(RoadAlertPresentation.headline(topAlert))
+            if (detail.isNotBlank()) {
+                append(" · ")
+                append(detail)
+            }
+        },
         background = OpenMapsColors.Warning,
         foreground = OpenMapsColors.Navy900,
         modifier = modifier,
@@ -647,7 +655,11 @@ private fun ArPreviewSurface(
             )
         }
         val labels by viewModel.livePlaceLabels.collectAsState()
-        LivePlaceLabels(labels = labels, modifier = Modifier.fillMaxSize())
+        val showDiscovery = progress?.remainingDistanceMeters?.let { it > ARRIVAL_DISCOVERY_SUPPRESS_METERS } ?: !isNavigating
+        LivePlaceLabels(
+            labels = if (showDiscovery) labels else emptyList(),
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 
@@ -712,6 +724,7 @@ private val LIVE_DISCOVERY_CATEGORIES = setOf(
 )
 private const val LIVE_DISCOVERY_WINDOW = 2
 private const val LIVE_DISCOVERY_ROTATION_MILLIS = 5_000L
+private const val ARRIVAL_DISCOVERY_SUPPRESS_METERS = 500.0
 
 
 @Composable
