@@ -354,63 +354,54 @@ fun NavigationControls(
                 onSelected = onNavigationModeSelected,
             )
             Spacer(Modifier.width(1.dp))
-            // Start launches the selected presentation. Map is the default; Live is opt-in and
-            // will be safety-gated before the camera opens.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            Button(
+                onClick = onStart,
+                enabled = canStart,
+                shape = GlassShapes.Pill,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = OpenMapsColors.ElectricBlueFilled,
+                    contentColor = Color.White,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 54.dp)
+                    .semantics { contentDescription = startLabel },
             ) {
-                Button(
-                    onClick = onStart,
-                    enabled = canStart,
-                    shape = GlassShapes.Pill,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = OpenMapsColors.ElectricBlueFilled,
-                        contentColor = Color.White,
-                    ),
-                    modifier = Modifier
-                        .weight(1.6f)
-                        .heightIn(min = 52.dp)
-                        .semantics { contentDescription = startLabel },
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = -90f },
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.nav_start),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = Color.White,
-                    )
-                }
-                Button(
-                    onClick = onSteps,
-                    shape = GlassShapes.Pill,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.14f),
-                        contentColor = OpenMapsColors.ElectricBlueFilled,
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 52.dp)
-                        .semantics { contentDescription = stepsLabel },
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.List,
-                        contentDescription = null,
-                        tint = OpenMapsColors.ElectricBlueFilled,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.nav_steps),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = OpenMapsColors.ElectricBlueFilled,
-                    )
-                }
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = -90f },
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (selectedNavigationMode == NavigationMode.Live) {
+                        stringResource(R.string.nav_start_live)
+                    } else {
+                        stringResource(R.string.nav_start_map)
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White,
+                )
+            }
+            TextButton(
+                onClick = onSteps,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .semantics { contentDescription = stepsLabel },
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.List,
+                    contentDescription = null,
+                    tint = OpenMapsColors.ElectricBlueFilled,
+                    modifier = Modifier.size(17.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = stringResource(R.string.nav_steps),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = OpenMapsColors.ElectricBlueFilled,
+                )
             }
         }
     }
@@ -423,9 +414,15 @@ private fun NavigationModeSelector(
 ) {
     Text(
         text = stringResource(R.string.nav_choose_experience),
-        style = MaterialTheme.typography.labelLarge,
+        style = MaterialTheme.typography.titleMedium,
+        color = OpenMapsColors.TextPrimary,
+        modifier = Modifier.padding(bottom = 2.dp),
+    )
+    Text(
+        text = stringResource(R.string.nav_choose_experience_hint),
+        style = MaterialTheme.typography.bodySmall,
         color = OpenMapsColors.TextSecondary,
-        modifier = Modifier.padding(bottom = 8.dp),
+        modifier = Modifier.padding(bottom = 10.dp),
     )
     Row(
         modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
@@ -460,7 +457,7 @@ private fun NavigationModeCard(
     val foreground = if (selected) Color.White else OpenMapsColors.TextPrimary
     Column(
         modifier = modifier
-            .heightIn(min = 86.dp)
+            .heightIn(min = 104.dp)
             .background(background, GlassShapes.Card)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
