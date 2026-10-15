@@ -39,11 +39,17 @@ import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
+import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PromotionType
 import java.util.Locale
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * The Nearby/Explore bottom sheet (Phase 12A, sections B5-B9): opened by tapping "Explore what's
@@ -62,7 +68,7 @@ fun NearbyExploreSheet(
     places: List<Place>,
     selectedCategories: Set<PlaceCategory>,
     onCategoriesChanged: (Set<PlaceCategory>) -> Unit,
-    hasCurrentLocation: Boolean,
+    currentLocation: UserLocation?,
     onDetails: (Place) -> Unit,
     onNavigate: (Place) -> Unit,
     onDismiss: () -> Unit,
@@ -99,7 +105,7 @@ fun NearbyExploreSheet(
         Spacer(Modifier.height(12.dp))
 
         when {
-            !hasCurrentLocation -> NearbyStatusRow(stringResource(R.string.nearby_waiting_for_location), showSpinner = true)
+            currentLocation == null -> NearbyStatusRow(stringResource(R.string.nearby_waiting_for_location), showSpinner = true)
             placesState is PlacesState.Loading -> NearbyStatusRow(
                 text = loadingCopy(placesState.categories),
                 showSpinner = true,
@@ -122,12 +128,46 @@ fun NearbyExploreSheet(
                         showSpinner = false,
                     )
                 }
+
+                Text(
+                    text = stringResource(R.string.nearby_near_you_now),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = OpenMapsColors.TextPrimary,
+                )
+                Spacer(Modifier.height(8.dp))
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    items(places, key = { it.id }) { place ->
+                    items(places.take(8), key = { it.id }) { place ->
                         NearbyPlaceCard(place = place, onDetails = { onDetails(place) }, onNavigate = { onNavigate(place) })
+                    }
+                }
+
+                val ahead = currentLocation
+                    ?.bearingDegrees
+                    ?.let { bearing -> placesAhead(currentLocation, bearing, places) }
+                    .orEmpty()
+                if (ahead.isNotEmpty()) {
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = stringResource(R.string.nearby_whats_ahead),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = OpenMapsColors.TextPrimary,
+                    )
+                    Text(
+                        text = stringResource(R.string.nearby_whats_ahead_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OpenMapsColors.TextSecondary,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        items(ahead, key = { it.id }) { place ->
+                            AheadPlaceChip(place = place, onClick = { onDetails(place) })
+                        }
                     }
                 }
             }
@@ -296,6 +336,88 @@ private fun nearbyCardSummary(place: Place): String? {
     return listOfNotNull(distance, address).joinToString(" · ").ifBlank { null }
 }
 
+@Composable
+private fun AheadPlaceChip(place: Place, onClick: () -> Unit) {
+    val distance = place.distanceMeters?.let(::formatNearbyDistance)
+    Row(
+        modifier = Modifier
+            .background(OpenMapsColors.SurfaceMuted, GlassShapes.Pill)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(place.category.markerColor()),
+        )
+        Text(
+            text = nearbyDisplayName(place),
+            style = MaterialTheme.typography.labelMedium,
+            color = OpenMapsColors.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (distance != null) {
+            Text(
+                text = distance,
+                style = MaterialTheme.typography.labelSmall,
+                color = OpenMapsColors.TextSecondary,
+            )
+        }
+    }
+}
+
+/**
+ * "What's Ahead" is shown only when the location provider has a real movement bearing.
+ * No compass/bearing means no directional claim is made.
+ */
+private fun placesAhead(
+    location: UserLocation,
+    movementBearingDegrees: Float,
+    places: List<Place>,
+): List<Place> =
+    places
+        .asSequence()
+        .filter { it.distanceMeters != null }
+        .map { place ->
+            place to angularDifferenceDegrees(
+                movementBearingDegrees.toDouble(),
+                initialBearingDegrees(
+                    location.latitude,
+                    location.longitude,
+                    place.latitude,
+                    place.longitude,
+                ),
+            )
+        }
+        .filter { (_, difference) -> difference <= AHEAD_HALF_ANGLE_DEGREES }
+        .sortedBy { (place, _) -> place.distanceMeters }
+        .map { it.first }
+        .take(MAX_AHEAD_PLACES)
+        .toList()
+
+private fun initialBearingDegrees(
+    fromLatitude: Double,
+    fromLongitude: Double,
+    toLatitude: Double,
+    toLongitude: Double,
+): Double {
+    val fromLat = fromLatitude * PI / 180.0
+    val toLat = toLatitude * PI / 180.0
+    val deltaLon = (toLongitude - fromLongitude) * PI / 180.0
+    val y = sin(deltaLon) * cos(toLat)
+    val x = cos(fromLat) * sin(toLat) - sin(fromLat) * cos(toLat) * cos(deltaLon)
+    return ((atan2(y, x) * 180.0 / PI) + 360.0) % 360.0
+}
+
+private fun angularDifferenceDegrees(a: Double, b: Double): Double {
+    val raw = abs(a - b) % 360.0
+    return if (raw > 180.0) 360.0 - raw else raw
+}
+
 private fun formatNearbyDistance(meters: Double): String {
     val feet = meters * FEET_PER_METER
     val miles = meters / METERS_PER_MILE
@@ -308,3 +430,5 @@ private fun formatNearbyDistance(meters: Double): String {
 
 private const val FEET_PER_METER = 3.28084
 private const val METERS_PER_MILE = 1609.344
+private const val AHEAD_HALF_ANGLE_DEGREES = 55.0
+private const val MAX_AHEAD_PLACES = 4
