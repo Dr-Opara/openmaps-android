@@ -192,6 +192,17 @@ fun MapScreen(
             }
             val selectedPlace = state.selectedPlace
             when {
+                // Active conventional Map Navigation gets its own compact driving controls and trip
+                // summary. It must not reuse Route Preview's Start/Steps panel.
+                state.isNavigating && state.selectedMapMode == com.openmaps.app.map.MapMode.Map &&
+                    state.navigationProgress != null -> ActiveMapNavigationPanel(
+                    progress = state.navigationProgress!!,
+                    voiceEnabled = state.voiceEnabled,
+                    onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
+                    onReroute = viewModel::onManualRerouteRequested,
+                    onExitNavigation = viewModel::endNavigationToHome,
+                )
+
                 // Mockup Route Preview: the "Steps" maneuver list takes over the panel region,
                 // layered above the route summary it belongs to.
                 state.isShowingSteps && state.stepsRouteSummary != null -> RouteStepsSheet(
