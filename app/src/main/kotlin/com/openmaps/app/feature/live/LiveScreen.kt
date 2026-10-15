@@ -131,9 +131,7 @@ fun LiveScreen(
     /** Delta-spec section 25: the compact mute control, state owned by the one `MapViewModel`. */
     voiceEnabled: Boolean = true,
     onVoiceMuteToggled: () -> Unit = {},
-    /** Mockup: a red "End Navigation" button lives directly in Live, not only in Map's panel. Wired
-     * to the same [MapViewModel][com.openmaps.app.feature.map.MapViewModel.stopNavigation] Map's
-     * own "End" control already calls. */
+    /** Compact trip-ending affordance inside the mockup-aligned trip summary. */
     onStopNavigation: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -342,8 +340,7 @@ fun LiveScreen(
                 .padding(top = if (isNavigating) 270.dp else 230.dp, start = 16.dp, end = 16.dp),
         )
 
-        // Mockup: current speed + posted limit, lower-left, above the trip card (and, while
-        // navigating, above the End Navigation button stacked beneath it).
+        // Mockup: current speed + posted limit, lower-left, above the trip card.
         LiveSpeedBlock(
             currentSpeedMetersPerSecond = roadIntelligenceState.currentSpeedMetersPerSecond,
             speedLimitAlert = roadIntelligenceState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull(),
@@ -359,8 +356,8 @@ fun LiveScreen(
  * The quiet readiness chip, in **production wording**.
  *
  * Deliberately never says "AR: Idle", "Earth unavailable", "not authorized" or any other ARCore
- * state name: those are diagnostics, not guidance, and the brief forbids exposing them to normal
- * users. The technical detail lives in [LocalDebugOverlay], which is `BuildConfig.DEBUG`-only.
+ * state name: those are diagnostics, not guidance. Technical detail remains in Logcat/internal
+ * tooling and is never rendered over the consumer Live screen.
  */
 @Composable
 private fun LocalizationChip(status: LiveLocalizationStatus, modifier: Modifier = Modifier) {
@@ -884,8 +881,10 @@ private fun LiveTopBar(
         // dark-navy "Open" is otherwise unreadable here.
         OpenMapsWordmark(modifier = Modifier.padding(start = 4.dp), onLight = false)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            VoiceToggle(voiceEnabled = voiceEnabled, onToggle = onVoiceMuteToggled)
-            Spacer(Modifier.width(8.dp))
+            if (!isNavigating) {
+                VoiceToggle(voiceEnabled = voiceEnabled, onToggle = onVoiceMuteToggled)
+                Spacer(Modifier.width(8.dp))
+            }
             IconButton(onClick = onBackToMap) {
                 Icon(
                     Icons.Filled.Close,
@@ -1142,7 +1141,7 @@ private fun LiveTripSummary(hud: LiveHudState.Maneuver, onStopNavigation: () -> 
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Surface.copy(alpha = 0.90f))
+            .background(OpenMapsColors.Surface.copy(alpha = 0.82f))
             .padding(horizontal = 12.dp, vertical = 12.dp),
     ) {
         hud.destinationName?.let { name ->
