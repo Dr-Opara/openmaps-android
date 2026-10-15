@@ -229,6 +229,8 @@ fun MapScreen(
                     DestinationDetailsSheet(
                         destination = destination,
                         currentLocation = state.currentLocation,
+                        routeState = state.routeState,
+                        nearbyPlaces = state.visiblePlaces,
                         onDirections = viewModel::onDirectionsRequested,
                         // Early Start never skips Route Preview: with no route yet it computes one
                         // and lands there, where the real Start lives.
