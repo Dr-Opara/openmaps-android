@@ -60,11 +60,17 @@ import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
+import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.map.MapMode
 import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.roundToInt
 
 /**
@@ -455,8 +461,11 @@ private fun RouteModeOption.labelRes(): Int = when (this) {
 fun BottomPanel(
     destination: SearchResult?,
     routeState: RouteState,
+    currentLocation: UserLocation? = null,
+    nearbyPlaces: List<Place> = emptyList(),
     recentDestinations: List<SearchResult> = emptyList(),
     onRecentSelected: (SearchResult) -> Unit = {},
+    onPlaceSelected: (Place) -> Unit = {},
     onClearDestination: () -> Unit,
     /** Phase 12A, section B5: opens the Nearby/Explore sheet; only reachable with no destination. */
     onExploreClicked: () -> Unit,
@@ -489,64 +498,15 @@ fun BottomPanel(
         )
         Spacer(Modifier.height(10.dp))
         if (destination == null) {
-            // Mockup discovery panel: centered "Explore Nearby Places" heading (whole row tappable,
-            // no chevron) above the category tiles.
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(role = Role.Button, onClick = onExploreClicked)
-                        .padding(vertical = 6.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = stringResource(R.string.panel_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OpenMapsColors.TextPrimary,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-                ExploreCategoryTiles(onCategoryClicked = { onExploreCategoryClicked(it) })
-                if (recentDestinations.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = stringResource(R.string.home_recent_destinations),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = OpenMapsColors.TextPrimary,
-                        modifier = Modifier.align(Alignment.Start),
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    recentDestinations.take(3).forEach { recent ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onRecentSelected(recent) }
-                                .padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                Icons.Filled.Place,
-                                contentDescription = null,
-                                tint = OpenMapsColors.ElectricBlueFilled,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = recent.name.ifBlank { recent.displayName },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = OpenMapsColors.TextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                }
-            }
+            HomeDiscoveryPanel(
+                currentLocation = currentLocation,
+                nearbyPlaces = nearbyPlaces,
+                recentDestinations = recentDestinations,
+                onExploreClicked = onExploreClicked,
+                onExploreCategoryClicked = onExploreCategoryClicked,
+                onRecentSelected = onRecentSelected,
+                onPlaceSelected = onPlaceSelected,
+            )
         } else {
             // Mockup Route Preview: the origin/destination fields now render at the top of the
             // screen (see MapScreen's isRoutePreview branch) — this card holds only the route
@@ -566,6 +526,277 @@ fun BottomPanel(
         }
     }
 }
+
+@Composable
+private fun HomeDiscoveryPanel(
+    currentLocation: UserLocation?,
+    nearbyPlaces: List<Place>,
+    recentDestinations: List<SearchResult>,
+    onExploreClicked: () -> Unit,
+    onExploreCategoryClicked: (PlaceCategory) -> Unit,
+    onRecentSelected: (SearchResult) -> Unit,
+    onPlaceSelected: (Place) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.Start,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button, onClick = onExploreClicked)
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.home_explore_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = OpenMapsColors.TextPrimary,
+                )
+                Text(
+                    text = stringResource(R.string.home_explore_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OpenMapsColors.TextSecondary,
+                )
+            }
+            Text(
+                text = stringResource(R.string.home_see_all),
+                style = MaterialTheme.typography.labelLarge,
+                color = OpenMapsColors.ElectricBlueFilled,
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
+        ExploreCategoryTiles(onCategoryClicked = onExploreCategoryClicked)
+
+        val nearYou = nearbyPlaces.take(4)
+        if (nearYou.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            HomeSectionHeader(
+                title = stringResource(R.string.home_near_you_now),
+                subtitle = stringResource(R.string.home_near_you_now_subtitle),
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                nearYou.take(2).forEach { place ->
+                    HomePlaceCard(
+                        place = place,
+                        onClick = { onPlaceSelected(place) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+
+        val ahead = currentLocation
+            ?.bearingDegrees
+            ?.let { bearing -> homePlacesAhead(currentLocation, bearing, nearbyPlaces) }
+            .orEmpty()
+        if (ahead.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            HomeSectionHeader(
+                title = stringResource(R.string.home_whats_ahead),
+                subtitle = stringResource(R.string.home_whats_ahead_subtitle),
+            )
+            Spacer(Modifier.height(6.dp))
+            ahead.take(3).forEach { place ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onPlaceSelected(place) }
+                        .padding(vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        painter = painterResource(place.category.iconRes()),
+                        contentDescription = null,
+                        tint = place.category.markerColor(),
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = place.name.ifBlank { place.category.displayName() },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OpenMapsColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    place.distanceMeters?.let { meters ->
+                        Text(
+                            text = homeDistanceLabel(meters),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = OpenMapsColors.TextSecondary,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (recentDestinations.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            HomeSectionHeader(
+                title = stringResource(R.string.home_recent_destinations),
+                subtitle = stringResource(R.string.home_recent_destinations_subtitle),
+            )
+            recentDestinations.take(2).forEach { recent ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onRecentSelected(recent) }
+                        .padding(vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Filled.Place,
+                        contentDescription = null,
+                        tint = OpenMapsColors.ElectricBlueFilled,
+                        modifier = Modifier.size(17.dp),
+                    )
+                    Spacer(Modifier.width(9.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = recent.name.ifBlank { recent.displayName },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = OpenMapsColors.TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        recent.subtitle.takeIf { it.isNotBlank() }?.let {
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OpenMapsColors.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeSectionHeader(title: String, subtitle: String) {
+    Column {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = OpenMapsColors.TextPrimary,
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = OpenMapsColors.TextSecondary,
+        )
+    }
+}
+
+@Composable
+private fun HomePlaceCard(
+    place: Place,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painter = painterResource(place.category.iconRes()),
+                contentDescription = null,
+                tint = place.category.markerColor(),
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = place.category.displayName(),
+                style = MaterialTheme.typography.labelSmall,
+                color = OpenMapsColors.TextSecondary,
+            )
+        }
+        Text(
+            text = place.name.ifBlank { place.category.displayName() },
+            style = MaterialTheme.typography.titleSmall,
+            color = OpenMapsColors.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 5.dp),
+        )
+        place.distanceMeters?.let { meters ->
+            Text(
+                text = homeDistanceLabel(meters),
+                style = MaterialTheme.typography.labelMedium,
+                color = OpenMapsColors.ElectricBlueFilled,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+    }
+}
+
+private fun homePlacesAhead(
+    location: UserLocation,
+    movementBearingDegrees: Float,
+    places: List<Place>,
+): List<Place> =
+    places.asSequence()
+        .filter { it.distanceMeters != null }
+        .map { place ->
+            place to homeAngularDifference(
+                movementBearingDegrees.toDouble(),
+                homeInitialBearing(
+                    location.latitude,
+                    location.longitude,
+                    place.latitude,
+                    place.longitude,
+                ),
+            )
+        }
+        .filter { (_, diff) -> diff <= HOME_AHEAD_HALF_ANGLE_DEGREES }
+        .sortedBy { (place, _) -> place.distanceMeters }
+        .map { it.first }
+        .take(3)
+        .toList()
+
+private fun homeInitialBearing(
+    fromLatitude: Double,
+    fromLongitude: Double,
+    toLatitude: Double,
+    toLongitude: Double,
+): Double {
+    val fromLat = fromLatitude * PI / 180.0
+    val toLat = toLatitude * PI / 180.0
+    val deltaLon = (toLongitude - fromLongitude) * PI / 180.0
+    val y = sin(deltaLon) * cos(toLat)
+    val x = cos(fromLat) * sin(toLat) - sin(fromLat) * cos(toLat) * cos(deltaLon)
+    return ((atan2(y, x) * 180.0 / PI) + 360.0) % 360.0
+}
+
+private fun homeAngularDifference(a: Double, b: Double): Double {
+    val raw = abs(a - b) % 360.0
+    return if (raw > 180.0) 360.0 - raw else raw
+}
+
+private fun homeDistanceLabel(meters: Double): String {
+    val feet = meters * 3.28084
+    val miles = meters / 1609.344
+    return when {
+        feet < 1000.0 -> "${feet.roundToInt()} ft"
+        miles < 10.0 -> String.format(Locale.US, "%.1f mi", miles)
+        else -> "${miles.roundToInt()} mi"
+    }
+}
+
+private const val HOME_AHEAD_HALF_ANGLE_DEGREES = 55.0
 
 /**
  * One compact line under the destination subtitle: loading, error, or "12 mi · 18 min · Arrive
