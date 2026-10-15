@@ -1178,17 +1178,17 @@ class MapViewModelTest {
     }
 
     @Test
-    fun startNavigation_automaticallySwitchesToLiveMode() = runTest(dispatcher) {
+    fun startNavigation_defaultsToMapMode() = runTest(dispatcher) {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
         viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
         viewModel.onDirectionsRequested()
+        assertEquals(NavigationMode.Map, viewModel.uiState.value.selectedNavigationMode)
+
+        viewModel.onStartNavigationRequested()
+
         assertEquals(MapMode.Map, viewModel.uiState.value.selectedMapMode)
-
-        viewModel.startNavigation()
-
-        assertEquals(MapMode.Live, viewModel.uiState.value.selectedMapMode)
         assertTrue(viewModel.uiState.value.navigationState is NavigationState.Active)
     }
 
@@ -1255,7 +1255,10 @@ class MapViewModelTest {
         routingRepository.result = Result.success(navigableRoute())
         viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
         viewModel.onDirectionsRequested()
-        viewModel.startNavigation()
+        viewModel.onNavigationModeSelected(NavigationMode.Live)
+        viewModel.onStartNavigationRequested()
+        assertTrue(viewModel.uiState.value.isLiveSafetyWarningVisible)
+        viewModel.onLiveSafetyConfirmed()
         assertEquals(MapMode.Live, viewModel.uiState.value.selectedMapMode)
 
         viewModel.onLiveReadinessChanged(LiveReadiness.Unusable, "Camera access denied — continuing in Map")
@@ -1272,7 +1275,9 @@ class MapViewModelTest {
         routingRepository.result = Result.success(navigableRoute())
         viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
         viewModel.onDirectionsRequested()
-        viewModel.startNavigation()
+        viewModel.onNavigationModeSelected(NavigationMode.Live)
+        viewModel.onStartNavigationRequested()
+        viewModel.onLiveSafetyConfirmed()
 
         viewModel.onLiveReadinessChanged(LiveReadiness.Pending, null)
 
@@ -1287,7 +1292,9 @@ class MapViewModelTest {
         routingRepository.result = Result.success(navigableRoute())
         viewModel.onDestinationSelected(place("dest", 0.009, 0.0))
         viewModel.onDirectionsRequested()
-        viewModel.startNavigation()
+        viewModel.onNavigationModeSelected(NavigationMode.Live)
+        viewModel.onStartNavigationRequested()
+        viewModel.onLiveSafetyConfirmed()
 
         viewModel.onLiveReadinessChanged(LiveReadiness.Ready, null)
         // A later Unusable signal must now be ignored: disarmed after the first Ready resolution.
@@ -1520,18 +1527,23 @@ class MapViewModelTest {
     }
 
     @Test
-    fun directionsReview_doesNotAffectStartOrTheStartToLiveSequence() = runTest(dispatcher) {
-        // Regression guard (section D5): Start's semantics must be unaffected by the review flow.
+    fun directionsReview_doesNotAffectStartOrSelectedNavigationMode() = runTest(dispatcher) {
+        // Regression guard: reviewing destination details must not change the Route Preview mode choice.
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
         viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.onNavigationModeSelected(NavigationMode.Live)
         viewModel.onDirectionsReviewRequested()
         viewModel.onDirectionsReviewDismissed()
         assertTrue(viewModel.uiState.value.canStartNavigation)
+        assertEquals(NavigationMode.Live, viewModel.uiState.value.selectedNavigationMode)
 
-        viewModel.startNavigation()
+        viewModel.onStartNavigationRequested()
 
+        assertTrue(viewModel.uiState.value.isLiveSafetyWarningVisible)
+        assertFalse(viewModel.uiState.value.navigationState is NavigationState.Active)
+        viewModel.onLiveSafetyConfirmed()
         assertTrue(viewModel.uiState.value.navigationState is NavigationState.Active)
         assertEquals(MapMode.Live, viewModel.uiState.value.selectedMapMode)
     }
