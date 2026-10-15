@@ -40,6 +40,8 @@ fun MapScreen(
     viewModel: MapViewModel,
     styleProvider: MapStyleProvider,
     onSearchClick: () -> Unit,
+    onRouteOriginClick: () -> Unit = {},
+    onRouteDestinationClick: () -> Unit = {},
     /** Opens the search screen straight into voice mode. Null hides the mic rather than showing a dead icon. */
     onVoiceSearchClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit,
@@ -129,7 +131,12 @@ fun MapScreen(
             // category toggles go with it — Live/active-trip chrome should not grow, not shrink.
             if (!state.isNavigating) {
                 if (isRoutePreview) {
-                    RouteEndpointFields(destination = state.selectedDestination)
+                    RouteEndpointFields(
+                        destination = state.selectedDestination,
+                        origin = state.routeOriginOverride,
+                        onOriginClick = onRouteOriginClick,
+                        onDestinationClick = onRouteDestinationClick,
+                    )
                     RouteModeRow(routeState = state.routeState)
                 } else {
                     MapSearchBar(
