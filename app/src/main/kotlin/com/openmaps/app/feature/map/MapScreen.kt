@@ -269,8 +269,11 @@ fun MapScreen(
                     BottomPanel(
                         destination = state.selectedDestination,
                         routeState = state.routeState,
+                        currentLocation = state.currentLocation,
+                        nearbyPlaces = state.visiblePlaces,
                         recentDestinations = recentDestinations,
                         onRecentSelected = viewModel::onDestinationSelected,
+                        onPlaceSelected = viewModel::onPlaceSelected,
                         onClearDestination = viewModel::onDestinationCleared,
                         onExploreClicked = viewModel::onExploreRequested,
                         onExploreCategoryClicked = viewModel::onExploreCategoryClicked,
