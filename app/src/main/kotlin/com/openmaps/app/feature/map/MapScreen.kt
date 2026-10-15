@@ -40,6 +40,7 @@ fun MapScreen(
     viewModel: MapViewModel,
     styleProvider: MapStyleProvider,
     recentDestinations: List<com.openmaps.app.core.geocoding.SearchResult> = emptyList(),
+    onShareDestination: (com.openmaps.app.core.geocoding.SearchResult) -> Unit = {},
     onSearchClick: () -> Unit,
     onRouteOriginClick: () -> Unit = {},
     onRouteDestinationClick: () -> Unit = {},
@@ -241,6 +242,7 @@ fun MapScreen(
                         // Early Start never skips Route Preview: with no route yet it computes one
                         // and lands there, where the real Start lives.
                         onStart = { viewModel.onStartRequestedFromDestination(destination) },
+                        onShare = { onShareDestination(destination) },
                         onDismiss = if (state.isReviewingDirections) {
                             viewModel::onDirectionsReviewDismissed
                         } else {
