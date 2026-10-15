@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,7 +40,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,6 +82,7 @@ import com.openmaps.app.core.environment.EnvironmentNavigationProfile
 import com.openmaps.app.core.environment.EnvironmentProfiles
 import com.openmaps.app.core.places.LivePlaceProjector
 import com.openmaps.app.core.places.Place
+import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceState
 import com.openmaps.app.core.roadintelligence.SpeedUnit
 import com.openmaps.app.core.roadintelligence.RouteAlert
@@ -132,8 +137,10 @@ fun LiveScreen(
     /** Delta-spec section 25: the compact mute control, state owned by the one `MapViewModel`. */
     voiceEnabled: Boolean = true,
     onVoiceMuteToggled: () -> Unit = {},
-    /** Compact trip-ending affordance inside the mockup-aligned trip summary. */
-    onStopNavigation: () -> Unit = {},
+    /** Manual alternative-route request from the active driving HUD. */
+    onReroute: () -> Unit = {},
+    /** Explicit red Exit action: end the trip and return to Discover/Home. */
+    onExitNavigation: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     // Reactive: flips from Spatial to CameraX mid-session if AR fails, which is what guarantees a
@@ -227,21 +234,6 @@ fun LiveScreen(
             return@Box
         }
 
-        // Mockup: the maneuver card owns the very top of the screen once driving, with the side
-        // controls down the right edge and nothing else competing for that space.
-        if (isNavigating) {
-            LiveSideControls(
-                onBackToMap = { onModeSelected(MapMode.Map) },
-                hasActiveHazard = roadIntelligenceState.activeAlerts.any { it !is RouteAlert.SpeedLimit },
-                voiceEnabled = voiceEnabled,
-                onVoiceMuteToggled = onVoiceMuteToggled,
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .statusBarsPadding()
-                    .padding(end = 16.dp),
-            )
-        }
-
         when (val hud = hudState) {
             LiveHudState.Idle -> Unit
 
@@ -288,14 +280,6 @@ fun LiveScreen(
                     onBackToMap = { onModeSelected(MapMode.Map) },
                     modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 40.dp),
                 )
-                // Delta-spec section 13: a short, reasonable confirmation period, then return to
-                // Map automatically — the manual "Back to map" button above still works immediately
-                // if the driver taps it first. Keyed on the destination name so a second, different
-                // arrival (a fresh trip) restarts the window rather than reusing a stale one.
-                LaunchedEffect(hud.destinationName) {
-                    kotlinx.coroutines.delay(ARRIVAL_AUTO_RETURN_DELAY_MILLIS)
-                    onModeSelected(MapMode.Map)
-                }
             }
         }
 
@@ -305,9 +289,18 @@ fun LiveScreen(
         val summaryHud = hudState
         val summaryBottomPadding = if (summaryHud is LiveHudState.Maneuver) 16.dp else 96.dp
         if (summaryHud is LiveHudState.Maneuver) {
+            LiveDrivingActions(
+                voiceEnabled = voiceEnabled,
+                onVoiceMuteToggled = onVoiceMuteToggled,
+                onReroute = onReroute,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = summaryBottomPadding + 86.dp),
+            )
             LiveTripSummary(
                 hud = summaryHud,
-                onStopNavigation = onStopNavigation,
+                onExitNavigation = onExitNavigation,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
@@ -349,7 +342,7 @@ fun LiveScreen(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .navigationBarsPadding()
-                .padding(start = 16.dp, bottom = summaryBottomPadding + 104.dp),
+                .padding(start = 16.dp, bottom = summaryBottomPadding + 148.dp),
         )
 
     }
@@ -664,18 +657,61 @@ private fun ArPreviewSurface(
  * other; this is a presentation offset only, not a precision claim.
  */
 @Composable
-private fun LivePlaceLabels(labels: List<LivePlaceProjector.LivePlaceLabel>, modifier: Modifier = Modifier) {
+private fun LivePlaceLabels(
+    labels: List<LivePlaceProjector.LivePlaceLabel>,
+    modifier: Modifier = Modifier,
+) {
+    val prioritized = remember(labels) {
+        labels.filter { it.place.category in LIVE_DISCOVERY_CATEGORIES }
+    }
+    var startIndex by remember(prioritized) { mutableIntStateOf(0) }
+
+    LaunchedEffect(prioritized) {
+        startIndex = 0
+        if (prioritized.size > LIVE_DISCOVERY_WINDOW) {
+            while (true) {
+                kotlinx.coroutines.delay(LIVE_DISCOVERY_ROTATION_MILLIS)
+                startIndex = (startIndex + LIVE_DISCOVERY_WINDOW) % prioritized.size
+            }
+        }
+    }
+
+    val visible = if (prioritized.size <= LIVE_DISCOVERY_WINDOW) {
+        prioritized
+    } else {
+        List(LIVE_DISCOVERY_WINDOW) { offset ->
+            prioritized[(startIndex + offset) % prioritized.size]
+        }
+    }
+
     Box(modifier) {
-        labels.forEachIndexed { index, label ->
+        visible.forEachIndexed { index, label ->
             LivePlaceChip(
                 label = label,
                 modifier = Modifier.offset {
-                    IntOffset(label.x.roundToInt(), label.y.roundToInt() + index * LABEL_VERTICAL_STAGGER_PX)
+                    IntOffset(
+                        label.x.roundToInt(),
+                        label.y.roundToInt() + index * LABEL_VERTICAL_STAGGER_PX,
+                    )
                 },
             )
         }
     }
 }
+
+private val LIVE_DISCOVERY_CATEGORIES = setOf(
+    PlaceCategory.Gas,
+    PlaceCategory.EvCharging,
+    PlaceCategory.Medical,
+    PlaceCategory.Parking,
+    PlaceCategory.Restaurant,
+    PlaceCategory.Coffee,
+    PlaceCategory.Hotel,
+    PlaceCategory.Pharmacy,
+)
+private const val LIVE_DISCOVERY_WINDOW = 2
+private const val LIVE_DISCOVERY_ROTATION_MILLIS = 5_000L
+
 
 @Composable
 private fun LivePlaceChip(label: LivePlaceProjector.LivePlaceLabel, modifier: Modifier = Modifier) {
@@ -1139,35 +1175,172 @@ private fun LiveStatusHud(title: String, modifier: Modifier = Modifier) {
  * read at render time rather than stored, so it stays correct without becoming a second estimate.
  */
 @Composable
-private fun LiveTripSummary(
-    hud: LiveHudState.Maneuver,
-    onStopNavigation: () -> Unit,
+private fun LiveDrivingActions(
+    voiceEnabled: Boolean,
+    onVoiceMuteToggled: () -> Unit,
+    onReroute: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var showVolume by remember { mutableStateOf(false) }
+    var showReports by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val audioManager = remember(context) { context.getSystemService(AudioManager::class.java) }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .clip(GlassShapes.Pill)
+                .background(OpenMapsColors.Navy950.copy(alpha = 0.48f))
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LiveDrivingAction(
+                label = stringResource(R.string.nav_action_report),
+                onClick = { showReports = true },
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_warning),
+                    contentDescription = null,
+                    tint = OpenMapsColors.Warning,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            LiveDrivingAction(
+                label = stringResource(R.string.nav_action_volume),
+                onClick = { showVolume = !showVolume },
+            ) {
+                Icon(
+                    painter = painterResource(if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off),
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            LiveDrivingAction(
+                label = stringResource(R.string.nav_action_share),
+                onClick = {},
+                enabled = false,
+            ) {
+                Text("↗", style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.45f))
+            }
+            LiveDrivingAction(
+                label = stringResource(R.string.nav_action_reroute),
+                onClick = onReroute,
+            ) {
+                Text("↻", style = MaterialTheme.typography.titleLarge, color = Color.White)
+            }
+        }
+
+        if (showVolume) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(top = 6.dp)
+                    .clip(GlassShapes.Pill)
+                    .background(OpenMapsColors.Navy950.copy(alpha = 0.58f))
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = {
+                        audioManager?.adjustStreamVolume(
+                            AudioManager.STREAM_MUSIC,
+                            AudioManager.ADJUST_LOWER,
+                            0,
+                        )
+                    },
+                    modifier = Modifier.size(38.dp),
+                ) {
+                    Text("−", style = MaterialTheme.typography.titleLarge, color = Color.White)
+                }
+                IconButton(
+                    onClick = onVoiceMuteToggled,
+                    modifier = Modifier.size(38.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off),
+                        contentDescription = stringResource(if (voiceEnabled) R.string.live_voice_on else R.string.live_voice_off),
+                        tint = Color.White,
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        audioManager?.adjustStreamVolume(
+                            AudioManager.STREAM_MUSIC,
+                            AudioManager.ADJUST_RAISE,
+                            0,
+                        )
+                    },
+                    modifier = Modifier.size(38.dp),
+                ) {
+                    Text("+", style = MaterialTheme.typography.titleLarge, color = Color.White)
+                }
+            }
+        }
+    }
+
+    if (showReports) {
+        AlertDialog(
+            onDismissRequest = { showReports = false },
+            title = { Text(stringResource(R.string.nav_report_title)) },
+            text = {
+                Text(
+                    text = stringResource(R.string.nav_report_unavailable),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showReports = false }) {
+                    Text(stringResource(R.string.cd_dismiss))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun LiveDrivingAction(
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 2.dp, vertical = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        content()
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (enabled) Color.White else Color.White.copy(alpha = 0.42f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun LiveTripSummary(
+    hud: LiveHudState.Maneuver,
+    onExitNavigation: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var confirmExit by remember { mutableStateOf(false) }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Surface.copy(alpha = 0.90f))
+            .background(OpenMapsColors.Surface.copy(alpha = 0.92f))
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        IconButton(
-            onClick = onStopNavigation,
-            modifier = Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(OpenMapsColors.SurfaceMuted),
-        ) {
-            Icon(
-                Icons.Filled.Close,
-                contentDescription = stringResource(R.string.nav_stop),
-                tint = OpenMapsColors.TextPrimary,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-
         Column(Modifier.weight(1f)) {
             hud.destinationName?.let { name ->
                 Text(
@@ -1184,7 +1357,7 @@ private fun LiveTripSummary(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = formatLiveDistance(hud.remainingDistanceMeters),
+                    text = formatLiveDuration(hud.remainingDurationSeconds),
                     style = MaterialTheme.typography.titleMedium,
                     color = OpenMapsColors.TextPrimary,
                 )
@@ -1194,7 +1367,7 @@ private fun LiveTripSummary(
                     color = OpenMapsColors.TextSecondary,
                 )
                 Text(
-                    text = formatLiveDuration(hud.remainingDurationSeconds),
+                    text = formatLiveDistance(hud.remainingDistanceMeters),
                     style = MaterialTheme.typography.titleMedium,
                     color = OpenMapsColors.TextPrimary,
                 )
@@ -1209,14 +1382,52 @@ private fun LiveTripSummary(
             )
         }
 
-        Icon(
-            Icons.AutoMirrored.Filled.ArrowForward,
-            contentDescription = null,
-            tint = OpenMapsColors.TextSecondary,
-            modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = -90f },
+        Button(
+            onClick = { confirmExit = true },
+            shape = GlassShapes.Pill,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFC62828),
+                contentColor = Color.White,
+            ),
+            modifier = Modifier.heightIn(min = 44.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.nav_exit),
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White,
+            )
+        }
+    }
+
+    if (confirmExit) {
+        AlertDialog(
+            onDismissRequest = { confirmExit = false },
+            title = { Text(stringResource(R.string.nav_exit_confirm_title)) },
+            text = { Text(stringResource(R.string.nav_exit_confirm_body)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmExit = false
+                        onExitNavigation()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFC62828),
+                        contentColor = Color.White,
+                    ),
+                    shape = GlassShapes.Pill,
+                ) {
+                    Text(stringResource(R.string.nav_exit_end))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmExit = false }) {
+                    Text(stringResource(R.string.nav_exit_continue))
+                }
+            },
         )
     }
 }
+
 
 @Composable
 private fun LiveTripStatColumn(value: String, label: String, modifier: Modifier = Modifier) {
