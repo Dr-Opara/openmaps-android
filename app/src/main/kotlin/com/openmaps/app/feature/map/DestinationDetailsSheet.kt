@@ -47,8 +47,11 @@ import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.places.Place
+import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.RouteCorridor
 import com.openmaps.app.core.routing.Coordinate
+import com.openmaps.app.core.routing.ManeuverType
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -62,6 +65,8 @@ private enum class DestinationDetailsTab { Overview, Reviews, Photos, Nearby }
 fun DestinationDetailsSheet(
     destination: SearchResult,
     currentLocation: UserLocation?,
+    routeState: RouteState = RouteState.Idle,
+    nearbyPlaces: List<Place> = emptyList(),
     onDirections: () -> Unit,
     onStart: () -> Unit,
     onDismiss: () -> Unit,
@@ -126,6 +131,22 @@ fun DestinationDetailsSheet(
                     style = MaterialTheme.typography.labelLarge,
                     color = OpenMapsColors.ElectricBlueFilled,
                     modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+
+            val readyRoute = (routeState as? RouteState.Ready)?.route
+            if (readyRoute != null) {
+                Spacer(Modifier.height(12.dp))
+                DestinationTripSummary(
+                    durationSeconds = readyRoute.durationSeconds,
+                    distanceMeters = readyRoute.distanceMeters,
+                )
+
+                val parkingNearby = parkingNearDestination(destination, nearbyPlaces)
+                Spacer(Modifier.height(10.dp))
+                ArrivalIntelligenceCard(
+                    routeComplexity = arrivalComplexityLabel(readyRoute.maneuvers.map { it.type }),
+                    parkingNearby = parkingNearby,
                 )
             }
 
@@ -215,13 +236,34 @@ fun DestinationDetailsSheet(
 
             Spacer(Modifier.height(12.dp))
             when (tab) {
-                DestinationDetailsTab.Overview -> Text(
-                    text = destination.subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextPrimary,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                DestinationDetailsTab.Overview -> {
+                    Text(
+                        text = destination.subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OpenMapsColors.TextPrimary,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val parkingNearby = parkingNearDestination(destination, nearbyPlaces)
+                    if (parkingNearby.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = stringResource(R.string.destination_parking_nearby),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = OpenMapsColors.TextPrimary,
+                        )
+                        parkingNearby.take(3).forEach { place ->
+                            Text(
+                                text = parkingLine(place),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OpenMapsColors.TextSecondary,
+                                modifier = Modifier.padding(top = 4.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
                 DestinationDetailsTab.Reviews -> Text(
                     stringResource(R.string.place_reviews_unavailable),
                     style = MaterialTheme.typography.bodyMedium,
@@ -242,6 +284,161 @@ fun DestinationDetailsSheet(
     }
 }
 
+@Composable
+private fun DestinationTripSummary(durationSeconds: Double, distanceMeters: Double) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column {
+            Text(
+                text = formatTripDuration(durationSeconds),
+                style = MaterialTheme.typography.titleLarge,
+                color = OpenMapsColors.TextPrimary,
+            )
+            Text(
+                text = stringResource(R.string.destination_trip_time),
+                style = MaterialTheme.typography.labelSmall,
+                color = OpenMapsColors.TextSecondary,
+            )
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = formatTripDistance(distanceMeters),
+                style = MaterialTheme.typography.titleMedium,
+                color = OpenMapsColors.TextPrimary,
+            )
+            Text(
+                text = stringResource(R.string.destination_trip_distance),
+                style = MaterialTheme.typography.labelSmall,
+                color = OpenMapsColors.TextSecondary,
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = ArrivalTimeFormatter.format(durationSeconds, System.currentTimeMillis()),
+                style = MaterialTheme.typography.titleMedium,
+                color = OpenMapsColors.TextPrimary,
+            )
+            Text(
+                text = stringResource(R.string.destination_trip_arrival),
+                style = MaterialTheme.typography.labelSmall,
+                color = OpenMapsColors.TextSecondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArrivalIntelligenceCard(
+    routeComplexity: String,
+    parkingNearby: List<Place>,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.destination_arrival_ease),
+            style = MaterialTheme.typography.labelLarge,
+            color = OpenMapsColors.TextPrimary,
+        )
+        Text(
+            text = routeComplexity,
+            style = MaterialTheme.typography.titleMedium,
+            color = OpenMapsColors.ElectricBlueFilled,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        Text(
+            text = stringResource(R.string.destination_arrival_ease_basis),
+            style = MaterialTheme.typography.bodySmall,
+            color = OpenMapsColors.TextSecondary,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        if (parkingNearby.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.destination_parking_found, parkingNearby.size.coerceAtMost(3)),
+                style = MaterialTheme.typography.bodySmall,
+                color = OpenMapsColors.TextPrimary,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+    }
+}
+
+private fun arrivalComplexityLabel(types: List<ManeuverType>): String {
+    val final = types.takeLast(6)
+    val complex = final.count {
+        it in setOf(
+            ManeuverType.SharpLeft,
+            ManeuverType.SharpRight,
+            ManeuverType.UTurn,
+            ManeuverType.Roundabout,
+            ManeuverType.Ramp,
+        )
+    }
+    val turns = final.count {
+        it in setOf(
+            ManeuverType.TurnLeft,
+            ManeuverType.TurnRight,
+            ManeuverType.SlightLeft,
+            ManeuverType.SlightRight,
+        )
+    }
+    return when {
+        complex >= 2 -> "Complex final approach"
+        complex == 1 || turns >= 3 -> "Moderate final approach"
+        else -> "Simple final approach"
+    }
+}
+
+private fun parkingNearDestination(destination: SearchResult, places: List<Place>): List<Place> =
+    places
+        .asSequence()
+        .filter { it.category == PlaceCategory.Parking }
+        .map { place ->
+            val meters = RouteCorridor.metersBetween(
+                Coordinate(destination.latitude, destination.longitude),
+                Coordinate(place.latitude, place.longitude),
+            )
+            place to meters
+        }
+        .filter { (_, meters) -> meters <= DESTINATION_PARKING_RADIUS_METERS }
+        .sortedBy { (_, meters) -> meters }
+        .map { it.first }
+        .take(3)
+        .toList()
+
+private fun parkingLine(place: Place): String {
+    val parts = mutableListOf<String>()
+    parts += place.name.ifBlank { "Parking" }
+    place.metadata.parkingType
+        ?.replace('_', ' ')
+        ?.replaceFirstChar { it.uppercase() }
+        ?.let(parts::add)
+    place.metadata.isPublicAccess?.let { parts += if (it) "Public" else "Private" }
+    place.metadata.feeApplies?.let { parts += if (it) "Fee" else "No fee reported" }
+    return parts.joinToString(" · ")
+}
+
+private fun formatTripDistance(meters: Double): String {
+    val miles = meters / METERS_PER_MILE
+    return if (miles < 10.0) String.format(Locale.US, "%.1f mi", miles) else "${miles.roundToInt()} mi"
+}
+
+private fun formatTripDuration(seconds: Double): String {
+    val totalMinutes = (seconds / 60.0).roundToInt().coerceAtLeast(1)
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return if (hours > 0) "${hours} hr ${minutes} min" else "${minutes} min"
+}
+
 private fun approximateDistanceLabel(destination: SearchResult, currentLocation: UserLocation?): String? {
     val location = currentLocation ?: return null
     val meters = RouteCorridor.metersBetween(
@@ -258,5 +455,6 @@ private fun approximateDistanceLabel(destination: SearchResult, currentLocation:
     return "$formatted away"
 }
 
+private const val DESTINATION_PARKING_RADIUS_METERS = 800.0
 private const val FEET_PER_METER = 3.28084
 private const val METERS_PER_MILE = 1609.344
