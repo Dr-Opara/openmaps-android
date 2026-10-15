@@ -55,6 +55,7 @@ import com.openmaps.app.feature.splash.SplashScreen
 import com.openmaps.app.map.MapMode
 
 private enum class Overlay { None, Search, Settings }
+private enum class SearchPurpose { NewDestination, RouteOrigin, RouteDestination }
 
 /**
  * App root: splash, then one persistent shell.
@@ -82,6 +83,7 @@ private fun AppShell(container: AppContainer) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val liveState by liveViewModel.uiState.collectAsStateWithLifecycle()
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
+    var searchPurpose by rememberSaveable { mutableStateOf(SearchPurpose.NewDestination) }
     // Bumped to ask the search screen to start voice capture as soon as it appears. An incrementing
     // counter rather than a boolean so tapping the home mic twice still re-arms the recognizer.
     var voiceSearchRequest by rememberSaveable { mutableIntStateOf(0) }
@@ -180,10 +182,25 @@ private fun AppShell(container: AppContainer) {
         MapScreen(
             viewModel = viewModel,
             styleProvider = container.mapStyleProvider,
-            onSearchClick = { overlay = Overlay.Search },
+            onSearchClick = {
+                searchPurpose = SearchPurpose.NewDestination
+                overlay = Overlay.Search
+            },
+            onRouteOriginClick = {
+                searchPurpose = SearchPurpose.RouteOrigin
+                overlay = Overlay.Search
+            },
+            onRouteDestinationClick = {
+                searchPurpose = SearchPurpose.RouteDestination
+                overlay = Overlay.Search
+            },
             // Same real launcher as inside the search screen: the home mic and the search-screen mic
             // are one feature, not two.
-            onVoiceSearchClick = { voiceSearchRequest++; overlay = Overlay.Search },
+            onVoiceSearchClick = {
+                searchPurpose = SearchPurpose.NewDestination
+                voiceSearchRequest++
+                overlay = Overlay.Search
+            },
             onSettingsClick = { overlay = Overlay.Settings },
         )
 
@@ -224,7 +241,12 @@ private fun AppShell(container: AppContainer) {
                 viewModel = searchViewModel,
                 onBack = { overlay = Overlay.None },
                 onResultSelected = { result ->
-                    viewModel.onDestinationSelected(result)
+                    when (searchPurpose) {
+                        SearchPurpose.NewDestination -> viewModel.onDestinationSelected(result)
+                        SearchPurpose.RouteOrigin -> viewModel.onRouteOriginSelected(result)
+                        SearchPurpose.RouteDestination -> viewModel.onRouteDestinationSelected(result)
+                    }
+                    searchPurpose = SearchPurpose.NewDestination
                     overlay = Overlay.None
                 },
                 autoStartVoiceSearch = voiceSearchRequest > 0,
