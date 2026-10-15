@@ -228,7 +228,8 @@ private fun AppShell(container: AppContainer) {
                 environmentProfile = state.activeProfile,
                 voiceEnabled = state.voiceEnabled,
                 onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
-                onStopNavigation = viewModel::stopNavigation,
+                onReroute = viewModel::onManualRerouteRequested,
+                onExitNavigation = viewModel::endNavigationToHome,
             )
         }
 
