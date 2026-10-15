@@ -1232,6 +1232,51 @@ class MapViewModel(
         recomputeEnvironment()
     }
 
+    /** Driver-requested alternative route using the same routing seam as automatic off-route recovery. */
+    fun onManualRerouteRequested() {
+        val state = _uiState.value
+        val location = state.currentLocation ?: return
+        if (!state.isNavigating || rerouteInFlight) return
+        _uiState.update { it.copy(navigationState = NavigationState.Rerouting) }
+        voiceGuidanceEngine.speak(VoiceEvent.Rerouting)
+        requestReroute(location)
+    }
+
+    /** Explicit red Exit action: end the trip and return to Discover/Home, not Route Preview. */
+    fun endNavigationToHome() {
+        session = null
+        navigationFollowSuspended = false
+        rerouteInFlight = false
+        liveAutoFallbackArmed = false
+        routeJob?.cancel()
+        routeJob = null
+        _routeProgressView.value = null
+        onNavigationEnded()
+        roadAlertHysteresis.reset()
+        voicePlanner.reset()
+        voiceGuidanceEngine.stop()
+        _uiState.update {
+            it.copy(
+                selectedDestination = null,
+                routeOriginOverride = null,
+                routeState = RouteState.Idle,
+                navigationState = NavigationState.Idle,
+                selectedMapMode = MapMode.Map,
+                selectedNavigationMode = NavigationMode.Map,
+                selectedPlace = null,
+                isReviewingDirections = false,
+                isExploreOpen = false,
+                isShowingSteps = false,
+                stepsRouteSummary = null,
+                navigationFollowSuspended = false,
+                isLiveSafetyWarningVisible = false,
+            )
+        }
+        recomputeVisiblePlaces()
+        recomputeRoadAlerts()
+        recomputeEnvironment()
+    }
+
     /** Ends the trip and returns the map to plain route browsing. Never touches the route itself. */
     fun stopNavigation() {
         session = null
