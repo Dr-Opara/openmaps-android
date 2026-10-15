@@ -79,6 +79,7 @@ fun MapModeToggle(
     selected: MapMode,
     onSelected: (MapMode) -> Unit,
     modifier: Modifier = Modifier,
+    transparent: Boolean = false,
 ) {
     Row(
         modifier = modifier,
@@ -86,7 +87,12 @@ fun MapModeToggle(
     ) {
         MapMode.entries.forEach { mode ->
             val isSelected = mode == selected
-            val fill = if (isSelected) OpenMapsColors.ElectricBlueFilled else OpenMapsColors.Navy900.copy(alpha = 0.86f)
+            val fill = when {
+                transparent && isSelected -> OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.78f)
+                transparent -> OpenMapsColors.Navy950.copy(alpha = 0.42f)
+                isSelected -> OpenMapsColors.ElectricBlueFilled
+                else -> OpenMapsColors.Navy900.copy(alpha = 0.86f)
+            }
             Box(
                 modifier = Modifier
                     .heightIn(min = 36.dp)
@@ -270,6 +276,9 @@ private const val COMPASS_VISIBLE_THRESHOLD_DEGREES = 1f
 fun RouteEndpointFields(
     destination: SearchResult?,
     modifier: Modifier = Modifier,
+    origin: SearchResult? = null,
+    onOriginClick: () -> Unit = {},
+    onDestinationClick: () -> Unit = {},
 ) {
     val connectorX = 14.dp + 9.dp // icon column padding + half the 18dp icon
     Column(
@@ -292,6 +301,7 @@ fun RouteEndpointFields(
                 .fillMaxWidth()
                 .background(OpenMapsColors.Surface, GlassShapes.Row)
                 .border(1.dp, OpenMapsColors.SurfaceBorder, GlassShapes.Row)
+                .clickable(role = Role.Button, onClick = onOriginClick)
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -303,7 +313,7 @@ fun RouteEndpointFields(
                 modifier = Modifier.size(18.dp),
             )
             Text(
-                text = stringResource(R.string.route_origin_your_location),
+                text = origin?.name?.ifBlank { origin.displayName } ?: stringResource(R.string.route_origin_your_location),
                 style = MaterialTheme.typography.bodyMedium,
                 color = OpenMapsColors.TextPrimary,
             )
@@ -313,6 +323,7 @@ fun RouteEndpointFields(
                 .fillMaxWidth()
                 .background(OpenMapsColors.Surface, GlassShapes.Row)
                 .border(1.dp, OpenMapsColors.SurfaceBorder, GlassShapes.Row)
+                .clickable(role = Role.Button, onClick = onDestinationClick)
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -360,11 +371,12 @@ fun RouteModeRow(
             val enabled = isDriving
             Row(
                 modifier = Modifier
+                    .weight(if (isDriving) 1.45f else 0.78f)
                     .clip(GlassShapes.Pill)
                     // Mockup: only the selected (Driving) mode gets a filled pill; Transit/Walking
                     // sit directly on the card with no chip background.
                     .then(if (isDriving) Modifier.background(OpenMapsColors.ElectricBlueFilled) else Modifier)
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -384,6 +396,8 @@ fun RouteModeRow(
                         else -> stringResource(mode.labelRes())
                     },
                     style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     color = when {
                         isDriving -> Color.White
                         else -> OpenMapsColors.TextSecondary
