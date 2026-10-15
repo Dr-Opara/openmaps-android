@@ -38,6 +38,11 @@ data class MapUiState(
     val dismissedPrompt: LocationPrompt? = null,
     /** The destination marker shown on the map, or null when none is selected. */
     val selectedDestination: SearchResult? = null,
+    /**
+     * Optional route-preview origin chosen by the user. Null means "Your location".
+     * This is intentionally a SearchResult so the same search flow can edit either endpoint.
+     */
+    val routeOriginOverride: SearchResult? = null,
     /** The route to [selectedDestination], as one lifecycle value (see [RouteState]). */
     val routeState: RouteState = RouteState.Idle,
     /** Turn-by-turn navigation over [routeState]'s route (see [NavigationState]). */
@@ -142,7 +147,10 @@ data class MapUiState(
 
     /** "Start" is offered once a route and a location fix both exist, and not mid-trip. */
     val canStartNavigation: Boolean
-        get() = routeState is RouteState.Ready && currentLocation != null && navigationState is NavigationState.Idle
+        get() = routeState is RouteState.Ready &&
+            currentLocation != null &&
+            routeOriginOverride == null &&
+            navigationState is NavigationState.Idle
 
     val isLocationLoading: Boolean
         get() = locationStatus == LocationStatus.Loading
