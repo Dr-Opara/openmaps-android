@@ -211,6 +211,13 @@
 
     <!-- Destination details (Phase 11) -->
     <string name="destination_directions_action">Directions</string>
+    <string name="destination_trip_time">time</string>
+    <string name="destination_trip_distance">distance</string>
+    <string name="destination_trip_arrival">arrival</string>
+    <string name="destination_arrival_ease">Arrival Ease</string>
+    <string name="destination_arrival_ease_basis">Estimated from the final route geometry. Parking is only shown when provider data supports it.</string>
+    <string name="destination_parking_nearby">Parking near destination</string>
+    <string name="destination_parking_found">%1$d parking option(s) found near the destination</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>
