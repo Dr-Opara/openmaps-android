@@ -83,6 +83,14 @@ private fun AppShell(container: AppContainer) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val liveState by liveViewModel.uiState.collectAsStateWithLifecycle()
     val searchState by searchViewModel.uiState.collectAsStateWithLifecycle()
+
+    // Production search: continuously keep the geocoder's ranking bias aligned with the latest
+    // device location. This never restricts worldwide search; it only helps ambiguous/local queries
+    // prefer nearby addresses and POIs.
+    LaunchedEffect(state.currentLocation?.latitude, state.currentLocation?.longitude) {
+        searchViewModel.onLocationBiasChanged(state.currentLocation)
+    }
+
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
     var searchPurpose by rememberSaveable { mutableStateOf(SearchPurpose.NewDestination) }
     // Bumped to ask the search screen to start voice capture as soon as it appears. An incrementing
