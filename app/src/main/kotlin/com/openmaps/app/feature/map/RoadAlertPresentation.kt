@@ -28,6 +28,18 @@ object RoadAlertPresentation {
         else -> null
     }
 
+    /** Live traffic delay when the provider supplied a real traffic-adjusted duration. */
+    fun delayLabel(alert: RouteAlert): String? {
+        val congestion = alert as? RouteAlert.Congestion ?: return null
+        val condition = congestion.condition
+        val adjusted = condition.trafficAdjustedDurationSeconds ?: return null
+        if (!condition.isLive) return null
+        val delaySeconds = (adjusted - condition.baseDurationSeconds).coerceAtLeast(0.0)
+        if (delaySeconds < 60.0) return null
+        val minutes = (delaySeconds / 60.0).roundToInt()
+        return "+${minutes} min"
+    }
+
     fun formatSpeedValue(value: Double, unit: SpeedUnit): String {
         val rounded = value.roundToInt()
         return when (unit) {
