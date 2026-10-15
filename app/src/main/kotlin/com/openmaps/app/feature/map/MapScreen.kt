@@ -199,7 +199,12 @@ fun MapScreen(
                     state.navigationProgress != null -> ActiveMapNavigationPanel(
                     progress = state.navigationProgress!!,
                     voiceEnabled = state.voiceEnabled,
+                    driverReportStatus = state.driverReportStatus,
+                    tripShareStatus = state.tripShareStatus,
                     onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
+                    onReport = viewModel::onDriverReportRequested,
+                    onShareTrip = viewModel::onTripShareRequested,
+                    onDismissExternalStatus = viewModel::onExternalActionStatusDismissed,
                     onReroute = viewModel::onManualRerouteRequested,
                     onExitNavigation = viewModel::endNavigationToHome,
                 )
