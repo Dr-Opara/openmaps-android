@@ -21,6 +21,14 @@
     <string name="cd_more_options">More options</string>
     <string name="panel_title">Explore Nearby Places</string>
     <string name="home_recent_destinations">Recent destinations</string>
+    <string name="home_explore_title">Discover around you</string>
+    <string name="home_explore_subtitle">Nearby places, useful stops, and what’s ahead</string>
+    <string name="home_see_all">See all</string>
+    <string name="home_near_you_now">Near You Now</string>
+    <string name="home_near_you_now_subtitle">Useful places closest to your current location</string>
+    <string name="home_whats_ahead">What’s Ahead</string>
+    <string name="home_whats_ahead_subtitle">Places in the direction you’re moving</string>
+    <string name="home_recent_destinations_subtitle">Jump back to a recent destination</string>
 
     <!-- Map error -->
     <string name="map_unavailable_title">Map unavailable</string>
