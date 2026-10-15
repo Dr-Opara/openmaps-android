@@ -95,6 +95,9 @@
     <string name="search_filter_addresses">Addresses</string>
     <string name="search_filter_categories">Categories</string>
     <string name="search_no_results_for_tab">No %1$s in these results. Try another tab.</string>
+    <string name="search_categories_header">Browse categories</string>
+    <string name="search_category_nearby_hint">Find nearby</string>
+    <string name="search_category_no_match">No matching category.</string>
     <string name="voice_search_prompt">Where are you going?</string>
     <string name="voice_search_listening">Listening…</string>
     <string name="voice_search_unavailable">Voice search isn\'t available on this device.</string>
