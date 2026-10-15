@@ -153,6 +153,10 @@ private fun AppShell(container: AppContainer) {
                 }
                 MapUiEvent.OpenAppSettings -> context.openAppSettings()
                 MapUiEvent.OpenLocationSettings -> context.startSafely(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                is MapUiEvent.ShareTripUrl -> context.shareText(
+                    title = "OpenMaps trip",
+                    text = event.url,
+                )
                 // Purely informational: the old route is still active and usable, so there is
                 // nothing to launch and nothing to recover from here. Deliberately a no-op — the
                 // visible cue is the OffRoute state on the banner itself.
@@ -230,6 +234,11 @@ private fun AppShell(container: AppContainer) {
                 environmentProfile = state.activeProfile,
                 voiceEnabled = state.voiceEnabled,
                 onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
+                driverReportStatus = state.driverReportStatus,
+                tripShareStatus = state.tripShareStatus,
+                onReport = viewModel::onDriverReportRequested,
+                onShareTrip = viewModel::onTripShareRequested,
+                onDismissExternalStatus = viewModel::onExternalActionStatusDismissed,
                 onReroute = viewModel::onManualRerouteRequested,
                 onExitNavigation = viewModel::endNavigationToHome,
             )
@@ -290,6 +299,14 @@ private fun Context.openAppSettings() {
     startSafely(
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
     )
+}
+
+private fun Context.shareText(title: String, text: String) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    startSafely(Intent.createChooser(send, title))
 }
 
 private fun Context.startSafely(intent: Intent) {
