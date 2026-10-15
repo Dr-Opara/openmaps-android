@@ -68,6 +68,7 @@ import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization
 import com.openmaps.app.feature.map.NavigationState
+import com.openmaps.app.feature.map.ExternalActionStatus
 import com.openmaps.app.R
 import com.openmaps.app.camera.CameraEngineEvent
 import com.openmaps.app.camera.CameraFailure
@@ -87,6 +88,7 @@ import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceState
 import com.openmaps.app.core.roadintelligence.SpeedUnit
 import com.openmaps.app.core.roadintelligence.RouteAlert
+import com.openmaps.app.core.reporting.DriverReportType
 import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.spatial.LiveLocalizationStatus
 import com.openmaps.app.core.spatial.LiveLocalizationStatusMapper
@@ -138,6 +140,11 @@ fun LiveScreen(
     /** Delta-spec section 25: the compact mute control, state owned by the one `MapViewModel`. */
     voiceEnabled: Boolean = true,
     onVoiceMuteToggled: () -> Unit = {},
+    driverReportStatus: ExternalActionStatus = ExternalActionStatus.Idle,
+    tripShareStatus: ExternalActionStatus = ExternalActionStatus.Idle,
+    onReport: (DriverReportType) -> Unit = {},
+    onShareTrip: () -> Unit = {},
+    onDismissExternalStatus: () -> Unit = {},
     /** Manual alternative-route request from the active driving HUD. */
     onReroute: () -> Unit = {},
     /** Explicit red Exit action: end the trip and return to Discover/Home. */
@@ -292,7 +299,12 @@ fun LiveScreen(
         if (summaryHud is LiveHudState.Maneuver) {
             LiveDrivingActions(
                 voiceEnabled = voiceEnabled,
+                driverReportStatus = driverReportStatus,
+                tripShareStatus = tripShareStatus,
                 onVoiceMuteToggled = onVoiceMuteToggled,
+                onReport = onReport,
+                onShareTrip = onShareTrip,
+                onDismissExternalStatus = onDismissExternalStatus,
                 onReroute = onReroute,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -1191,7 +1203,12 @@ private fun LiveStatusHud(title: String, modifier: Modifier = Modifier) {
 @Composable
 private fun LiveDrivingActions(
     voiceEnabled: Boolean,
+    driverReportStatus: ExternalActionStatus,
+    tripShareStatus: ExternalActionStatus,
     onVoiceMuteToggled: () -> Unit,
+    onReport: (DriverReportType) -> Unit,
+    onShareTrip: () -> Unit,
+    onDismissExternalStatus: () -> Unit,
     onReroute: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1234,10 +1251,10 @@ private fun LiveDrivingActions(
             }
             LiveDrivingAction(
                 label = stringResource(R.string.nav_action_share),
-                onClick = {},
-                enabled = false,
+                onClick = onShareTrip,
+                enabled = tripShareStatus != ExternalActionStatus.Working,
             ) {
-                Text("↗", style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.45f))
+                Text("↗", style = MaterialTheme.typography.titleMedium, color = Color.White)
             }
             LiveDrivingAction(
                 label = stringResource(R.string.nav_action_reroute),
@@ -1296,17 +1313,55 @@ private fun LiveDrivingActions(
     }
 
     if (showReports) {
+        val reports = listOf(
+            DriverReportType.Police to R.string.nav_report_police,
+            DriverReportType.Traffic to R.string.nav_report_traffic,
+            DriverReportType.Crash to R.string.nav_report_crash,
+            DriverReportType.LaneClosed to R.string.nav_report_lane_closed,
+            DriverReportType.Construction to R.string.nav_report_construction,
+            DriverReportType.RoadHazard to R.string.nav_report_road_hazard,
+        )
         AlertDialog(
             onDismissRequest = { showReports = false },
             title = { Text(stringResource(R.string.nav_report_title)) },
             text = {
-                Text(
-                    text = stringResource(R.string.nav_report_unavailable),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (driverReportStatus == ExternalActionStatus.Unavailable) {
+                        Text(
+                            text = stringResource(R.string.nav_report_unavailable),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    reports.forEach { (type, label) ->
+                        Button(
+                            onClick = {
+                                onReport(type)
+                                showReports = false
+                            },
+                            enabled = driverReportStatus != ExternalActionStatus.Working,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = GlassShapes.Pill,
+                        ) {
+                            Text(stringResource(label))
+                        }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = { showReports = false }) {
+                    Text(stringResource(R.string.cd_dismiss))
+                }
+            },
+        )
+    }
+
+    if (tripShareStatus == ExternalActionStatus.Unavailable) {
+        AlertDialog(
+            onDismissRequest = onDismissExternalStatus,
+            title = { Text(stringResource(R.string.nav_share_unavailable_title)) },
+            text = { Text(stringResource(R.string.nav_share_unavailable_body)) },
+            confirmButton = {
+                TextButton(onClick = onDismissExternalStatus) {
                     Text(stringResource(R.string.cd_dismiss))
                 }
             },
