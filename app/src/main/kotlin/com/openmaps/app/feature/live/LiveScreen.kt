@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -302,13 +303,14 @@ fun LiveScreen(
         // call to action instead. `summaryBottomPadding` is shared with the speed block above it so
         // the two always stay stacked rather than overlapping.
         val summaryHud = hudState
-        val summaryBottomPadding = if (summaryHud is LiveHudState.Maneuver) 40.dp else 120.dp
+        val summaryBottomPadding = if (summaryHud is LiveHudState.Maneuver) 16.dp else 96.dp
         if (summaryHud is LiveHudState.Maneuver) {
             LiveTripSummary(
                 hud = summaryHud,
                 onStopNavigation = onStopNavigation,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
                     .padding(start = 16.dp, end = 16.dp, bottom = summaryBottomPadding),
             )
         }
@@ -346,6 +348,7 @@ fun LiveScreen(
             speedLimitAlert = roadIntelligenceState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull(),
             modifier = Modifier
                 .align(Alignment.BottomStart)
+                .navigationBarsPadding()
                 .padding(start = 16.dp, bottom = summaryBottomPadding + 132.dp),
         )
 
