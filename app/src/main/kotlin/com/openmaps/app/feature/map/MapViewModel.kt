@@ -623,7 +623,7 @@ class MapViewModel(
             state.selectedDestination?.let { it.latitude == place.latitude && it.longitude == place.longitude } == true
         if (isAlreadyRoutedHere) {
             onPlaceSelected(null)
-            startNavigation()
+            onStartNavigationRequested()
         } else {
             onNavigateToPlace(place)
         }
