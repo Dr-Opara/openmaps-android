@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.map
 fun MapScreen(
     viewModel: MapViewModel,
     styleProvider: MapStyleProvider,
+    recentDestinations: List<com.openmaps.app.core.geocoding.SearchResult> = emptyList(),
     onSearchClick: () -> Unit,
     onRouteOriginClick: () -> Unit = {},
     onRouteDestinationClick: () -> Unit = {},
@@ -262,6 +263,8 @@ fun MapScreen(
                     BottomPanel(
                         destination = state.selectedDestination,
                         routeState = state.routeState,
+                        recentDestinations = recentDestinations,
+                        onRecentSelected = viewModel::onDestinationSelected,
                         onClearDestination = viewModel::onDestinationCleared,
                         onExploreClicked = viewModel::onExploreRequested,
                         onExploreCategoryClicked = viewModel::onExploreCategoryClicked,
