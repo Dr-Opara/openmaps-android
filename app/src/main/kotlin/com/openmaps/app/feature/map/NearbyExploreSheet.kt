@@ -70,6 +70,7 @@ fun NearbyExploreSheet(
     selectedCategories: Set<PlaceCategory>,
     onCategoriesChanged: (Set<PlaceCategory>) -> Unit,
     currentLocation: UserLocation?,
+    hasRoute: Boolean = false,
     onDetails: (Place) -> Unit,
     onNavigate: (Place) -> Unit,
     onDismiss: () -> Unit,
@@ -168,6 +169,32 @@ fun NearbyExploreSheet(
                     ) {
                         items(ahead, key = { it.id }) { place ->
                             AheadPlaceChip(place = place, onClick = { onDetails(place) })
+                        }
+                    }
+                }
+
+                if (hasRoute) {
+                    val suggestedStops = places.filter { it.category in SUGGESTED_STOP_CATEGORIES }.take(4)
+                    if (suggestedStops.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = stringResource(R.string.nearby_suggested_stops),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = OpenMapsColors.TextPrimary,
+                        )
+                        Text(
+                            text = stringResource(R.string.nearby_suggested_stops_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OpenMapsColors.TextSecondary,
+                            modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            items(suggestedStops, key = { "stop:" + it.id }) { place ->
+                                AheadPlaceChip(place = place, onClick = { onDetails(place) })
+                            }
                         }
                     }
                 }
@@ -433,3 +460,11 @@ private const val FEET_PER_METER = 3.28084
 private const val METERS_PER_MILE = 1609.344
 private const val AHEAD_HALF_ANGLE_DEGREES = 55.0
 private const val MAX_AHEAD_PLACES = 4
+private val SUGGESTED_STOP_CATEGORIES = setOf(
+    PlaceCategory.Gas,
+    PlaceCategory.EvCharging,
+    PlaceCategory.Restaurant,
+    PlaceCategory.Coffee,
+    PlaceCategory.Parking,
+    PlaceCategory.Pharmacy,
+)
