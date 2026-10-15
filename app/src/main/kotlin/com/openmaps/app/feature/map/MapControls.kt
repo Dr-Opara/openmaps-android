@@ -455,6 +455,8 @@ private fun RouteModeOption.labelRes(): Int = when (this) {
 fun BottomPanel(
     destination: SearchResult?,
     routeState: RouteState,
+    recentDestinations: List<SearchResult> = emptyList(),
+    onRecentSelected: (SearchResult) -> Unit = {},
     onClearDestination: () -> Unit,
     /** Phase 12A, section B5: opens the Nearby/Explore sheet; only reachable with no destination. */
     onExploreClicked: () -> Unit,
@@ -509,6 +511,41 @@ fun BottomPanel(
                 }
                 Spacer(Modifier.height(10.dp))
                 ExploreCategoryTiles(onCategoryClicked = { onExploreCategoryClicked(it) })
+                if (recentDestinations.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = stringResource(R.string.home_recent_destinations),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = OpenMapsColors.TextPrimary,
+                        modifier = Modifier.align(Alignment.Start),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    recentDestinations.take(3).forEach { recent ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onRecentSelected(recent) }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Filled.Place,
+                                contentDescription = null,
+                                tint = OpenMapsColors.ElectricBlueFilled,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = recent.name.ifBlank { recent.displayName },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = OpenMapsColors.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
             }
         } else {
             // Mockup Route Preview: the origin/destination fields now render at the top of the
