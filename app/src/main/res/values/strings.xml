@@ -179,6 +179,8 @@
     <string name="nav_report_flooding">Flooding</string>
     <string name="nav_report_disabled_vehicle">Disabled vehicle</string>
     <string name="nav_report_object_road">Object in road</string>
+    <string name="nav_share_unavailable_title">Live trip sharing isn’t available yet</string>
+    <string name="nav_share_unavailable_body">OpenMaps has the secure temporary-sharing workflow in place, but no expiring-link backend is connected in this build. Your live location is not sent anywhere.</string>
 
     <!-- Contextual places (Phase 9) -->
     <string name="place_navigate_action">Navigate</string>
