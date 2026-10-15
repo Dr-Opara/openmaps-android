@@ -250,6 +250,13 @@ private fun AppShell(container: AppContainer) {
                     searchPurpose = SearchPurpose.NewDestination
                     overlay = Overlay.None
                 },
+                onCategorySelected = { category ->
+                    // Categories are a discovery action, not a fabricated geocoding result.
+                    // Reuse the existing Nearby pipeline with the selected category.
+                    searchPurpose = SearchPurpose.NewDestination
+                    overlay = Overlay.None
+                    viewModel.onExploreCategoryClicked(category)
+                },
                 autoStartVoiceSearch = voiceSearchRequest > 0,
             )
         }
