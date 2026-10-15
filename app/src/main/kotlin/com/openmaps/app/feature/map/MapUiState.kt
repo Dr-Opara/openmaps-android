@@ -4,6 +4,7 @@ import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.navigation.ArrivalPreviewPlan
 import com.openmaps.app.core.navigation.RouteProgress
 import com.openmaps.app.core.environment.DrivingEnvironment
 import com.openmaps.app.core.environment.EnvironmentNavigationProfile
@@ -116,6 +117,10 @@ data class MapUiState(
     /** The centralized Phase 11 tuning for [drivingEnvironment] — see `EnvironmentNavigationProfile`. */
     val activeProfile: EnvironmentNavigationProfile
         get() = EnvironmentProfiles.forEnvironment(drivingEnvironment)
+
+    /** Final ~500 m route slice for a future real Arrival Preview renderer. Hidden until supported. */
+    val arrivalPreviewPlan: ArrivalPreviewPlan?
+        get() = (routeState as? RouteState.Ready)?.route?.let(ArrivalPreviewPlan::from)
 
     /** The progress snapshot to render, or null when navigation isn't reporting one. */
     val navigationProgress: RouteProgress?
