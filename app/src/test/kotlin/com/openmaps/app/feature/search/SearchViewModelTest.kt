@@ -50,7 +50,7 @@ class SearchViewModelTest {
 
     @Test
     fun tooShortQuery_neverSearches() = runTest(dispatcher) {
-        viewModel.onQueryChanged("a") // below MIN_QUERY_LENGTH (2)
+        viewModel.onQueryChanged("ab") // below MIN_QUERY_LENGTH (3)
         dispatcher.scheduler.advanceTimeBy(DEBOUNCE + 1)
         assertTrue(repository.queriesReceived.isEmpty())
     }
@@ -62,6 +62,24 @@ class SearchViewModelTest {
         viewModel.onQueryChanged("cafe")
         dispatcher.scheduler.advanceTimeBy(DEBOUNCE + 1)
         assertEquals(listOf("cafe"), repository.queriesReceived)
+    }
+
+    @Test
+    fun sameNormalizedQuery_doesNotSpendAnotherProviderRequest() = runTest(dispatcher) {
+        viewModel.onQueryChanged("Melton Elementary")
+        dispatcher.scheduler.advanceTimeBy(DEBOUNCE + 1)
+        viewModel.onQueryChanged("  melton   elementary  ")
+        dispatcher.scheduler.advanceTimeBy(DEBOUNCE + 1)
+
+        assertEquals(listOf("Melton Elementary"), repository.queriesReceived)
+    }
+
+    @Test
+    fun twoCharacterNoise_neverCallsProvider() = runTest(dispatcher) {
+        viewModel.onQueryChanged("me")
+        dispatcher.scheduler.advanceTimeBy(DEBOUNCE + 1)
+
+        assertTrue(repository.queriesReceived.isEmpty())
     }
 
     @Test
