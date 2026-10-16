@@ -16,6 +16,29 @@ function Invoke-OpenMapsFunction {
 }
 
 
+function Get-OpenMapsHttpErrorDetail {
+    param($ErrorRecord)
+
+    $parts = New-Object System.Collections.Generic.List[string]
+    if ($null -ne $ErrorRecord.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($ErrorRecord.ErrorDetails.Message)) {
+        $parts.Add($ErrorRecord.ErrorDetails.Message.Trim())
+    }
+
+    $response = $ErrorRecord.Exception.Response
+    if ($null -ne $response) {
+        try {
+            if ($response.Headers.Contains("Retry-After")) {
+                $parts.Add("Retry-After=" + ($response.Headers.GetValues("Retry-After") -join ","))
+            }
+        } catch { }
+    }
+
+    if ($parts.Count -eq 0) {
+        return $ErrorRecord.Exception.Message
+    }
+    return ($parts -join " | ")
+}
+
 function Invoke-LaneGuidanceWithRetry {
     param(
         [hashtable]$Body,
@@ -28,8 +51,19 @@ function Invoke-LaneGuidanceWithRetry {
             return Invoke-OpenMapsFunction -Name "lane-guidance" -Body $Body
         } catch {
             $message = $_.Exception.Message
-            $is429 = $message -match "429" -or $message -match "Too Many Requests"
-            if (-not $is429 -or $attempt -ge $MaxAttempts) { throw }
+            $detail = Get-OpenMapsHttpErrorDetail $_
+            $is429 = $message -match "429" -or $message -match "Too Many Requests" -or $detail -match "lane_provider_rate_limited"
+
+            if ($is429) {
+                Write-Host "LaneLock 429 detail: $detail" -ForegroundColor DarkYellow
+            }
+
+            if (-not $is429 -or $attempt -ge $MaxAttempts) {
+                if ($is429) {
+                    throw "LaneLock provider remained rate-limited. Last provider detail: $detail"
+                }
+                throw
+            }
 
             $delay = $delays[[math]::Min($attempt - 1, $delays.Count - 1)]
             Write-Host "LaneLock provider throttled (429). Retrying in $delay seconds [$attempt/$MaxAttempts]..." -ForegroundColor Yellow
