@@ -129,32 +129,35 @@ Still required before claiming full commercial search production readiness:
 - Add backend observability and shared/global rate limiting for launch traffic.
 
 
-## Phase 3: Production routing and traffic foundation
+## Phase 3: Production routing and traffic
 
 Implemented on `production/platform-v1`:
 
-- Deployed `route` Edge Function v2 as the OpenMaps routing gateway.
-- Added server-side HERE Routing API v8 integration, activated only when `HERE_API_KEY` is configured.
-- HERE car routing is requested with time/traffic-aware routing enabled, plus route geometry, summaries and maneuver instructions.
-- Route responses now preserve live traffic-aware duration, free-flow/base duration, typical historical duration and computed non-negative traffic delay when the provider supplies them.
-- Added flexible-polyline decoding in the backend so provider-specific HERE geometry never leaks into Android.
-- Added `BackendRoutingRepository` for provider-neutral route responses.
-- Added `CompositeRoutingRepository`: production backend first, existing Valhalla route engine as an explicit fallback.
-- Extended `RouteResult` with optional traffic metadata while preserving compatibility with all existing navigation/AR code.
-- Existing route preview and navigation ETA automatically consume the provider's traffic-aware `durationSeconds` when commercial routing is active.
-- Added routing response parser and failover tests.
-- Provider keys stay server-side; the APK contains only the OpenMaps gateway URL and Supabase publishable key.
+- OpenMaps `route` Edge Function uses HERE Routing v8 as the traffic-aware commercial primary.
+- Android retains Valhalla as an explicit last-resort degraded routing fallback.
+- Route timing preserves traffic-adjusted duration, free-flow/base duration, typical duration and live delay without fabricating unavailable values.
+- HERE provider-returned alternatives are normalized into `RouteAlternative`, surfaced in Route Preview and can be selected instantly without another provider request.
+- Provider exit/signpost guidance is carried through `RouteManeuver` and rendered consistently in Map and Live.
+- Route progress now performs heading-aware snap-to-road matching and exposes the projected road coordinate plus High/Medium/Low/OffRoute match confidence.
+- HERE Traffic incidents/closures are fetched through the OpenMaps backend and merged with the existing static OSM road-intelligence fallback.
+- High/severe live crashes or closures ahead can trigger one traffic-aware recalculation; dedupe prevents repeated reroute loops and the old route remains usable if replacement fails.
+- HERE traffic-aware route timing populates `TrafficCondition`, so +X minute traffic labels are shown only when backed by real provider timing.
+- LaneLock is wired through a dedicated provider-neutral `LaneGuidanceRepository` and HERE Route Matching lane attributes.
+- LaneLock renders the physical provider-returned lane count left-to-right, highlights only maneuver-compatible lanes, and stays hidden whenever access/data/confidence is insufficient.
+- Exit/signpost guidance and LaneLock never infer lane geometry from the route line.
+- Routing, live traffic and lane endpoints are protected by per-client, per-endpoint database-backed rate limits.
+- Routing and traffic telemetry record request success/error, latency, traffic awareness, route distance/duration, alternatives and incident counts.
+- 24-hour `routing_health_24h` and `traffic_health_24h` views expose operational health.
+- Runtime telemetry/rate-control tables are RLS-protected from anon/authenticated clients.
+- Worldwide automated acceptance covers Houston, London, Paris, Lagos, Tokyo and Sydney plus live traffic and lane-provider capability.
+- Android unit coverage includes traffic parsing, alternatives, exit/signpost guidance, heading-aware map matching, map-match confidence and lane-guidance parsing/presentation.
 
-Still required before full production routing readiness:
+Final release gates before this workstream is marked complete:
 
-- Configure the commercial HERE credential in the backend.
-- Add route alternatives to the provider-neutral domain model and Route Preview UI.
-- Add production map matching / snap-to-road for noisy GPS traces.
-- Add traffic incidents/closures feed integration and connect it to Road Intelligence.
-- Add lane/exit guidance from a provider that supplies trustworthy lane data.
-- Add routing latency/failure/fallback observability and launch-scale rate controls.
-- Run worldwide route acceptance testing across representative countries and road classes.
-
+- Local Android `assembleDebug`, unit tests and lint must pass on the production branch.
+- `scripts/production-routing-acceptance.ps1` must pass against the deployed HERE services.
+- HERE Route Matching/lane-attribute access must be confirmed by the acceptance suite; `provider_access_required` is a failure, while a valid provider response with no trustworthy lanes on a sampled road is an honest supported state.
+- A physical-device drive must validate noisy-GPS map matching, off-route/reroute behavior, Map↔Live continuity, real incident presentation and LaneLock when provider lane data is present.
 
 ## Phase 2B: Global search production hardening
 
@@ -171,6 +174,4 @@ Implemented on `production/platform-v1` and the OpenMaps Supabase project:
 - Added retention cleanup support: expired cache rows, old rate-limit buckets and telemetry older than 30 days.
 - Versioned all database migrations under `supabase/migrations`.
 
-Current blocker to final Global Search completion:
-
-- Configure the commercial `HERE_API_KEY` in the Supabase backend and run global acceptance/quality tests against the live commercial provider.
+Global Search production status: **complete**. The commercial HERE credential is active, production telemetry confirmed live HERE responses, and the automated worldwide acceptance suite passed.
