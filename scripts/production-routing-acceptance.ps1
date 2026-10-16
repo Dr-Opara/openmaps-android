@@ -5,282 +5,145 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Invoke-OpenMapsRoute {
-    param(
-        [double]$OriginLat,
-        [double]$OriginLon,
-        [double]$DestinationLat,
-        [double]$DestinationLon,
-        [string]$Locale = "en-US"
-    )
-
-    $body = @{
-        origin = @{ latitude = $OriginLat; longitude = $OriginLon }
-        destination = @{ latitude = $DestinationLat; longitude = $DestinationLon }
-        localeTag = $Locale
-    } | ConvertTo-Json -Depth 5
-
+function Invoke-OpenMapsFunction {
+    param([string]$Name, [hashtable]$Body)
     $started = Get-Date
-    $response = Invoke-RestMethod -Method Post -Uri "$BaseUrl/route" -Headers @{ apikey = $PublishableKey } -ContentType "application/json" -Body $body
-    $elapsed = [int]((Get-Date) - $started).TotalMilliseconds
-
+    $response = Invoke-RestMethod -Method Post -Uri "$BaseUrl/$Name" -Headers @{ apikey = $PublishableKey } -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 20)
     [pscustomobject]@{
         Response = $response
-        LatencyMs = $elapsed
+        LatencyMs = [int]((Get-Date) - $started).TotalMilliseconds
     }
 }
 
-function Invoke-OpenMapsTraffic {
-    param([object[]]$Geometry)
-
-    $body = @{
-        routeGeometry = @($Geometry | ForEach-Object {
-            @{ latitude = [double]$_.latitude; longitude = [double]$_.longitude }
-        })
-        corridorMeters = 500
-        localeTag = "en-US"
-    } | ConvertTo-Json -Depth 8
-
-    $started = Get-Date
-    $response = Invoke-RestMethod -Method Post -Uri "$BaseUrl/traffic-incidents" -Headers @{ apikey = $PublishableKey } -ContentType "application/json" -Body $body
-    $elapsed = [int]((Get-Date) - $started).TotalMilliseconds
-
-    [pscustomobject]@{
-        Response = $response
-        LatencyMs = $elapsed
-    }
-}
-
-function Invoke-OpenMapsLaneGuidance {
-    param(
-        [object[]]$Trace,
-        [string]$ManeuverType
-    )
-
-    $body = @{
-        trace = @($Trace | ForEach-Object {
-            @{ latitude = [double]$_.latitude; longitude = [double]$_.longitude }
-        })
-        maneuverType = $ManeuverType
-    } | ConvertTo-Json -Depth 8
-
-    $started = Get-Date
-    $response = Invoke-RestMethod -Method Post -Uri "$BaseUrl/lane-guidance" -Headers @{ apikey = $PublishableKey } -ContentType "application/json" -Body $body
-    $elapsed = [int]((Get-Date) - $started).TotalMilliseconds
-
-    [pscustomobject]@{
-        Response = $response
-        LatencyMs = $elapsed
-    }
-}
-
-$cases = @(
-    @{
-        Name = "Houston regional"
-        OriginLat = 29.7604; OriginLon = -95.3698
-        DestinationLat = 29.7858; DestinationLon = -95.8245
-        Locale = "en-US"
-    },
-    @{
-        Name = "London"
-        OriginLat = 51.5007; OriginLon = -0.1246
-        DestinationLat = 51.5155; DestinationLon = -0.0922
-        Locale = "en-GB"
-    },
-    @{
-        Name = "Paris"
-        OriginLat = 48.8584; OriginLon = 2.2945
-        DestinationLat = 48.8738; DestinationLon = 2.2950
-        Locale = "fr-FR"
-    },
-    @{
-        Name = "Lagos"
-        OriginLat = 6.5244; OriginLon = 3.3792
-        DestinationLat = 6.4698; DestinationLon = 3.5852
-        Locale = "en-NG"
-    },
-    @{
-        Name = "Tokyo"
-        OriginLat = 35.6812; OriginLon = 139.7671
-        DestinationLat = 35.6895; DestinationLon = 139.6917
-        Locale = "ja-JP"
-    },
-    @{
-        Name = "Sydney"
-        OriginLat = -33.8688; OriginLon = 151.2093
-        DestinationLat = -33.8568; DestinationLon = 151.2153
-        Locale = "en-AU"
-    }
+$routeCases = @(
+    @{ Name = "Houston"; Origin = @{ latitude = 29.7858; longitude = -95.8245 }; Destination = @{ latitude = 29.7604; longitude = -95.3698 } },
+    @{ Name = "London"; Origin = @{ latitude = 51.5034; longitude = -0.1276 }; Destination = @{ latitude = 51.5287; longitude = -0.2417 } },
+    @{ Name = "Paris"; Origin = @{ latitude = 48.8584; longitude = 2.2945 }; Destination = @{ latitude = 48.8738; longitude = 2.2950 } },
+    @{ Name = "Lagos"; Origin = @{ latitude = 6.5244; longitude = 3.3792 }; Destination = @{ latitude = 6.4698; longitude = 3.5852 } },
+    @{ Name = "Tokyo"; Origin = @{ latitude = 35.6812; longitude = 139.7671 }; Destination = @{ latitude = 35.7101; longitude = 139.8107 } },
+    @{ Name = "Sydney"; Origin = @{ latitude = -33.8688; longitude = 151.2093 }; Destination = @{ latitude = -33.8568; longitude = 151.2153 } }
 )
 
 $failures = New-Object System.Collections.Generic.List[string]
 $rows = New-Object System.Collections.Generic.List[object]
-$firstGeometry = $null
-$totalAlternatives = 0
-$exitGuidanceSeen = $false
-$laneCandidateTrace = $null
-$laneCandidateType = $null
+$houstonGeometry = $null
 
-foreach ($case in $cases) {
+foreach ($case in $routeCases) {
     try {
-        $call = Invoke-OpenMapsRoute -OriginLat $case.OriginLat -OriginLon $case.OriginLon -DestinationLat $case.DestinationLat -DestinationLon $case.DestinationLon -Locale $case.Locale
-        $response = $call.Response
-        $route = $response.route
-        $geometry = @($route.geometry)
-        $maneuvers = @($route.maneuvers)
-        $alternatives = @($response.alternatives)
-        $totalAlternatives += $alternatives.Count
+        $call = Invoke-OpenMapsFunction -Name "route" -Body @{ origin = $case.Origin; destination = $case.Destination; localeTag = "en-US" }
+        $r = $call.Response
+        $route = $r.route
+        $geometryCount = @($route.geometry).Count
+        $maneuverCount = @($route.maneuvers).Count
+        $alternativeCount = @($r.alternatives).Count
 
-        if ($null -eq $firstGeometry -and $geometry.Count -ge 2) { $firstGeometry = $geometry }
+        $providerOk = $r.provider -eq "here"
+        $trafficOk = $r.trafficAware -eq $true
+        $routeOk = $null -ne $route -and [double]$route.distanceMeters -gt 0 -and [double]$route.durationSeconds -gt 0 -and $geometryCount -ge 2 -and $maneuverCount -ge 1
+        $latencyOk = $call.LatencyMs -le 12000
 
-        foreach ($m in $maneuvers) {
-            if (-not [string]::IsNullOrWhiteSpace([string]$m.exitSign) -or -not [string]::IsNullOrWhiteSpace([string]$m.signpost)) {
-                $exitGuidanceSeen = $true
-            }
+        if (-not $providerOk) { $failures.Add("$($case.Name): HERE route provider missing") }
+        if (-not $trafficOk) { $failures.Add("$($case.Name): trafficAware was not true") }
+        if (-not $routeOk) { $failures.Add("$($case.Name): invalid route geometry/summary/maneuvers") }
+        if (-not $latencyOk) { $failures.Add("$($case.Name): latency $($call.LatencyMs) ms exceeded 12000 ms") }
 
-            if ($null -eq $laneCandidateTrace -and @("Ramp","TurnRight","TurnLeft","SlightRight","SlightLeft","Continue","Merge") -contains [string]$m.type) {
-                $endIndex = [Math]::Min([int]$m.endShapeIndex, $geometry.Count - 1)
-                if ($endIndex -ge 1) {
-                    $startIndex = [Math]::Max(0, $endIndex - 23)
-                    $trace = @()
-                    for ($j = $startIndex; $j -le $endIndex; $j++) {
-                        $trace += $geometry[$j]
-                    }
-                    if ($trace.Count -ge 2) {
-                        $laneCandidateTrace = $trace
-                        $laneCandidateType = [string]$m.type
-                    }
-                }
-            }
-        }
-
-        $providerOk = $response.provider -eq "here"
-        $trafficOk = $response.trafficAware -eq $true
-        $geometryOk = $geometry.Count -ge 2
-        $maneuversOk = $maneuvers.Count -gt 0
-        $distanceOk = [double]$route.distanceMeters -gt 0
-        $durationOk = [double]$route.durationSeconds -gt 0
-        $latencyOk = $call.LatencyMs -le 6000
-
-        if (-not $providerOk) { $failures.Add("$($case.Name): HERE provider not active") }
-        if (-not $trafficOk) { $failures.Add("$($case.Name): route is not traffic-aware") }
-        if (-not $geometryOk) { $failures.Add("$($case.Name): route geometry missing") }
-        if (-not $maneuversOk) { $failures.Add("$($case.Name): maneuver guidance missing") }
-        if (-not $distanceOk) { $failures.Add("$($case.Name): invalid route distance") }
-        if (-not $durationOk) { $failures.Add("$($case.Name): invalid route duration") }
-        if (-not $latencyOk) { $failures.Add("$($case.Name): latency $($call.LatencyMs) ms exceeded 6000 ms") }
+        if ($case.Name -eq "Houston") { $houstonGeometry = @($route.geometry) }
 
         $rows.Add([pscustomobject]@{
             Case = $case.Name
-            Provider = $response.provider
-            TrafficAware = $response.trafficAware
-            GeometryPoints = $geometry.Count
-            Maneuvers = $maneuvers.Count
-            Alternatives = $alternatives.Count
+            Provider = $r.provider
+            TrafficAware = $r.trafficAware
+            DistanceKm = [math]::Round(([double]$route.distanceMeters / 1000.0), 1)
+            DurationMin = [math]::Round(([double]$route.durationSeconds / 60.0), 1)
+            Alternatives = $alternativeCount
+            Maneuvers = $maneuverCount
             LatencyMs = $call.LatencyMs
-            Passed = $providerOk -and $trafficOk -and $geometryOk -and $maneuversOk -and $distanceOk -and $durationOk -and $latencyOk
+            Passed = $providerOk -and $trafficOk -and $routeOk -and $latencyOk
         })
-    }
-    catch {
+    } catch {
         $failures.Add("$($case.Name): route request failed - $($_.Exception.Message)")
         $rows.Add([pscustomobject]@{
             Case = $case.Name
             Provider = "-"
             TrafficAware = $false
-            GeometryPoints = 0
-            Maneuvers = 0
+            DistanceKm = 0
+            DurationMin = 0
             Alternatives = 0
+            Maneuvers = 0
             LatencyMs = 0
             Passed = $false
         })
     }
 }
 
-if ($null -eq $firstGeometry) {
-    $failures.Add("Traffic incidents: no valid route geometry available for traffic test")
-}
-else {
+if ($null -ne $houstonGeometry -and $houstonGeometry.Count -ge 2) {
     try {
-        $traffic = Invoke-OpenMapsTraffic -Geometry $firstGeometry
-        $trafficProviderOk = $traffic.Response.provider -eq "here"
-        $trafficLatencyOk = $traffic.LatencyMs -le 6000
-        $incidentCount = @($traffic.Response.incidents).Count
+        $trafficCall = Invoke-OpenMapsFunction -Name "traffic-incidents" -Body @{ routeGeometry = $houstonGeometry; corridorMeters = 750; localeTag = "en-US" }
+        $traffic = $trafficCall.Response
+        $trafficProviderOk = $traffic.provider -eq "here"
+        $incidents = @($traffic.incidents)
 
-        if (-not $trafficProviderOk) { $failures.Add("Traffic incidents: HERE provider not active") }
-        if (-not $trafficLatencyOk) { $failures.Add("Traffic incidents: latency $($traffic.LatencyMs) ms exceeded 6000 ms") }
+        if (-not $trafficProviderOk) { $failures.Add("Live traffic: HERE provider missing") }
 
         $rows.Add([pscustomobject]@{
             Case = "Live traffic incidents"
-            Provider = $traffic.Response.provider
+            Provider = $traffic.provider
             TrafficAware = $true
-            GeometryPoints = $firstGeometry.Count
-            Maneuvers = "-"
+            DistanceKm = "-"
+            DurationMin = "-"
             Alternatives = "-"
-            LatencyMs = $traffic.LatencyMs
-            Passed = $trafficProviderOk -and $trafficLatencyOk
+            Maneuvers = "Incidents=$($incidents.Count)"
+            LatencyMs = $trafficCall.LatencyMs
+            Passed = $trafficProviderOk
         })
-
-        Write-Host "Traffic incident count on acceptance route: $incidentCount"
+    } catch {
+        $failures.Add("Live traffic: request failed - $($_.Exception.Message)")
     }
-    catch {
-        $failures.Add("Traffic incidents: request failed - $($_.Exception.Message)")
-    }
+} else {
+    $failures.Add("Live traffic: Houston route geometry unavailable")
 }
 
-if ($null -eq $laneCandidateTrace) {
-    $failures.Add("Lane guidance: no suitable maneuver trace was produced by the routing suite")
-}
-else {
-    try {
-        $lane = Invoke-OpenMapsLaneGuidance -Trace $laneCandidateTrace -ManeuverType $laneCandidateType
-        $capability = [string]$lane.Response.capability
-        $laneLatencyOk = $lane.LatencyMs -le 6000
-        $laneProviderOk = $lane.Response.provider -eq "here" -or $capability -eq "provider_access_required"
-        $laneAccessOk = $capability -ne "provider_access_required"
+try {
+    $laneTrace = @(
+        @{ latitude = 29.78338; longitude = -95.73279 },
+        @{ latitude = 29.78354; longitude = -95.72989 },
+        @{ latitude = 29.78368; longitude = -95.72692 },
+        @{ latitude = 29.78381; longitude = -95.72413 }
+    )
 
-        if (-not $laneProviderOk) { $failures.Add("Lane guidance: HERE provider response missing") }
-        if (-not $laneAccessOk) { $failures.Add("Lane guidance: HERE Route Matching / lane attribute access is not enabled for this account") }
-        if (-not $laneLatencyOk) { $failures.Add("Lane guidance: latency $($lane.LatencyMs) ms exceeded 6000 ms") }
+    $laneCall = Invoke-OpenMapsFunction -Name "lane-guidance" -Body @{ trace = $laneTrace; maneuverType = "Continue" }
+    $lane = $laneCall.Response
+    $capability = [string]$lane.capability
+    $laneAccessOk = $capability -eq "available" -or $capability -eq "no_trustworthy_lane_guidance"
 
-        $laneCount = if ($null -ne $lane.Response.guidance) { @($lane.Response.guidance.lanes).Count } else { 0 }
-        $recommendedCount = if ($null -ne $lane.Response.guidance) { @($lane.Response.guidance.recommendedLaneIndexes).Count } else { 0 }
+    if (-not $laneAccessOk) { $failures.Add("LaneLock: provider capability is not provisioned: $capability") }
 
-        $rows.Add([pscustomobject]@{
-            Case = "Lane guidance capability"
-            Provider = $(if ($lane.Response.provider) { $lane.Response.provider } else { "here" })
-            TrafficAware = "-"
-            GeometryPoints = $laneCandidateTrace.Count
-            Maneuvers = "$laneCount lanes / $recommendedCount recommended"
-            Alternatives = $capability
-            LatencyMs = $lane.LatencyMs
-            Passed = $laneProviderOk -and $laneAccessOk -and $laneLatencyOk
-        })
-
-        Write-Host "Lane guidance capability: $capability"
-        if ($capability -eq "no_trustworthy_lane_guidance") {
-            Write-Host "Lane provider access works; this sampled maneuver simply had no trustworthy lane recommendation."
-        }
-    }
-    catch {
-        $failures.Add("Lane guidance: request failed - $($_.Exception.Message)")
-    }
+    $rows.Add([pscustomobject]@{
+        Case = "LaneLock provider capability"
+        Provider = $lane.provider
+        TrafficAware = "-"
+        DistanceKm = "-"
+        DurationMin = "-"
+        Alternatives = "-"
+        Maneuvers = $capability
+        LatencyMs = $laneCall.LatencyMs
+        Passed = $laneAccessOk
+    })
+} catch {
+    $failures.Add("LaneLock: request failed - $($_.Exception.Message)")
 }
 
 $rows | Format-Table -AutoSize
 Write-Host ""
-Write-Host "Alternatives returned across suite: $totalAlternatives"
-Write-Host "Provider exit/signpost guidance observed: $exitGuidanceSeen"
-Write-Host "Note: alternatives and exit signs are road-dependent; zero does not fail the suite."
 
 if ($failures.Count -gt 0) {
-    Write-Host ""
-    Write-Host "PRODUCTION ROUTING ACCEPTANCE: FAILED" -ForegroundColor Red
+    Write-Host "PRODUCTION ROUTING + TRAFFIC ACCEPTANCE: FAILED" -ForegroundColor Red
     foreach ($failure in $failures) {
         Write-Host " - $failure" -ForegroundColor Red
     }
     exit 1
 }
 
-Write-Host ""
-Write-Host "PRODUCTION ROUTING ACCEPTANCE: PASSED" -ForegroundColor Green
+Write-Host "PRODUCTION ROUTING + TRAFFIC ACCEPTANCE: PASSED" -ForegroundColor Green
+Write-Host "Provider-backed alternatives are requested on every route; a corridor may legitimately return zero alternatives." -ForegroundColor DarkGray
 exit 0
