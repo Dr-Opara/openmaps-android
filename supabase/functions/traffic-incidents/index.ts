@@ -41,6 +41,45 @@ function authorized(req: Request): boolean {
   }
 }
 
+function serviceRoleKey(): string | null {
+  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim() || null;
+}
+
+function supabaseUrl(): string | null {
+  return Deno.env.get("SUPABASE_URL")?.trim() || null;
+}
+
+async function writeTrafficTelemetry(event: {
+  outcome: "success" | "error";
+  latencyMs: number;
+  incidentsCount: number;
+  routePoints: number;
+}): Promise<void> {
+  const base = supabaseUrl();
+  const key = serviceRoleKey();
+  if (!base || !key) return;
+  try {
+    await fetch(base + "/rest/v1/traffic_telemetry", {
+      method: "POST",
+      headers: {
+        apikey: key,
+        authorization: "Bearer " + key,
+        "content-type": "application/json",
+        prefer: "return=minimal",
+      },
+      body: JSON.stringify({
+        outcome: event.outcome,
+        latency_ms: event.latencyMs,
+        incidents_count: event.incidentsCount,
+        provider: "here",
+        route_points: event.routePoints,
+      }),
+    });
+  } catch {
+    // Telemetry is best-effort.
+  }
+}
+
 function validCoordinate(value: Coordinate): boolean {
   return Number.isFinite(value.latitude) && value.latitude >= -90 && value.latitude <= 90 &&
     Number.isFinite(value.longitude) && value.longitude >= -180 && value.longitude <= 180;
@@ -153,6 +192,7 @@ function normalizeIncident(item: Record<string, unknown>): Incident | null {
 }
 
 Deno.serve(async (req: Request) => {
+  const startedAt = performance.now();
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (!authorized(req)) return json({ error: "unauthorized" }, 401);
 
@@ -211,12 +251,24 @@ Deno.serve(async (req: Request) => {
       .map(normalizeIncident)
       .filter((item): item is Incident => item != null && item.id.length > 0);
 
+    void writeTrafficTelemetry({
+      outcome: "success",
+      latencyMs: Math.round(performance.now() - startedAt),
+      incidentsCount: incidents.length,
+      routePoints: geometry.length,
+    });
     return json({
       provider: "here",
       sourceUpdated: payload.sourceUpdated ?? null,
       incidents,
     });
   } catch {
+    void writeTrafficTelemetry({
+      outcome: "error",
+      latencyMs: Math.round(performance.now() - startedAt),
+      incidentsCount: 0,
+      routePoints: geometry.length,
+    });
     return json({ error: "traffic_upstream_unavailable" }, 503);
   }
 });
