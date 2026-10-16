@@ -2,10 +2,12 @@ package com.openmaps.app
 
 import android.app.Application
 import com.openmaps.app.core.geocoding.BackendGeocodingRepository
+import com.openmaps.app.core.geocoding.BackendReverseGeocodingRepository
 import com.openmaps.app.core.geocoding.CompositeGeocodingRepository
 import com.openmaps.app.core.geocoding.GeocodingRepository
 import com.openmaps.app.core.geocoding.NominatimGeocodingRepository
 import com.openmaps.app.core.geocoding.RecentSearchStore
+import com.openmaps.app.core.geocoding.ReverseGeocodingRepository
 import com.openmaps.app.core.geocoding.SharedPreferencesRecentSearchStore
 import com.openmaps.app.core.camera.CameraPermissionPrefs
 import com.openmaps.app.core.environment.OverpassRoadClassRepository
@@ -56,6 +58,10 @@ class AppContainer(application: Application) {
                 userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; fallback)",
             ),
         ),
+    )
+    val reverseGeocodingRepository: ReverseGeocodingRepository = BackendReverseGeocodingRepository(
+        endpointUrl = BuildConfig.REVERSE_GEOCODING_GATEWAY_URL,
+        publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
     )
     val recentSearchStore: RecentSearchStore = SharedPreferencesRecentSearchStore(application)
 
