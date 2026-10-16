@@ -12,7 +12,7 @@ class BackendLaneGuidanceResponseParserTest {
     fun parsesProviderBackedRecommendedLanes() {
         val body = """
             {
-              "provider":"here",
+              "provider":"osm+mapbox",
               "capability":"available",
               "guidance":{
                 "lanes":[
@@ -21,7 +21,7 @@ class BackendLaneGuidanceResponseParserTest {
                 ],
                 "recommendedLaneIndexes":[1],
                 "maneuverRelation":"TurnRight",
-                "source":"HERE Route Matching / LANE_FCn"
+                "source":"osm+mapbox","confidence":"high"
               }
             }
         """.trimIndent()
@@ -32,13 +32,15 @@ class BackendLaneGuidanceResponseParserTest {
         assertEquals(listOf(1), guidance.recommendedLaneIndexes)
         assertEquals(LaneDirection.Right, guidance.lanes[1].directions.single())
         assertTrue(guidance.lanes[1].isRecommended)
+        assertEquals("osm+mapbox", guidance.source)
+        assertEquals(LaneGuidanceConfidence.High, guidance.confidence)
     }
 
     @Test
     fun unavailableCapabilityStaysNull() {
         assertNull(
             BackendLaneGuidanceResponseParser.parse(
-                """{"provider":"here","capability":"provider_access_required","guidance":null}""",
+                """{"provider":"osm+mapbox","capability":"no_trustworthy_lane_guidance","guidance":null}""",
             ),
         )
     }
