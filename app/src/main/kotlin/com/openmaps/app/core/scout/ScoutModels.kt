@@ -4,12 +4,11 @@ import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.routing.Coordinate
-import com.openmaps.app.core.routing.RouteResult
 
 data class ScoutContext(
     val origin: Coordinate? = null,
     val selectedDestination: SearchResult? = null,
-    val activeRoute: RouteResult? = null,
+    val activeRoute: com.openmaps.app.core.routing.RouteResult? = null,
 )
 
 sealed interface ScoutIntent {
@@ -23,13 +22,12 @@ sealed interface ScoutIntent {
 
 sealed interface ScoutAction {
     data class SelectDestination(val destination: SearchResult) : ScoutAction
-    data class PreviewRoute(val route: RouteResult, val destination: SearchResult) : ScoutAction
+    data object RequestDirections : ScoutAction
     data class ShowPlaces(val places: List<Place>) : ScoutAction
 }
 
 enum class ScoutGroundingSource {
     Geocoding,
-    Routing,
     Places,
     ActiveNavigation,
 }
