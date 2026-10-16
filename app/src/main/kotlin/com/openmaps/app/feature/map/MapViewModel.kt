@@ -1545,8 +1545,8 @@ class MapViewModel(
 
     /**
      * Requests lane guidance once per upcoming maneuver. The trace ends at that maneuver and uses
-     * only real route geometry. The backend returns null unless HERE Route Matching provides lane
-     * attributes and a maneuver-compatible lane can be established.
+     * only real route geometry. The backend combines OSM turn-lane tags and Mapbox lane arrays,
+     * and returns null whenever the evidence is missing, conflicting, or not maneuver-compatible.
      */
     private fun maybeFetchLaneGuidance(progress: RouteProgress) {
         val repository = laneGuidanceRepository ?: return
