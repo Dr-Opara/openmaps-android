@@ -1,6 +1,8 @@
 package com.openmaps.app
 
 import android.app.Application
+import com.openmaps.app.core.geocoding.BackendGeocodingRepository
+import com.openmaps.app.core.geocoding.CompositeGeocodingRepository
 import com.openmaps.app.core.geocoding.GeocodingRepository
 import com.openmaps.app.core.geocoding.NominatimGeocodingRepository
 import com.openmaps.app.core.geocoding.RecentSearchStore
@@ -36,8 +38,24 @@ class AppContainer(application: Application) {
     val locationPermissionPrefs: LocationPermissionPrefs = LocationPermissionPrefs(application)
     val cameraPermissionPrefs: CameraPermissionPrefs = CameraPermissionPrefs(application)
     val mapStyleProvider: MapStyleProvider = BuildConfigMapStyleProvider()
-    val geocodingRepository: GeocodingRepository = NominatimGeocodingRepository(
-        userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+    /**
+     * Production geocoding path:
+     *   OpenMaps backend gateway -> direct worldwide Nominatim fallback.
+     *
+     * The backend is the primary seam for contracted/SLA providers. Direct public Nominatim is
+     * deliberately only a last-resort fallback so the app can still resolve a destination during a
+     * gateway/provider outage without pretending it has production SLA guarantees.
+     */
+    val geocodingRepository: GeocodingRepository = CompositeGeocodingRepository(
+        providers = listOf(
+            BackendGeocodingRepository(
+                endpointUrl = BuildConfig.GEOCODING_GATEWAY_URL,
+                publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+            ),
+            NominatimGeocodingRepository(
+                userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; fallback)",
+            ),
+        ),
     )
     val recentSearchStore: RecentSearchStore = SharedPreferencesRecentSearchStore(application)
 
