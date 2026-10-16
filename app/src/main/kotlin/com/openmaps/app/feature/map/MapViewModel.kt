@@ -1252,7 +1252,9 @@ class MapViewModel(
         voiceGuidanceEngine.speak(VoiceEvent.NavigationStarted)
         // Seed progress immediately from the last known fix so the banner has something to show
         // before the next location tick arrives.
-        val seeded = state.currentLocation.let { session?.locate(it.toCoordinate()) }
+        val seeded = state.currentLocation.let {
+            session?.locate(it.toCoordinate(), it.bearingDegrees?.toDouble())
+        }
         // Route Preview owns the user's navigation choice. Conventional Map is the default;
         // Live is opt-in and only reaches this function after the safety acknowledgement.
         val didStart = seeded != null
@@ -1426,7 +1428,10 @@ class MapViewModel(
      */
     private fun onNavigationTick(location: UserLocation) {
         val activeSession = session ?: return
-        val progress = activeSession.locate(location.toCoordinate()) ?: return
+        val progress = activeSession.locate(
+            location.toCoordinate(),
+            location.bearingDegrees?.toDouble(),
+        ) ?: return
         publishRouteProgress(progress)
 
         if (progress.hasArrived) {
@@ -1525,7 +1530,9 @@ class MapViewModel(
                     // stale. Notify before the new set is produced so two routes never overlap.
                     onRouteReplaced()
                     navigationFollowSuspended = false
-                    val progress = _uiState.value.currentLocation?.let { session?.locate(it.toCoordinate()) }
+                    val progress = _uiState.value.currentLocation?.let {
+                        session?.locate(it.toCoordinate(), it.bearingDegrees?.toDouble())
+                    }
                     _uiState.update {
                         it.copy(
                             navigationFollowSuspended = false,
