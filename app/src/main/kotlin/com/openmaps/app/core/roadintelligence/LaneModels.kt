@@ -29,13 +29,16 @@ data class Lane(
  * applies to, so a renderer can place it next to the matching banner without a second lookup.
  *
  * **Never built from route geometry alone.** Production LaneLock is populated only when the
- * OpenMaps lane gateway receives real lane attributes from HERE Route Matching and can identify at
- * least one maneuver-compatible lane. Otherwise this model stays absent. The older
- * [OsrmLaneGuidanceMapper] remains as a provider-neutral fallback mapper, not as evidence that a
- * lane exists.
+ * OpenMaps lane gateway receives real provider lane evidence and can identify at least one
+ * maneuver-compatible lane. The production gateway can combine OSM turn-lane tags with Mapbox
+ * Directions lane arrays. Conflicting evidence is rejected rather than guessed.
  */
+enum class LaneGuidanceConfidence { High, Medium, Unknown }
+
 data class LaneGuidance(
     val lanes: List<Lane>,
     val recommendedLaneIndexes: List<Int>,
     val maneuverRelation: ManeuverType?,
+    val source: String? = null,
+    val confidence: LaneGuidanceConfidence = LaneGuidanceConfidence.Unknown,
 )
