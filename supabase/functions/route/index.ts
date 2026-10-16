@@ -15,9 +15,13 @@ type UnifiedManeuver = {
   distanceMeters: number;
   beginShapeIndex: number;
   endShapeIndex: number;
+  exitSign: string | null;
+  signpost: string | null;
 };
 
 type UnifiedRoute = {
+  id: string | null;
+  label: string | null;
   geometry: Coordinate[];
   distanceMeters: number;
   durationSeconds: number;
@@ -141,6 +145,38 @@ function firstRoadName(action: Record<string, unknown>): string | null {
     : null;
 }
 
+function firstDisplayString(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = firstDisplayString(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of ["text", "value", "name", "number", "destination", "toward"]) {
+      const found = firstDisplayString(record[key]);
+      if (found) return found;
+    }
+    for (const child of Object.values(record)) {
+      const found = firstDisplayString(child);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function routeLabel(route: Record<string, unknown>): string | null {
+  const labels = route.routeLabels;
+  if (!Array.isArray(labels)) return null;
+  const values = labels
+    .map((item) => firstDisplayString(item))
+    .filter((item): item is string => Boolean(item));
+  return values.length > 0 ? "via " + values.slice(0, 2).join(" / ") : null;
+}
+
 function normalizeHereRoute(route: Record<string, unknown>): UnifiedRoute {
   const sections = Array.isArray(route.sections)
     ? route.sections as Array<Record<string, unknown>>
@@ -206,6 +242,8 @@ function normalizeHereRoute(route: Record<string, unknown>): UnifiedRoute {
         distanceMeters: Number(action.length ?? 0),
         beginShapeIndex: sectionOffset + Math.max(0, offset),
         endShapeIndex: sectionOffset + Math.max(0, nextOffset),
+        exitSign: firstDisplayString(action.exitSign),
+        signpost: firstDisplayString(action.signpost ?? action.signPost),
       });
     }
   }
@@ -217,6 +255,8 @@ function normalizeHereRoute(route: Record<string, unknown>): UnifiedRoute {
   const delay = base == null ? null : Math.max(0, durationSeconds - base);
 
   return {
+    id: typeof route.id === "string" ? route.id : null,
+    label: routeLabel(route),
     geometry,
     distanceMeters,
     durationSeconds,
@@ -232,12 +272,13 @@ async function routeHere(
   destination: Coordinate,
   localeTag: string | null | undefined,
   apiKey: string,
-): Promise<UnifiedRoute> {
+): Promise<UnifiedRoute[]> {
   const params = new URLSearchParams({
     transportMode: "car",
     origin: origin.latitude + "," + origin.longitude,
     destination: destination.latitude + "," + destination.longitude,
-    return: "polyline,summary,actions,instructions,typicalDuration",
+    alternatives: "2",
+    return: "polyline,summary,turnByTurnActions,typicalDuration,routeLabels",
     apiKey,
   });
   if (localeTag?.trim()) params.set("lang", localeTag.trim());
@@ -253,7 +294,7 @@ async function routeHere(
   const body = await response.json() as Record<string, unknown>;
   const routes = Array.isArray(body.routes) ? body.routes as Array<Record<string, unknown>> : [];
   if (routes.length === 0) throw new Error("no_route");
-  return normalizeHereRoute(routes[0]);
+  return routes.map(normalizeHereRoute);
 }
 
 Deno.serve(async (req: Request) => {
@@ -277,8 +318,13 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const route = await routeHere(body.origin, body.destination, body.localeTag, hereApiKey);
-    return json({ provider: "here", trafficAware: true, route });
+    const routes = await routeHere(body.origin, body.destination, body.localeTag, hereApiKey);
+    return json({
+      provider: "here",
+      trafficAware: true,
+      route: routes[0],
+      alternatives: routes.slice(1),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "routing_failed";
     if (message === "rate_limited") return json({ error: "rate_limited" }, 429);
