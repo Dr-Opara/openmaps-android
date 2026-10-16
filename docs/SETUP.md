@@ -354,3 +354,27 @@ App behaviour:
 - **"Map unavailable" immediately:** the style URL is wrong or unreachable (Logcat tag `Mbgl`/MapLibre shows the HTTP error).
 - **Dot never appears on emulator:** set a location in Extended controls; the emulator provides no fix by default.
 - **R8 stripping in release:** MapLibre ships consumer rules; add keep rules to `app/proguard-rules.pro` only if a release-only crash proves it necessary.
+
+
+## LaneLock: OSM + Mapbox
+
+Production LaneLock no longer depends on HERE Route Matching.
+
+The lane gateway combines:
+- OpenStreetMap `turn:lanes`, `turn:lanes:forward`, and `turn:lanes:backward` through Overpass.
+- Mapbox Directions lane arrays for the same short upcoming-route trace.
+
+Set the Mapbox token as a Supabase Edge Function secret, never in the Android APK or repository:
+
+```powershell
+npx supabase secrets set MAPBOX_ACCESS_TOKEN=<your-mapbox-public-access-token> --project-ref upcfmhcfuagloqlcmezr
+npx supabase functions deploy lane-guidance --project-ref upcfmhcfuagloqlcmezr --no-verify-jwt
+```
+
+The gateway confidence rule is fail-closed:
+- OSM + Mapbox agree -> high confidence, show LaneLock.
+- One trustworthy source only -> medium confidence, show LaneLock.
+- Both present but conflict -> return no guidance and hide LaneLock.
+- Missing/ambiguous evidence -> hide LaneLock.
+
+HERE remains the production provider for traffic-aware routing, incidents, alternatives, ETA, exits, and signposts.
