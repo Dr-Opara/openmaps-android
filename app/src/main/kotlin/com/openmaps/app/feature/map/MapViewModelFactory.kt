@@ -14,6 +14,7 @@ fun mapViewModelFactory(container: AppContainer): ViewModelProvider.Factory = vi
             placesRepository = container.placesRepository,
             roadIntelligenceRepository = container.roadIntelligenceRepository,
             roadClassRepository = container.roadClassRepository,
+            reverseGeocodingRepository = container.reverseGeocodingRepository,
             driverReportRepository = container.driverReportRepository,
             tripShareRepository = container.tripShareRepository,
             voiceGuidanceEngine = container.voiceGuidanceEngine,
