@@ -127,3 +127,30 @@ Still required before claiming full commercial search production readiness:
 - Configure an SLA-backed commercial provider credential in the backend.
 - Run physical-device/global-region acceptance tests and measure zero-result/latency/failover rates.
 - Add backend observability and shared/global rate limiting for launch traffic.
+
+
+## Phase 3: Production routing and traffic foundation
+
+Implemented on `production/platform-v1`:
+
+- Deployed `route` Edge Function v2 as the OpenMaps routing gateway.
+- Added server-side HERE Routing API v8 integration, activated only when `HERE_API_KEY` is configured.
+- HERE car routing is requested with time/traffic-aware routing enabled, plus route geometry, summaries and maneuver instructions.
+- Route responses now preserve live traffic-aware duration, free-flow/base duration, typical historical duration and computed non-negative traffic delay when the provider supplies them.
+- Added flexible-polyline decoding in the backend so provider-specific HERE geometry never leaks into Android.
+- Added `BackendRoutingRepository` for provider-neutral route responses.
+- Added `CompositeRoutingRepository`: production backend first, existing Valhalla route engine as an explicit fallback.
+- Extended `RouteResult` with optional traffic metadata while preserving compatibility with all existing navigation/AR code.
+- Existing route preview and navigation ETA automatically consume the provider's traffic-aware `durationSeconds` when commercial routing is active.
+- Added routing response parser and failover tests.
+- Provider keys stay server-side; the APK contains only the OpenMaps gateway URL and Supabase publishable key.
+
+Still required before full production routing readiness:
+
+- Configure the commercial HERE credential in the backend.
+- Add route alternatives to the provider-neutral domain model and Route Preview UI.
+- Add production map matching / snap-to-road for noisy GPS traces.
+- Add traffic incidents/closures feed integration and connect it to Road Intelligence.
+- Add lane/exit guidance from a provider that supplies trustworthy lane data.
+- Add routing latency/failure/fallback observability and launch-scale rate controls.
+- Run worldwide route acceptance testing across representative countries and road classes.
