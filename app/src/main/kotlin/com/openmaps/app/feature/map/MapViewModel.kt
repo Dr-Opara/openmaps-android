@@ -9,6 +9,7 @@ import com.openmaps.app.core.environment.EnvironmentSignals
 import com.openmaps.app.core.environment.ManeuverSpacing
 import com.openmaps.app.core.environment.RoadClass
 import com.openmaps.app.core.environment.RoadClassRepository
+import com.openmaps.app.core.geocoding.ReverseGeocodingRepository
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.location.LocationRepository
@@ -90,6 +91,7 @@ class MapViewModel(
     private val placesRepository: PlaceRepository,
     private val roadIntelligenceRepository: RoadIntelligenceRepository,
     private val roadClassRepository: RoadClassRepository,
+    private val reverseGeocodingRepository: ReverseGeocodingRepository? = null,
     private val driverReportRepository: DriverReportRepository = UnavailableDriverReportRepository(),
     private val tripShareRepository: TripShareRepository = UnavailableTripShareRepository(),
     /** Delta-spec section 14. Defaults to a no-op so every existing test keeps working with no
@@ -129,6 +131,8 @@ class MapViewModel(
     private var locationJob: Job? = null
     private var timeoutJob: Job? = null
     private var routeJob: Job? = null
+    private var reverseGeocodingJob: Job? = null
+    private var lastReverseGeocodedLocation: UserLocation? = null
     private var isAppVisible = false
     private var autoCenterHandled = false
     private var userHasMovedCamera = false
@@ -260,7 +264,11 @@ class MapViewModel(
         if (_uiState.value.locationPermission == state) return
         _uiState.update {
             val next = it.copy(locationPermission = state)
-            if (state.isGranted) next else next.copy(currentLocation = null, locationStatus = LocationStatus.Idle)
+            if (state.isGranted) next else next.copy(
+                currentLocation = null,
+                currentLocationPlace = null,
+                locationStatus = LocationStatus.Idle,
+            )
         }
         if (state == LocationPermissionState.NotRequested && !autoPromptEmitted) {
             autoPromptEmitted = true
@@ -1648,6 +1656,7 @@ class MapViewModel(
                     )
                 }
                 centerOnFirstFix(update.location)
+                maybeReverseGeocodeCurrentLocation(update.location)
                 // A route that was only missing an origin can proceed now that one exists.
                 if (_uiState.value.routeState == RouteState.WaitingForLocation) requestRoute()
                 // Navigation advances from every fix, but only once a trip is actually underway.
@@ -1667,7 +1676,13 @@ class MapViewModel(
             }
             LocationUpdate.ServicesDisabled -> {
                 timeoutJob?.cancel()
-                _uiState.update { it.copy(currentLocation = null, locationStatus = LocationStatus.ServicesDisabled) }
+                _uiState.update {
+                    it.copy(
+                        currentLocation = null,
+                        currentLocationPlace = null,
+                        locationStatus = LocationStatus.ServicesDisabled,
+                    )
+                }
             }
             LocationUpdate.ServicesEnabled -> {
                 if (_uiState.value.locationStatus != LocationStatus.Available) {
@@ -1693,6 +1708,36 @@ class MapViewModel(
         )
     }
 
+    /**
+     * Resolves GPS coordinates into a human-readable location without hammering the backend on every
+     * one-second location tick. A first fix resolves immediately; later requests require meaningful
+     * movement. Failure never removes a previously resolved place because GPS itself is still valid.
+     */
+    private fun maybeReverseGeocodeCurrentLocation(location: UserLocation) {
+        val repository = reverseGeocodingRepository ?: return
+        val previous = lastReverseGeocodedLocation
+        if (previous != null) {
+            val movedMeters = RouteCorridor.metersBetween(
+                previous.toCoordinate(),
+                location.toCoordinate(),
+            )
+            if (movedMeters < REVERSE_GEOCODE_MOVE_THRESHOLD_METERS) return
+        }
+        if (reverseGeocodingJob?.isActive == true) return
+
+        lastReverseGeocodedLocation = location
+        reverseGeocodingJob = viewModelScope.launch {
+            repository.reverse(location.latitude, location.longitude)
+                .onSuccess { resolved ->
+                    if (resolved != null) {
+                        _uiState.update { state ->
+                            state.copy(currentLocationPlace = resolved)
+                        }
+                    }
+                }
+        }
+    }
+
     // endregion
 
     private fun moveCamera(target: CameraState, durationMillis: Int, animated: Boolean = true) {
@@ -1704,6 +1749,7 @@ class MapViewModel(
     private fun UserLocation.toCoordinate(): Coordinate = Coordinate(latitude, longitude)
 
     override fun onCleared() {
+        reverseGeocodingJob?.cancel()
         commandChannel.close()
         eventChannel.close()
     }
@@ -1714,6 +1760,7 @@ class MapViewModel(
         const val TRIP_SHARE_GRACE_MILLIS = 30 * 60 * 1_000L
         const val MAX_TRIP_SHARE_EXPIRY_MILLIS = 24 * 60 * 60 * 1_000L
         const val ARRIVAL_RETURN_HOME_DELAY_MILLIS = 6_000L
+        const val REVERSE_GEOCODE_MOVE_THRESHOLD_METERS = 100.0
         const val INITIAL_USER_ZOOM = 15.0
         const val RECENTER_MIN_ZOOM = 14.0
         const val DESTINATION_ZOOM = 15.0
