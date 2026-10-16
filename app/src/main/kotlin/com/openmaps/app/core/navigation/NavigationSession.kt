@@ -18,7 +18,8 @@ class NavigationSession(
     val camera: NavigationCamera = NavigationCamera(route)
     private val tracker: RouteProgressTracker = RouteProgressTracker(route)
 
-    fun locate(position: Coordinate): RouteProgress? = tracker.locate(position)
+    fun locate(position: Coordinate, headingDegrees: Double? = null): RouteProgress? =
+        tracker.locate(position, headingDegrees)
 
     /** Feeds one sample through the hysteresis and returns what it implies for this tick. */
     fun updateOffRoute(progress: RouteProgress): OffRouteDecision =
