@@ -142,9 +142,11 @@ Implemented on `production/platform-v1`:
 - HERE Traffic incidents/closures are fetched through the OpenMaps backend and merged with the existing static OSM road-intelligence fallback.
 - High/severe live crashes or closures ahead can trigger one traffic-aware recalculation; dedupe prevents repeated reroute loops and the old route remains usable if replacement fails.
 - HERE traffic-aware route timing populates `TrafficCondition`, so +X minute traffic labels are shown only when backed by real provider timing.
-- LaneLock is wired through a dedicated provider-neutral `LaneGuidanceRepository` and HERE Route Matching lane attributes.
-- LaneLock renders the physical provider-returned lane count left-to-right, highlights only maneuver-compatible lanes, and stays hidden whenever access/data/confidence is insufficient.
-- Exit/signpost guidance and LaneLock never infer lane geometry from the route line.
+- LaneLock is wired through a dedicated provider-neutral `LaneGuidanceRepository`.
+- LaneLock now uses OSM `turn:lanes` metadata plus Mapbox Directions lane arrays when Mapbox is configured.
+- The gateway requires maneuver-compatible lane evidence; matching OSM + Mapbox evidence is high confidence, one trustworthy source is medium confidence, and conflicting evidence is hidden.
+- LaneLock renders the physical provider-returned lane count left-to-right and never infers lane geometry from the route line.
+- HERE Route Matching is no longer a LaneLock dependency.
 - Routing, live traffic and lane endpoints are protected by per-client, per-endpoint database-backed rate limits.
 - Routing and traffic telemetry record request success/error, latency, traffic awareness, route distance/duration, alternatives and incident counts.
 - 24-hour `routing_health_24h` and `traffic_health_24h` views expose operational health.
@@ -156,8 +158,8 @@ Final release gates before this workstream is marked complete:
 
 - Local Android `assembleDebug`, unit tests and lint must pass on the production branch.
 - `scripts/production-routing-acceptance.ps1` must pass against the deployed HERE services.
-- HERE Route Matching/lane-attribute access must be confirmed by the acceptance suite; `provider_access_required` is a failure, while a valid provider response with no trustworthy lanes on a sampled road is an honest supported state.
-- A physical-device drive must validate noisy-GPS map matching, off-route/reroute behavior, Map↔Live continuity, real incident presentation and LaneLock when provider lane data is present.
+- The OSM/Mapbox lane gateway must pass acceptance; a valid `no_trustworthy_lane_guidance` response is an honest supported state.
+- A physical-device drive must validate noisy-GPS map matching, off-route/reroute behavior, Map↔Live continuity, real incident presentation and LaneLock only when provider lane evidence is present and trustworthy.
 
 ## Phase 2B: Global search production hardening
 
