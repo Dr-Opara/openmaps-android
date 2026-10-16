@@ -14,7 +14,10 @@ data class RoadIntelligenceState(
     val events: List<RoadEvent> = emptyList(),
     val traffic: TrafficCondition? = null,
     val weather: WeatherCondition? = null,
-    /** Always null today — see [LaneGuidance]'s doc comment for why. Kept for the Phase 11 contract. */
+    /**
+     * Provider-backed lane recommendation for the active maneuver. Null whenever HERE Route
+     * Matching has no lane attributes, access is unavailable, or no lane can be recommended safely.
+     */
     val laneGuidance: LaneGuidance? = null,
     val speedLimit: SpeedLimitInfo? = null,
     val currentSpeedMetersPerSecond: Float? = null,
