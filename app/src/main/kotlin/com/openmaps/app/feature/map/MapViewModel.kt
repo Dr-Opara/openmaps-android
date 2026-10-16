@@ -575,6 +575,37 @@ class MapViewModel(
         }
     }
 
+    /**
+     * Route Preview alternative selection. The backend already returned full navigation geometry,
+     * so switching routes is instant and does not spend another provider request.
+     */
+    fun onRouteAlternativeSelected(index: Int) {
+        val ready = _uiState.value.routeState as? RouteState.Ready ?: return
+        val alternative = ready.route.alternatives.getOrNull(index) ?: return
+        val currentAsAlternative = com.openmaps.app.core.routing.RouteAlternative(
+            id = ready.route.id,
+            label = ready.route.label,
+            geometry = ready.route.geometry,
+            distanceMeters = ready.route.distanceMeters,
+            durationSeconds = ready.route.durationSeconds,
+            bounds = ready.route.bounds,
+            maneuvers = ready.route.maneuvers,
+            baseDurationSeconds = ready.route.baseDurationSeconds,
+            typicalDurationSeconds = ready.route.typicalDurationSeconds,
+            trafficDelaySeconds = ready.route.trafficDelaySeconds,
+            isTrafficAware = ready.route.isTrafficAware,
+        )
+        val remaining = ready.route.alternatives.toMutableList().apply {
+            removeAt(index)
+            add(0, currentAsAlternative)
+        }
+        val selected = alternative.asRouteResult(remaining)
+        _uiState.update { it.copy(routeState = RouteState.Ready(selected)) }
+        selected.bounds?.let { commandChannel.trySend(MapCommand.FitBounds(it)) }
+        fetchPlacesAlongRoute(selected)
+        fetchRoadEventsAlongRoute(selected)
+    }
+
     // endregion
 
     // region Contextual places (Phase 9)
