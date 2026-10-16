@@ -260,7 +260,25 @@ Deno.serve(async (req: Request) => {
     if (response.status === 401 || response.status === 403) {
       return json({ guidance: null, capability: "provider_access_required" });
     }
-    if (response.status === 429) return json({ error: "rate_limited" }, 429);
+    if (response.status === 429) {
+      const retryAfter = response.headers.get("retry-after");
+      return new Response(
+        JSON.stringify({
+          error: "lane_provider_rate_limited",
+          provider: "here",
+          capability: "provider_rate_limited",
+          retryAfter,
+        }),
+        {
+          status: 429,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "no-store",
+            ...(retryAfter ? { "retry-after": retryAfter } : {}),
+          },
+        },
+      );
+    }
     if (!response.ok) return json({ error: "lane_upstream_" + response.status }, 503);
 
     const payload = await response.json();
