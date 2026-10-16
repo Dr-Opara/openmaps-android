@@ -154,3 +154,23 @@ Still required before full production routing readiness:
 - Add lane/exit guidance from a provider that supplies trustworthy lane data.
 - Add routing latency/failure/fallback observability and launch-scale rate controls.
 - Run worldwide route acceptance testing across representative countries and road classes.
+
+
+## Phase 2B: Global search production hardening
+
+Implemented on `production/platform-v1` and the OpenMaps Supabase project:
+
+- Geocoding Edge Function upgraded to v4.
+- Added launch-facing search telemetry without storing raw search text; only a SHA-256 query hash is retained.
+- Telemetry captures result count, provider set, query type, latency, whether GPS bias was present, locale, zero-result/error outcome, fallback use and cache hits.
+- Added a 24-hour health view for request volume, success rate, zero-result rate, error count, average latency, p95 latency, fallback count and cache hits.
+- Added database-backed per-client rate limiting at 60 requests/minute using a hashed client address; raw IP addresses are not stored.
+- Added provider-specific HERE caching to reduce commercial-provider cost/latency while avoiding persistent caching of Nominatim/OSM responses.
+- Exact-address HERE results cache for 1 hour; general HERE discovery results cache for 5 minutes.
+- Search cache, telemetry and rate-limit tables are RLS-protected and unavailable to anon/authenticated clients; only the backend service role can access runtime functions.
+- Added retention cleanup support: expired cache rows, old rate-limit buckets and telemetry older than 30 days.
+- Versioned all database migrations under `supabase/migrations`.
+
+Current blocker to final Global Search completion:
+
+- Configure the commercial `HERE_API_KEY` in the Supabase backend and run global acceptance/quality tests against the live commercial provider.
