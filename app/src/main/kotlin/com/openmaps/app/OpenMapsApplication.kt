@@ -22,6 +22,8 @@ import com.openmaps.app.core.reporting.DriverReportRepository
 import com.openmaps.app.core.reporting.UnavailableDriverReportRepository
 import com.openmaps.app.core.roadintelligence.DefaultRoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
+import com.openmaps.app.core.routing.BackendRoutingRepository
+import com.openmaps.app.core.routing.CompositeRoutingRepository
 import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.core.sharing.TripShareRepository
 import com.openmaps.app.core.sharing.UnavailableTripShareRepository
@@ -71,8 +73,23 @@ class AppContainer(application: Application) {
     /** Live trip sharing is intentionally unavailable until an expiring-token backend is connected. */
     val tripShareRepository: TripShareRepository = UnavailableTripShareRepository()
 
-    val routingRepository: RoutingRepository = ValhallaRoutingRepository(
-        userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+    /**
+     * Production routing path:
+     *   OpenMaps traffic-aware routing gateway -> Valhalla fallback.
+     *
+     * HERE traffic-aware routing is activated server-side when HERE_API_KEY is configured. Until
+     * then, the backend fails closed and this composite transparently falls back to Valhalla.
+     */
+    val routingRepository: RoutingRepository = CompositeRoutingRepository(
+        providers = listOf(
+            BackendRoutingRepository(
+                endpointUrl = BuildConfig.ROUTING_GATEWAY_URL,
+                publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+            ),
+            ValhallaRoutingRepository(
+                userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; routing fallback)",
+            ),
+        ),
     )
 
     /**
