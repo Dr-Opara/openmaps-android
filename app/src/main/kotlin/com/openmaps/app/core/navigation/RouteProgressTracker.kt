@@ -2,6 +2,8 @@ package com.openmaps.app.core.navigation
 
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.RouteResult
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -34,10 +36,10 @@ class RouteProgressTracker(private val route: RouteResult) {
     private var lastDistanceTraveledMeters = 0.0
 
     /** Returns null if the route has no usable geometry/maneuvers to report progress against. */
-    fun locate(position: Coordinate): RouteProgress? {
+    fun locate(position: Coordinate, headingDegrees: Double? = null): RouteProgress? {
         if (geometry.size < 2 || route.maneuvers.isEmpty()) return null
 
-        val match = findNearestSegment(position)
+        val match = findNearestSegment(position, headingDegrees)
         lastMatchedSegment = match.segmentIndex
 
         val distanceTraveled = max(
@@ -67,6 +69,8 @@ class RouteProgressTracker(private val route: RouteResult) {
 
         return RouteProgress(
             snappedShapeIndex = match.segmentIndex,
+            snappedCoordinate = match.projectedCoordinate,
+            mapMatchConfidence = confidenceFor(match),
             lateralDistanceMeters = match.lateralDistanceMeters,
             distanceTraveledMeters = distanceTraveled,
             remainingDistanceMeters = remainingDistance,
@@ -91,14 +95,16 @@ class RouteProgressTracker(private val route: RouteResult) {
         val segmentIndex: Int,
         val distanceAlongSegmentMeters: Double,
         val lateralDistanceMeters: Double,
+        val projectedCoordinate: Coordinate,
+        val headingDifferenceDegrees: Double?,
     )
 
-    private fun findNearestSegment(position: Coordinate): SegmentMatch {
+    private fun findNearestSegment(position: Coordinate, headingDegrees: Double?): SegmentMatch {
         val windowStart = max(0, lastMatchedSegment - BACKWARD_WINDOW)
         val windowEnd = min(geometry.size - 2, lastMatchedSegment + FORWARD_WINDOW)
-        var best = projectOntoSegment(position, windowStart)
+        var best = projectOntoSegment(position, windowStart, headingDegrees)
         for (i in windowStart + 1..windowEnd) {
-            val candidate = projectOntoSegment(position, i)
+            val candidate = projectOntoSegment(position, i, headingDegrees)
             if (isBetterMatch(candidate, best)) best = candidate
         }
         // Fallback: if the windowed search missed badly (e.g. a reroute just replaced the route
@@ -106,7 +112,7 @@ class RouteProgressTracker(private val route: RouteResult) {
         if (best.lateralDistanceMeters > FALLBACK_THRESHOLD_METERS) {
             for (i in 0 until geometry.size - 1) {
                 if (i in windowStart..windowEnd) continue
-                val candidate = projectOntoSegment(position, i)
+                val candidate = projectOntoSegment(position, i, headingDegrees)
                 if (isBetterMatch(candidate, best)) best = candidate
             }
         }
@@ -123,14 +129,41 @@ class RouteProgressTracker(private val route: RouteResult) {
      * near-ties within [TIE_TOLERANCE_METERS]) resolve forward, which is also the only direction
      * a moving driver can legitimately have come from.
      */
-    private fun isBetterMatch(candidate: SegmentMatch, best: SegmentMatch): Boolean =
-        when {
-            candidate.lateralDistanceMeters < best.lateralDistanceMeters - TIE_TOLERANCE_METERS -> true
-            candidate.lateralDistanceMeters > best.lateralDistanceMeters + TIE_TOLERANCE_METERS -> false
+    private fun isBetterMatch(candidate: SegmentMatch, best: SegmentMatch): Boolean {
+        val candidateScore = matchScore(candidate)
+        val bestScore = matchScore(best)
+        return when {
+            candidateScore < bestScore - TIE_TOLERANCE_METERS -> true
+            candidateScore > bestScore + TIE_TOLERANCE_METERS -> false
             else -> candidate.segmentIndex > best.segmentIndex
         }
+    }
 
-    private fun projectOntoSegment(position: Coordinate, segmentIndex: Int): SegmentMatch {
+    /**
+     * Distance is always the primary signal. When Android supplies a real movement bearing, large
+     * heading disagreement adds a bounded penalty so parallel service roads do not steal the snap.
+     */
+    private fun matchScore(match: SegmentMatch): Double {
+        val headingPenalty = match.headingDifferenceDegrees
+            ?.let { (it.coerceAtMost(90.0) / 90.0) * MAX_HEADING_PENALTY_METERS }
+            ?: 0.0
+        return match.lateralDistanceMeters + headingPenalty
+    }
+
+    private fun confidenceFor(match: SegmentMatch): MapMatchConfidence = when {
+        match.lateralDistanceMeters > NavigationSession.OFF_ROUTE_THRESHOLD_METERS -> MapMatchConfidence.OffRoute
+        match.lateralDistanceMeters <= 15.0 && (match.headingDifferenceDegrees == null || match.headingDifferenceDegrees <= 35.0) ->
+            MapMatchConfidence.High
+        match.lateralDistanceMeters <= 35.0 && (match.headingDifferenceDegrees == null || match.headingDifferenceDegrees <= 60.0) ->
+            MapMatchConfidence.Medium
+        else -> MapMatchConfidence.Low
+    }
+
+    private fun projectOntoSegment(
+        position: Coordinate,
+        segmentIndex: Int,
+        headingDegrees: Double?,
+    ): SegmentMatch {
         val start = geometry[segmentIndex]
         val end = geometry[segmentIndex + 1]
         val metersPerDegreeLon = METERS_PER_DEGREE_LATITUDE * cos(Math.toRadians(start.latitude))
@@ -151,10 +184,23 @@ class RouteProgressTracker(private val route: RouteResult) {
         val dx = pointX - projectedX
         val dy = pointY - projectedY
 
+        val projectedCoordinate = Coordinate(
+            latitude = start.latitude + (end.latitude - start.latitude) * t,
+            longitude = start.longitude + (end.longitude - start.longitude) * t,
+        )
+        val segmentBearing = if (segmentLengthSquared > 0) bearingBetween(start, end) else null
+        val headingDifference = if (headingDegrees != null && headingDegrees.isFinite() && segmentBearing != null) {
+            angularDifference(headingDegrees, segmentBearing)
+        } else {
+            null
+        }
+
         return SegmentMatch(
             segmentIndex = segmentIndex,
             distanceAlongSegmentMeters = t * sqrt(segmentLengthSquared),
             lateralDistanceMeters = sqrt(dx * dx + dy * dy),
+            projectedCoordinate = projectedCoordinate,
+            headingDifferenceDegrees = headingDifference,
         )
     }
 
@@ -169,6 +215,7 @@ class RouteProgressTracker(private val route: RouteResult) {
          * threshold so it can never mask genuine route choice at a junction.
          */
         private const val TIE_TOLERANCE_METERS = 5.0
+        private const val MAX_HEADING_PENALTY_METERS = 25.0
 
         private const val METERS_PER_DEGREE_LATITUDE = 111_320.0
 
@@ -186,6 +233,21 @@ class RouteProgressTracker(private val route: RouteResult) {
             val dLat = (b.latitude - a.latitude) * METERS_PER_DEGREE_LATITUDE
             val dLon = (b.longitude - a.longitude) * METERS_PER_DEGREE_LATITUDE * cos(midLatRadians)
             return sqrt(dLat * dLat + dLon * dLon)
+        }
+
+        private fun bearingBetween(a: Coordinate, b: Coordinate): Double {
+            val lat1 = Math.toRadians(a.latitude)
+            val lat2 = Math.toRadians(b.latitude)
+            val dLon = Math.toRadians(b.longitude - a.longitude)
+            val y = kotlin.math.sin(dLon) * kotlin.math.cos(lat2)
+            val x = kotlin.math.cos(lat1) * kotlin.math.sin(lat2) -
+                kotlin.math.sin(lat1) * kotlin.math.cos(lat2) * kotlin.math.cos(dLon)
+            return ((Math.toDegrees(atan2(y, x)) % 360.0) + 360.0) % 360.0
+        }
+
+        private fun angularDifference(a: Double, b: Double): Double {
+            val raw = abs((((a - b) % 360.0) + 360.0) % 360.0)
+            return minOf(raw, 360.0 - raw)
         }
     }
 }
