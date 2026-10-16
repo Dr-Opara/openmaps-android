@@ -15,9 +15,21 @@ data class RouteBounds(
 data class RouteResult(
     val geometry: List<Coordinate>,
     val distanceMeters: Double,
+    /**
+     * Best current ETA duration. For a production traffic-aware provider this includes live and
+     * historical traffic; fallback providers may provide a non-traffic-aware estimate.
+     */
     val durationSeconds: Double,
     val bounds: RouteBounds? = null,
     val maneuvers: List<RouteManeuver> = emptyList(),
+    /** Free-flow duration when the provider supplies it. */
+    val baseDurationSeconds: Double? = null,
+    /** Historical "typical for this time" duration when supplied by the provider. */
+    val typicalDurationSeconds: Double? = null,
+    /** Live traffic delay over free-flow, never fabricated when unavailable. */
+    val trafficDelaySeconds: Double? = null,
+    /** True only when the provider explicitly supplied traffic-aware timing. */
+    val isTrafficAware: Boolean = false,
 )
 
 /**
