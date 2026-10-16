@@ -1,5 +1,6 @@
 package com.openmaps.app.core.navigation
 
+import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.RouteManeuver
 
 /**
@@ -8,8 +9,19 @@ import com.openmaps.app.core.routing.RouteManeuver
  * [com.openmaps.app.feature.map.RouteState.Ready] wraps `RouteResult` directly rather than
  * re-flattening it into a second near-identical type.
  */
+enum class MapMatchConfidence {
+    High,
+    Medium,
+    Low,
+    OffRoute,
+}
+
 data class RouteProgress(
     val snappedShapeIndex: Int,
+    /** Nearest point on the matched road segment, not the raw GPS sample. */
+    val snappedCoordinate: Coordinate? = null,
+    /** Confidence derived from lateral distance and heading agreement. */
+    val mapMatchConfidence: MapMatchConfidence = MapMatchConfidence.Low,
     val lateralDistanceMeters: Double,
     val distanceTraveledMeters: Double,
     val remainingDistanceMeters: Double,
