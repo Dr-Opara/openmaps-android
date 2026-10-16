@@ -104,3 +104,26 @@ A feature is not production-ready because the UI exists. It is production-ready 
 - Android physical-device validation passes;
 - provider and geographic limitations are documented;
 - operational telemetry exists.
+
+
+## Phase 2: Global search intelligence
+
+Implemented on `production/platform-v1`:
+
+- Production geocoding gateway v3 with multi-provider aggregation.
+- HERE support remains credential-gated through server-side `HERE_API_KEY`; no provider secret is shipped in the Android app.
+- Nominatim remains a worldwide fallback.
+- HERE and Nominatim results are normalized into one provider-neutral schema.
+- Cross-provider duplicate merging is performed before results are returned.
+- Search ranking now combines text relevance, address completeness, provider confidence and proximity.
+- Exact-address queries are detected and ranked differently so a distant exact address is not incorrectly buried by nearby but irrelevant places.
+- POI/business/school queries use HERE Discover when configured and worldwide Nominatim otherwise.
+- Reverse geocoding is deployed as a separate production Edge Function with HERE-first / Nominatim-fallback behavior.
+- Android now reverse-geocodes live GPS fixes after meaningful movement and stores the resolved human-readable place in `MapUiState.currentLocationPlace`.
+- Reverse geocoding is throttled by movement rather than run on every one-second GPS update.
+
+Still required before claiming full commercial search production readiness:
+
+- Configure an SLA-backed commercial provider credential in the backend.
+- Run physical-device/global-region acceptance tests and measure zero-result/latency/failover rates.
+- Add backend observability and shared/global rate limiting for launch traffic.
