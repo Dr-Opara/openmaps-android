@@ -3,7 +3,6 @@ package com.openmaps.app.core.geocoding
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
@@ -79,8 +78,7 @@ class BackendGeocodingRepository(
                     BackendGeocodingResponseParser.parse(response)
                 }
                 HttpURLConnection.HTTP_UNAUTHORIZED,
-                HttpURLConnection.HTTP_FORBIDDEN,
-                -> throw GeocodingException.Server(code)
+                HttpURLConnection.HTTP_FORBIDDEN -> throw GeocodingException.Server(code)
                 429 -> throw GeocodingException.RateLimited
                 in 500..599 -> throw GeocodingException.Server(code)
                 else -> throw GeocodingException.Server(code)
