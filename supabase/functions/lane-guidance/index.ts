@@ -237,7 +237,7 @@ function inferOsmWayForward(element: OsmElement, trace: Coordinate[]): boolean |
 
   for (let i = 0; i < geometry.length - 1; i++) {
     const point = geometry[i];
-    if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon)) continue;
+    if (typeof point.lat !== "number" || typeof point.lon !== "number") continue;
     const distance = metersBetween(approach, {
       latitude: Number(point.lat),
       longitude: Number(point.lon),
@@ -251,7 +251,10 @@ function inferOsmWayForward(element: OsmElement, trace: Coordinate[]): boolean |
   if (bestIndex < 0) return null;
   const a = geometry[bestIndex];
   const b = geometry[Math.min(bestIndex + 1, geometry.length - 1)];
-  if (!Number.isFinite(a.lat) || !Number.isFinite(a.lon) || !Number.isFinite(b.lat) || !Number.isFinite(b.lon)) {
+  if (
+    typeof a.lat !== "number" || typeof a.lon !== "number" ||
+    typeof b.lat !== "number" || typeof b.lon !== "number"
+  ) {
     return null;
   }
 
@@ -285,7 +288,11 @@ out tags center geom;`;
     try {
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded; charset=utf-8" },
+        headers: {
+          "content-type": "application/x-www-form-urlencoded; charset=utf-8",
+          "accept": "application/json",
+          "user-agent": "OpenMaps/production lane-guidance",
+        },
         body: "data=" + encodeURIComponent(query),
         signal: AbortSignal.timeout(6500),
       });
@@ -297,8 +304,8 @@ out tags center geom;`;
       const ranked = elements
         .map((element) => {
           const center = element.center;
-          const distance = center && Number.isFinite(center.lat) && Number.isFinite(center.lon)
-            ? metersBetween(approach, { latitude: Number(center.lat), longitude: Number(center.lon) })
+          const distance = center && typeof center.lat === "number" && typeof center.lon === "number"
+            ? metersBetween(approach, { latitude: center.lat, longitude: center.lon })
             : Number.POSITIVE_INFINITY;
           return { element, distance };
         })
