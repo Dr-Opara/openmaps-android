@@ -27,27 +27,24 @@ class SearchViewModel(
     private val geocodingRepository: GeocodingRepository,
     private val recentSearchStore: RecentSearchStore,
     private val debounceMillis: Long = DEFAULT_DEBOUNCE_MILLIS,
+    initialLocaleTag: String? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState(recentSearches = recentSearchStore.load()))
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
     private var searchJob: Job? = null
-    private var searchContext = GeocodingSearchContext()
+    private var searchContext = GeocodingSearchContext(localeTag = initialLocaleTag)
 
     /**
      * Keeps search globally available while biasing ambiguous queries toward the driver's current
      * position. A missing fix simply means unbiased worldwide search.
      */
     fun onLocationBiasChanged(location: UserLocation?) {
-        searchContext = if (location == null) {
-            GeocodingSearchContext()
-        } else {
-            GeocodingSearchContext(
-                latitude = location.latitude,
-                longitude = location.longitude,
-            )
-        }
+        searchContext = searchContext.copy(
+            latitude = location?.latitude,
+            longitude = location?.longitude,
+        )
     }
 
     fun onQueryChanged(query: String) {
