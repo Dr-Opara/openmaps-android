@@ -280,6 +280,7 @@ fun MapScreen(
                         onExploreClicked = viewModel::onExploreRequested,
                         onExploreCategoryClicked = viewModel::onExploreCategoryClicked,
                         onSteps = viewModel::onStepsRequested,
+                        onAlternativeSelected = viewModel::onRouteAlternativeSelected,
                         canStart = state.canStartNavigation,
                         isNavigating = state.isNavigating,
                         navigationError = (state.navigationState as? NavigationState.Error)?.reason,
