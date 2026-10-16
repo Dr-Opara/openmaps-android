@@ -5,11 +5,9 @@ import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.routing.Coordinate
-import com.openmaps.app.core.routing.RoutingRepository
 
 class OpenMapsScout(
     private val geocodingRepository: GeocodingRepository,
-    private val routingRepository: RoutingRepository,
     private val placesRepository: PlaceRepository,
     private val intentParser: ScoutIntentParser = RuleBasedScoutIntentParser(),
 ) {
@@ -37,21 +35,13 @@ class OpenMapsScout(
             message = "I couldn't verify that destination.",
             canRetry = true,
         )
-        val route = routingRepository.route(origin, destination.coordinate()).getOrNull()
-            ?: return ScoutResponse(
-                message = "I found the destination, but I couldn't build a verified route right now.",
-                actions = listOf(ScoutAction.SelectDestination(destination)),
-                grounding = setOf(ScoutGroundingSource.Geocoding),
-                canRetry = true,
-            )
-
         return ScoutResponse(
-            message = "Route ready to " + destination.name + ". Review it, then start Live navigation.",
+            message = "I verified " + destination.name + ". Opening Route Preview.",
             actions = listOf(
                 ScoutAction.SelectDestination(destination),
-                ScoutAction.PreviewRoute(route, destination),
+                ScoutAction.RequestDirections,
             ),
-            grounding = setOf(ScoutGroundingSource.Geocoding, ScoutGroundingSource.Routing),
+            grounding = setOf(ScoutGroundingSource.Geocoding),
         )
     }
 
@@ -65,12 +55,7 @@ class OpenMapsScout(
         val actions = mutableListOf<ScoutAction>(ScoutAction.SelectDestination(destination))
         val grounding = mutableSetOf(ScoutGroundingSource.Geocoding)
         val origin = context.origin
-        if (origin != null) {
-            routingRepository.route(origin, destination.coordinate()).getOrNull()?.let { route ->
-                actions += ScoutAction.PreviewRoute(route, destination)
-                grounding += ScoutGroundingSource.Routing
-            }
-        }
+        if (origin != null) actions += ScoutAction.RequestDirections
 
         val parking = placesRepository.nearbyPlaces(
             center = destination.coordinate(),
@@ -86,10 +71,10 @@ class OpenMapsScout(
         }
 
         val message = when {
-            origin != null && ScoutGroundingSource.Routing in grounding && parking.isNotEmpty() ->
-                "I verified the destination, built the route, and found " + parking.size + " parking options near arrival."
-            origin != null && ScoutGroundingSource.Routing in grounding ->
-                "I verified the destination and built the route. I couldn't verify nearby parking right now."
+            origin != null && parking.isNotEmpty() ->
+                "I verified the destination and found " + parking.size + " nearby parking options. Opening Route Preview."
+            origin != null ->
+                "I verified the destination. Opening Route Preview; I couldn't verify nearby parking right now."
             parking.isNotEmpty() ->
                 "I verified the destination and found " + parking.size + " nearby parking options. I still need your location to build the route."
             else ->
