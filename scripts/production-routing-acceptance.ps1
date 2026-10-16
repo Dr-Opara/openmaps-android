@@ -15,6 +15,31 @@ function Invoke-OpenMapsFunction {
     }
 }
 
+
+function Invoke-LaneGuidanceWithRetry {
+    param(
+        [hashtable]$Body,
+        [int]$MaxAttempts = 6
+    )
+
+    $delays = @(30, 60, 120, 180, 210)
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            return Invoke-OpenMapsFunction -Name "lane-guidance" -Body $Body
+        } catch {
+            $message = $_.Exception.Message
+            $is429 = $message -match "429" -or $message -match "Too Many Requests"
+            if (-not $is429 -or $attempt -ge $MaxAttempts) { throw }
+
+            $delay = $delays[[math]::Min($attempt - 1, $delays.Count - 1)]
+            Write-Host "LaneLock provider throttled (429). Retrying in $delay seconds [$attempt/$MaxAttempts]..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $delay
+        }
+    }
+
+    throw "LaneLock provider remained rate-limited after $MaxAttempts attempts."
+}
+
 $routeCases = @(
     @{ Name = "Houston"; Origin = @{ latitude = 29.7858; longitude = -95.8245 }; Destination = @{ latitude = 29.7604; longitude = -95.3698 } },
     @{ Name = "London"; Origin = @{ latitude = 51.5034; longitude = -0.1276 }; Destination = @{ latitude = 51.5287; longitude = -0.2417 } },
@@ -111,7 +136,7 @@ try {
         @{ latitude = 29.78381; longitude = -95.72413 }
     )
 
-    $laneCall = Invoke-OpenMapsFunction -Name "lane-guidance" -Body @{ trace = $laneTrace; maneuverType = "Continue" }
+    $laneCall = Invoke-LaneGuidanceWithRetry -Body @{ trace = $laneTrace; maneuverType = "Continue" }
     $lane = $laneCall.Response
     $capability = [string]$lane.capability
     $laneAccessOk = $capability -eq "available" -or $capability -eq "no_trustworthy_lane_guidance"
