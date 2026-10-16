@@ -20,7 +20,9 @@ import com.openmaps.app.core.places.OverpassPlaceRepository
 import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.reporting.DriverReportRepository
 import com.openmaps.app.core.reporting.UnavailableDriverReportRepository
+import com.openmaps.app.core.roadintelligence.CompositeRoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.DefaultRoadIntelligenceRepository
+import com.openmaps.app.core.roadintelligence.HereTrafficRoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.routing.BackendRoutingRepository
 import com.openmaps.app.core.routing.CompositeRoutingRepository
@@ -115,8 +117,16 @@ class AppContainer(application: Application) {
      * Phase 10 road intelligence (hazards, weather, speed limits — see ARCHITECTURE.md's Road
      * intelligence section for exactly which of those are real today versus absent-by-design).
      */
-    val roadIntelligenceRepository: RoadIntelligenceRepository = DefaultRoadIntelligenceRepository(
-        userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+    val roadIntelligenceRepository: RoadIntelligenceRepository = CompositeRoadIntelligenceRepository(
+        providers = listOf(
+            HereTrafficRoadIntelligenceRepository(
+                endpointUrl = BuildConfig.TRAFFIC_INCIDENTS_GATEWAY_URL,
+                publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+            ),
+            DefaultRoadIntelligenceRepository(
+                userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; fallback)",
+            ),
+        ),
     )
 
     /**
