@@ -2,6 +2,7 @@ package com.openmaps.app.feature.live
 
 import com.openmaps.app.core.navigation.RouteProgress
 import com.openmaps.app.core.routing.ManeuverType
+import com.openmaps.app.core.routing.displayInstruction
 import com.openmaps.app.feature.map.NavigationState
 
 /**
@@ -81,13 +82,13 @@ object LiveHud {
     private fun maneuver(progress: RouteProgress, destinationName: String?): LiveHudState.Maneuver {
         val current = progress.currentManeuver
         val next = progress.nextManeuver
-        val instruction = current.instruction.ifBlank { current.streetName.orEmpty() }
+        val instruction = current.displayInstruction()
         return LiveHudState.Maneuver(
             type = current.type,
             instruction = instruction,
             distanceToManeuverMeters = progress.distanceToNextManeuverMeters,
             nextInstruction = next
-                ?.instruction
+                ?.displayInstruction()
                 ?.takeIf { it.isNotBlank() && it != instruction },
             nextManeuverType = next?.type,
             remainingDistanceMeters = progress.remainingDistanceMeters,
