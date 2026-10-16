@@ -237,7 +237,7 @@ async function routeHere(
     transportMode: "car",
     origin: origin.latitude + "," + origin.longitude,
     destination: destination.latitude + "," + destination.longitude,
-    return: "polyline,summary,turnByTurnActions,instructions,typicalDuration",
+    return: "polyline,summary,actions,instructions,typicalDuration",
     apiKey,
   });
   if (localeTag?.trim()) params.set("lang", localeTag.trim());
