@@ -54,6 +54,53 @@ function authorized(req: Request): boolean {
   }
 }
 
+function serviceRoleKey(): string | null {
+  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim() || null;
+}
+
+function supabaseUrl(): string | null {
+  return Deno.env.get("SUPABASE_URL")?.trim() || null;
+}
+
+async function writeRoutingTelemetry(event: {
+  outcome: "success" | "error";
+  latencyMs: number;
+  alternativesCount: number;
+  trafficAware: boolean;
+  trafficDelaySeconds: number | null;
+  provider: string | null;
+  routeDistanceMeters: number | null;
+  routeDurationSeconds: number | null;
+}): Promise<void> {
+  const base = supabaseUrl();
+  const key = serviceRoleKey();
+  if (!base || !key) return;
+
+  try {
+    await fetch(base + "/rest/v1/routing_telemetry", {
+      method: "POST",
+      headers: {
+        apikey: key,
+        authorization: "Bearer " + key,
+        "content-type": "application/json",
+        prefer: "return=minimal",
+      },
+      body: JSON.stringify({
+        outcome: event.outcome,
+        latency_ms: event.latencyMs,
+        alternatives_count: event.alternativesCount,
+        traffic_aware: event.trafficAware,
+        traffic_delay_seconds: event.trafficDelaySeconds,
+        provider: event.provider,
+        route_distance_meters: event.routeDistanceMeters,
+        route_duration_seconds: event.routeDurationSeconds,
+      }),
+    });
+  } catch {
+    // Telemetry must never block routing.
+  }
+}
+
 function validCoordinate(value: Coordinate | undefined): value is Coordinate {
   return !!value &&
     Number.isFinite(value.latitude) && value.latitude >= -90 && value.latitude <= 90 &&
@@ -298,6 +345,7 @@ async function routeHere(
 }
 
 Deno.serve(async (req: Request) => {
+  const startedAt = performance.now();
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (!authorized(req)) return json({ error: "unauthorized" }, 401);
 
@@ -319,14 +367,35 @@ Deno.serve(async (req: Request) => {
 
   try {
     const routes = await routeHere(body.origin, body.destination, body.localeTag, hereApiKey);
+    const primary = routes[0];
+    void writeRoutingTelemetry({
+      outcome: "success",
+      latencyMs: Math.round(performance.now() - startedAt),
+      alternativesCount: Math.max(0, routes.length - 1),
+      trafficAware: true,
+      trafficDelaySeconds: primary.trafficDelaySeconds,
+      provider: "here",
+      routeDistanceMeters: primary.distanceMeters,
+      routeDurationSeconds: primary.durationSeconds,
+    });
     return json({
       provider: "here",
       trafficAware: true,
-      route: routes[0],
+      route: primary,
       alternatives: routes.slice(1),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "routing_failed";
+    void writeRoutingTelemetry({
+      outcome: "error",
+      latencyMs: Math.round(performance.now() - startedAt),
+      alternativesCount: 0,
+      trafficAware: false,
+      trafficDelaySeconds: null,
+      provider: "here",
+      routeDistanceMeters: null,
+      routeDurationSeconds: null,
+    });
     if (message === "rate_limited") return json({ error: "rate_limited" }, 429);
     if (message === "no_route") return json({ error: "no_route" }, 404);
     return json({ error: "routing_failed" }, 503);
