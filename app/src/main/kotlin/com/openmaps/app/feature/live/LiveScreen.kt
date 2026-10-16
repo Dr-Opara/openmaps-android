@@ -94,6 +94,7 @@ import com.openmaps.app.core.spatial.LiveLocalizationStatus
 import com.openmaps.app.core.spatial.LiveLocalizationStatusMapper
 import com.openmaps.app.core.spatial.SpatialLocalizationState
 import com.openmaps.app.feature.map.ArrivalTimeFormatter
+import com.openmaps.app.feature.map.LaneGuidanceStrip
 import com.openmaps.app.feature.map.MapModeToggle
 import com.openmaps.app.feature.map.RoadAlertPresentation
 import com.openmaps.app.feature.map.displayName
@@ -415,6 +416,15 @@ private fun LiveRoadAlertHud(
     // puts the speedometer there, in the driver's natural eyeline next to the trip card — not in a
     // queue with warnings under the maneuver card.
     val topAlert = roadState.activeAlerts.firstOrNull { it !is RouteAlert.SpeedLimit } ?: return
+    if (topAlert is RouteAlert.Lane) {
+        LaneGuidanceStrip(
+            guidance = topAlert.guidance,
+            darkSurface = true,
+            modifier = modifier,
+        )
+        return
+    }
+
     val distance = RoadAlertPresentation.distanceAheadLabel(topAlert)
     val delay = RoadAlertPresentation.delayLabel(topAlert)
     val detail = listOfNotNull(distance, delay).joinToString(" · ")
