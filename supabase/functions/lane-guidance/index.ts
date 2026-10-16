@@ -262,12 +262,56 @@ Deno.serve(async (req: Request) => {
     }
     if (response.status === 429) {
       const retryAfter = response.headers.get("retry-after");
+      const rateLimitLimit =
+        response.headers.get("x-ratelimit-limit") ??
+        response.headers.get("ratelimit-limit");
+      const rateLimitRemaining =
+        response.headers.get("x-ratelimit-remaining") ??
+        response.headers.get("ratelimit-remaining");
+      const rateLimitReset =
+        response.headers.get("x-ratelimit-reset") ??
+        response.headers.get("ratelimit-reset");
+
+      let upstreamBody: unknown = null;
+      try {
+        const raw = (await response.text()).trim();
+        if (raw) {
+          try {
+            upstreamBody = JSON.parse(raw);
+          } catch {
+            upstreamBody = raw.slice(0, 500);
+          }
+        }
+      } catch {
+        upstreamBody = null;
+      }
+
+      // Diagnostics intentionally exclude the HERE API key and request URL.
+      // The response body and quota headers tell us whether this is quota exhaustion,
+      // entitlement/access, or another Route Matching throttle condition.
+      console.error(JSON.stringify({
+        event: "lane_provider_rate_limited",
+        provider: "here",
+        status: response.status,
+        retryAfter,
+        rateLimitLimit,
+        rateLimitRemaining,
+        rateLimitReset,
+        upstreamBody,
+      }));
+
       return new Response(
         JSON.stringify({
           error: "lane_provider_rate_limited",
           provider: "here",
           capability: "provider_rate_limited",
           retryAfter,
+          diagnostics: {
+            rateLimitLimit,
+            rateLimitRemaining,
+            rateLimitReset,
+            upstreamBody,
+          },
         }),
         {
           status: 429,
