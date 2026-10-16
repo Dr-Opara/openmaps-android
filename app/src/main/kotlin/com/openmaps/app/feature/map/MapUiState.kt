@@ -28,6 +28,11 @@ import com.openmaps.app.map.MapMode
  */
 data class MapUiState(
     val currentLocation: UserLocation? = null,
+    /**
+     * Reverse-geocoded human-readable location for [currentLocation].
+     * Null is honest: GPS can be available before address resolution succeeds.
+     */
+    val currentLocationPlace: SearchResult? = null,
     val locationPermission: LocationPermissionState = LocationPermissionState.Unknown,
     val locationStatus: LocationStatus = LocationStatus.Idle,
     /** Last settled camera (updated when the camera goes idle). Used to restore the view. */
