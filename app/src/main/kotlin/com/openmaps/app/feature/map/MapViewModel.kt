@@ -1576,6 +1576,9 @@ class MapViewModel(
                             navigationState = progress
                                 ?.let { p -> NavigationState.Active(withOffRouteFlag(p, false)) }
                                 ?: NavigationState.Ready,
+                            roadIntelligenceState = it.roadIntelligenceState.copy(
+                                traffic = trafficConditionFor(route),
+                            ),
                         )
                     }
                     progress?.let {
@@ -1603,7 +1606,9 @@ class MapViewModel(
                     // Not a dead end: the old route is still valid and still displayed, so return
                     // to tracking against it and surface a one-time notice instead of an error.
                     session?.offRouteDetector?.reset()
-                    val progress = _uiState.value.currentLocation?.let { loc -> session?.locate(loc.toCoordinate()) }
+                    val progress = _uiState.value.currentLocation?.let { loc ->
+                        session?.locate(loc.toCoordinate(), loc.bearingDegrees?.toDouble())
+                    }
                     _uiState.update {
                         it.copy(
                             navigationState = progress
