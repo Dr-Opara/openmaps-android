@@ -65,6 +65,8 @@ val defaultReverseGeocodingGatewayUrl =
     "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/reverse-geocode"
 val defaultRoutingGatewayUrl =
     "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/route"
+val defaultTrafficIncidentsGatewayUrl =
+    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/traffic-incidents"
 val defaultGeocodingPublishableKey =
     "sb_publishable_gF9KreSTfMY24vhsaVd_bQ_WVGEqRYH"
 
@@ -82,6 +84,11 @@ val routingGatewayUrl = providers.gradleProperty("OPENMAPS_ROUTING_GATEWAY_URL")
     .orElse(providers.environmentVariable("OPENMAPS_ROUTING_GATEWAY_URL"))
     .orElse(localProperties.getProperty("OPENMAPS_ROUTING_GATEWAY_URL") ?: defaultRoutingGatewayUrl)
     .getOrElse(defaultRoutingGatewayUrl)
+
+val trafficIncidentsGatewayUrl = providers.gradleProperty("OPENMAPS_TRAFFIC_INCIDENTS_GATEWAY_URL")
+    .orElse(providers.environmentVariable("OPENMAPS_TRAFFIC_INCIDENTS_GATEWAY_URL"))
+    .orElse(localProperties.getProperty("OPENMAPS_TRAFFIC_INCIDENTS_GATEWAY_URL") ?: defaultTrafficIncidentsGatewayUrl)
+    .getOrElse(defaultTrafficIncidentsGatewayUrl)
 
 val geocodingPublishableKey = providers.gradleProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY")
     .orElse(providers.environmentVariable("OPENMAPS_GEOCODING_PUBLISHABLE_KEY"))
@@ -105,6 +112,7 @@ android {
         buildConfigField("String", "GEOCODING_GATEWAY_URL", "\"$geocodingGatewayUrl\"")
         buildConfigField("String", "REVERSE_GEOCODING_GATEWAY_URL", "\"$reverseGeocodingGatewayUrl\"")
         buildConfigField("String", "ROUTING_GATEWAY_URL", "\"$routingGatewayUrl\"")
+        buildConfigField("String", "TRAFFIC_INCIDENTS_GATEWAY_URL", "\"$trafficIncidentsGatewayUrl\"")
         buildConfigField("String", "GEOCODING_PUBLISHABLE_KEY", "\"$geocodingPublishableKey\"")
 
         // Feeds the `com.google.android.ar.API_KEY` meta-data in AndroidManifest.xml.
