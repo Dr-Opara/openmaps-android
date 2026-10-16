@@ -61,6 +61,8 @@ val arcoreApiKey = providers.gradleProperty("ARCORE_API_KEY")
 // ---------------------------------------------------------------------------
 val defaultGeocodingGatewayUrl =
     "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/geocode"
+val defaultReverseGeocodingGatewayUrl =
+    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/reverse-geocode"
 val defaultGeocodingPublishableKey =
     "sb_publishable_gF9KreSTfMY24vhsaVd_bQ_WVGEqRYH"
 
@@ -68,6 +70,11 @@ val geocodingGatewayUrl = providers.gradleProperty("OPENMAPS_GEOCODING_GATEWAY_U
     .orElse(providers.environmentVariable("OPENMAPS_GEOCODING_GATEWAY_URL"))
     .orElse(localProperties.getProperty("OPENMAPS_GEOCODING_GATEWAY_URL") ?: defaultGeocodingGatewayUrl)
     .getOrElse(defaultGeocodingGatewayUrl)
+
+val reverseGeocodingGatewayUrl = providers.gradleProperty("OPENMAPS_REVERSE_GEOCODING_GATEWAY_URL")
+    .orElse(providers.environmentVariable("OPENMAPS_REVERSE_GEOCODING_GATEWAY_URL"))
+    .orElse(localProperties.getProperty("OPENMAPS_REVERSE_GEOCODING_GATEWAY_URL") ?: defaultReverseGeocodingGatewayUrl)
+    .getOrElse(defaultReverseGeocodingGatewayUrl)
 
 val geocodingPublishableKey = providers.gradleProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY")
     .orElse(providers.environmentVariable("OPENMAPS_GEOCODING_PUBLISHABLE_KEY"))
@@ -89,6 +96,7 @@ android {
         buildConfigField("String", "MAP_STYLE_NAME", "\"$styleName\"")
         buildConfigField("boolean", "MAP_STYLE_DEV_ONLY", styleDevOnly.toString())
         buildConfigField("String", "GEOCODING_GATEWAY_URL", "\"$geocodingGatewayUrl\"")
+        buildConfigField("String", "REVERSE_GEOCODING_GATEWAY_URL", "\"$reverseGeocodingGatewayUrl\"")
         buildConfigField("String", "GEOCODING_PUBLISHABLE_KEY", "\"$geocodingPublishableKey\"")
 
         // Feeds the `com.google.android.ar.API_KEY` meta-data in AndroidManifest.xml.
