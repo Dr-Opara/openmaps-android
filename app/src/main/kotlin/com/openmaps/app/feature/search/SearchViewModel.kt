@@ -35,6 +35,8 @@ class SearchViewModel(
 
     private var searchJob: Job? = null
     private var searchContext = GeocodingSearchContext(localeTag = initialLocaleTag)
+    private var lastSubmittedQuery: String? = null
+    private var searchGeneration: Long = 0L
 
     /**
      * Keeps search globally available while biasing ambiguous queries toward the driver's current
@@ -52,21 +54,38 @@ class SearchViewModel(
         // the one path — no separate "search this spoken phrase" branch that could diverge.
         _uiState.update { it.copy(query = query, pendingVoiceQuery = null) }
         searchJob?.cancel()
+        searchGeneration++
+        val generation = searchGeneration
 
         val trimmed = query.trim()
+        val normalized = trimmed.lowercase().replace(Regex("\\s+"), " ")
         if (trimmed.length < MIN_QUERY_LENGTH) {
+            lastSubmittedQuery = null
             _uiState.update { it.copy(results = emptyList(), isSearching = false, error = null) }
+            return
+        }
+
+        // Re-entering the same normalized query (extra whitespace/casing only) must not spend
+        // another commercial-provider request.
+        if (normalized == lastSubmittedQuery) {
+            _uiState.update { it.copy(isSearching = false, error = null) }
             return
         }
 
         _uiState.update { it.copy(isSearching = true, error = null) }
         searchJob = viewModelScope.launch {
-            delay(debounceMillis)
-            geocodingRepository.search(trimmed, searchContext)
+            delay(adaptiveDebounceMillis(trimmed))
+            if (generation != searchGeneration) return@launch
+
+            lastSubmittedQuery = normalized
+            val requestContext = searchContext
+            geocodingRepository.search(trimmed, requestContext)
                 .onSuccess { results ->
+                    if (generation != searchGeneration) return@onSuccess
                     _uiState.update { it.copy(results = results, isSearching = false, error = null) }
                 }
                 .onFailure { cause ->
+                    if (generation != searchGeneration) return@onFailure
                     _uiState.update {
                         it.copy(results = emptyList(), isSearching = false, error = cause.toSearchError())
                     }
@@ -115,6 +134,8 @@ class SearchViewModel(
     /** Bookkeeping for a selection (fresh result or a re-tapped recent): records it and resets the session. */
     fun onResultSelected(result: SearchResult) {
         searchJob?.cancel()
+        searchGeneration++
+        lastSubmittedQuery = null
         recentSearchStore.record(result)
         _uiState.update {
             it.copy(
@@ -134,9 +155,18 @@ class SearchViewModel(
         searchJob?.cancel()
     }
 
+    private fun adaptiveDebounceMillis(query: String): Long = when {
+        debounceMillis != DEFAULT_DEBOUNCE_MILLIS -> debounceMillis
+        query.length <= 4 -> 650L
+        query.length <= 8 -> 500L
+        else -> 400L
+    }
+
     companion object {
         const val DEFAULT_DEBOUNCE_MILLIS = 350L
-        const val MIN_QUERY_LENGTH = 2
+        // Three characters avoids firing expensive global search on one/two-character noise while
+        // still preserving normal type-ahead behavior for POIs, streets and cities.
+        const val MIN_QUERY_LENGTH = 3
     }
 }
 
