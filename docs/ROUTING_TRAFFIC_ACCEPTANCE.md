@@ -17,9 +17,11 @@ The gate validates the deployed OpenMaps backend, not mocks.
 - Provider-backed route alternatives are requested and reported when HERE supplies them.
 - HERE live traffic incident endpoint accepts a real returned route corridor.
 - LaneLock production capability is checked against the deployed lane gateway.
+- The lane gateway uses OSM turn-lane metadata and Mapbox Directions lane arrays when Mapbox is configured.
 - A lane response of `available` passes.
 - `no_trustworthy_lane_guidance` also passes because OpenMaps must hide LaneLock rather than guess.
-- `provider_access_required`, provider configuration errors, HTTP failures or malformed responses fail the release gate.
+- Conflicting OSM/Mapbox lane evidence must resolve to `no_trustworthy_lane_guidance`, never a fabricated lane recommendation.
+- Provider configuration errors, HTTP failures or malformed responses fail the release gate.
 
 ## Manual Android release gate
 
@@ -36,7 +38,7 @@ The automated suite is necessary but not sufficient. Before marking routing comp
    - Map <-> Live preserves the same trip;
    - real incidents/closures appear only when the provider returns them;
    - exit/signpost guidance matches the road;
-   - LaneLock appears only when provider-backed lane data exists;
+   - LaneLock appears only when provider-backed lane evidence exists and passes the confidence gate;
    - no fake traffic, lane or incident state appears during unavailable/degraded conditions.
 
 A workstream is complete only when both the automated and physical-device gates pass.
