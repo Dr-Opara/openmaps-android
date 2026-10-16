@@ -37,6 +37,7 @@ import com.openmaps.app.core.roadintelligence.RoadAlertActivation
 import com.openmaps.app.core.roadintelligence.RoadAlertHysteresis
 import com.openmaps.app.core.roadintelligence.RoadAlertPriority
 import com.openmaps.app.core.roadintelligence.RoadEventSeverity
+import com.openmaps.app.core.roadintelligence.RoadEventType
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RouteAlert
 import com.openmaps.app.core.roadintelligence.SpeedLimitInfo
@@ -237,6 +238,12 @@ class MapViewModel(
     // endregion
 
     private var activeTripShareSession: TripShareSession? = null
+
+    /**
+     * Prevents a persistent live incident from triggering a network reroute on every GPS tick.
+     * Cleared only when a genuinely new trip starts.
+     */
+    private val incidentRerouteIds = mutableSetOf<String>()
 
     // region Navigation session (Phase 4)
 
@@ -1280,6 +1287,7 @@ class MapViewModel(
         }
 
         session = NavigationSession(route)
+        incidentRerouteIds.clear()
         navigationFollowSuspended = false
         // A fresh trip must not inherit the previous one's confirmed environment mode.
         environmentHysteresis.reset()
@@ -1489,6 +1497,7 @@ class MapViewModel(
         }
 
         dispatchVoiceForProgress(progress)
+        maybeRerouteForCriticalIncident(location, progress)
 
         when (activeSession.updateOffRoute(progress)) {
             OffRouteDecision.OnRoute -> {
@@ -1507,6 +1516,37 @@ class MapViewModel(
                 requestReroute(location)
             }
         }
+    }
+
+    /**
+     * A provider-confirmed severe closure/crash ahead is a routing input, not merely decoration.
+     * Trigger one traffic-aware recalculation while preserving the current route until a replacement
+     * succeeds. This is intentionally narrower than "reroute on any incident".
+     */
+    private fun maybeRerouteForCriticalIncident(
+        location: UserLocation,
+        progress: RouteProgress,
+    ) {
+        if (rerouteInFlight) return
+        val candidate = _uiState.value.roadIntelligenceState.events
+            .asSequence()
+            .filter { event ->
+                event.id !in incidentRerouteIds &&
+                    event.severity >= RoadEventSeverity.High &&
+                    (event.type == RoadEventType.Closure || event.type == RoadEventType.Crash)
+            }
+            .mapNotNull { event ->
+                val routeMeters = event.routeDistanceMeters ?: return@mapNotNull null
+                val ahead = routeMeters - progress.distanceTraveledMeters
+                if (ahead in 0.0..CRITICAL_INCIDENT_REROUTE_DISTANCE_METERS) event to ahead else null
+            }
+            .minByOrNull { it.second }
+            ?: return
+
+        incidentRerouteIds += candidate.first.id
+        _uiState.update { it.copy(navigationState = NavigationState.Rerouting) }
+        voiceGuidanceEngine.speak(VoiceEvent.Rerouting)
+        requestReroute(location)
     }
 
     /** Completes the arrival lifecycle and returns to the clean Discover/Home state. */
@@ -1839,6 +1879,7 @@ class MapViewModel(
         const val TRIP_SHARE_GRACE_MILLIS = 30 * 60 * 1_000L
         const val MAX_TRIP_SHARE_EXPIRY_MILLIS = 24 * 60 * 60 * 1_000L
         const val ARRIVAL_RETURN_HOME_DELAY_MILLIS = 6_000L
+        const val CRITICAL_INCIDENT_REROUTE_DISTANCE_METERS = 5_000.0
         const val REVERSE_GEOCODE_MOVE_THRESHOLD_METERS = 100.0
         const val INITIAL_USER_ZOOM = 15.0
         const val RECENTER_MIN_ZOOM = 14.0
