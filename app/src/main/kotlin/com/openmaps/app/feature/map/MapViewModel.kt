@@ -38,6 +38,7 @@ import com.openmaps.app.core.roadintelligence.RoadAlertHysteresis
 import com.openmaps.app.core.roadintelligence.RoadAlertPriority
 import com.openmaps.app.core.roadintelligence.RoadEventSeverity
 import com.openmaps.app.core.roadintelligence.RoadEventType
+import com.openmaps.app.core.roadintelligence.LaneGuidanceRepository
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RouteAlert
 import com.openmaps.app.core.roadintelligence.SpeedLimitInfo
@@ -94,6 +95,7 @@ class MapViewModel(
     private val placesRepository: PlaceRepository,
     private val roadIntelligenceRepository: RoadIntelligenceRepository,
     private val roadClassRepository: RoadClassRepository,
+    private val laneGuidanceRepository: LaneGuidanceRepository? = null,
     private val reverseGeocodingRepository: ReverseGeocodingRepository? = null,
     private val driverReportRepository: DriverReportRepository = UnavailableDriverReportRepository(),
     private val tripShareRepository: TripShareRepository = UnavailableTripShareRepository(),
@@ -165,6 +167,8 @@ class MapViewModel(
     private var hazardsJob: Job? = null
     private var weatherJob: Job? = null
     private var speedLimitJob: Job? = null
+    private var laneGuidanceJob: Job? = null
+    private var lastLaneGuidanceKey: String? = null
 
     /** Where the last weather/speed-limit fetch was centered, for each's own move-threshold check. */
     private var lastWeatherFetchLocation: UserLocation? = null
@@ -1237,6 +1241,7 @@ class MapViewModel(
             it.copy(
                 selectedNavigationMode = mode,
                 isLiveSafetyWarningVisible = false,
+                roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
             )
         }
     }
@@ -1288,6 +1293,14 @@ class MapViewModel(
 
         session = NavigationSession(route)
         incidentRerouteIds.clear()
+        laneGuidanceJob?.cancel()
+        laneGuidanceJob = null
+        lastLaneGuidanceKey = null
+        _uiState.update {
+            it.copy(
+                roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
+            )
+        }
         navigationFollowSuspended = false
         // A fresh trip must not inherit the previous one's confirmed environment mode.
         environmentHysteresis.reset()
@@ -1415,6 +1428,9 @@ class MapViewModel(
         navigationFollowSuspended = false
         rerouteInFlight = false
         liveAutoFallbackArmed = false
+        laneGuidanceJob?.cancel()
+        laneGuidanceJob = null
+        lastLaneGuidanceKey = null
         routeJob?.cancel()
         routeJob = null
         _routeProgressView.value = null
@@ -1451,6 +1467,9 @@ class MapViewModel(
         navigationFollowSuspended = false
         rerouteInFlight = false
         liveAutoFallbackArmed = false
+        laneGuidanceJob?.cancel()
+        laneGuidanceJob = null
+        lastLaneGuidanceKey = null
         _uiState.update {
             it.copy(navigationState = NavigationState.Idle, navigationFollowSuspended = false)
         }
@@ -1497,6 +1516,7 @@ class MapViewModel(
         }
 
         dispatchVoiceForProgress(progress)
+        maybeFetchLaneGuidance(progress)
         maybeRerouteForCriticalIncident(location, progress)
 
         when (activeSession.updateOffRoute(progress)) {
@@ -1515,6 +1535,52 @@ class MapViewModel(
                 voiceGuidanceEngine.speak(VoiceEvent.Rerouting)
                 requestReroute(location)
             }
+        }
+    }
+
+    /**
+     * Requests lane guidance once per upcoming maneuver. The trace ends at that maneuver and uses
+     * only real route geometry. The backend returns null unless HERE Route Matching provides lane
+     * attributes and a maneuver-compatible lane can be established.
+     */
+    private fun maybeFetchLaneGuidance(progress: RouteProgress) {
+        val repository = laneGuidanceRepository ?: return
+        val route = (_uiState.value.routeState as? RouteState.Ready)?.route ?: return
+        val maneuver = progress.currentManeuver
+        val key = "${maneuver.beginShapeIndex}:${maneuver.endShapeIndex}:${maneuver.type}"
+        if (key == lastLaneGuidanceKey || laneGuidanceJob?.isActive == true) return
+
+        val end = maneuver.endShapeIndex.coerceIn(1, route.geometry.lastIndex)
+        val start = maxOf(0, minOf(maneuver.beginShapeIndex, end - 1, end - LANE_TRACE_MAX_POINTS))
+        val trace = route.geometry.subList(start, end + 1)
+        if (trace.size < 2) return
+
+        lastLaneGuidanceKey = key
+        _uiState.update {
+            it.copy(
+                roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
+            )
+        }
+        laneGuidanceJob = viewModelScope.launch {
+            repository.guidance(trace, maneuver.type)
+                .onSuccess { guidance ->
+                    // Do not allow a late response for a maneuver already passed to light up LaneLock.
+                    val active = _uiState.value.navigationProgress?.currentManeuver
+                    val stillCurrent = active != null &&
+                        active.beginShapeIndex == maneuver.beginShapeIndex &&
+                        active.endShapeIndex == maneuver.endShapeIndex &&
+                        active.type == maneuver.type
+                    if (stillCurrent) {
+                        _uiState.update { state ->
+                            state.copy(
+                                roadIntelligenceState = state.roadIntelligenceState.copy(
+                                    laneGuidance = guidance,
+                                ),
+                            )
+                        }
+                        recomputeRoadAlerts()
+                    }
+                }
         }
     }
 
@@ -1556,6 +1622,9 @@ class MapViewModel(
         navigationFollowSuspended = false
         rerouteInFlight = false
         liveAutoFallbackArmed = false
+        laneGuidanceJob?.cancel()
+        laneGuidanceJob = null
+        lastLaneGuidanceKey = null
         routeJob?.cancel()
         routeJob = null
         _routeProgressView.value = null
@@ -1602,6 +1671,9 @@ class MapViewModel(
                 .onSuccess { route ->
                     rerouteInFlight = false
                     session = NavigationSession(route)
+                    laneGuidanceJob?.cancel()
+                    laneGuidanceJob = null
+                    lastLaneGuidanceKey = null
                     // Anchors and arrows were derived from the OLD route's geometry, so they are now
                     // stale. Notify before the new set is produced so two routes never overlap.
                     onRouteReplaced()
@@ -1868,6 +1940,7 @@ class MapViewModel(
     private fun UserLocation.toCoordinate(): Coordinate = Coordinate(latitude, longitude)
 
     override fun onCleared() {
+        laneGuidanceJob?.cancel()
         reverseGeocodingJob?.cancel()
         commandChannel.close()
         eventChannel.close()
@@ -1880,6 +1953,7 @@ class MapViewModel(
         const val MAX_TRIP_SHARE_EXPIRY_MILLIS = 24 * 60 * 60 * 1_000L
         const val ARRIVAL_RETURN_HOME_DELAY_MILLIS = 6_000L
         const val CRITICAL_INCIDENT_REROUTE_DISTANCE_METERS = 5_000.0
+        const val LANE_TRACE_MAX_POINTS = 24
         const val REVERSE_GEOCODE_MOVE_THRESHOLD_METERS = 100.0
         const val INITIAL_USER_ZOOM = 15.0
         const val RECENTER_MIN_ZOOM = 14.0
