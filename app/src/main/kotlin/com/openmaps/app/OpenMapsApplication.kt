@@ -132,8 +132,9 @@ class AppContainer(application: Application) {
     )
 
     /**
-     * LaneLock remains truth-gated: the repository returns null unless HERE Route Matching exposes
-     * lane attributes and at least one lane is compatible with the actual upcoming maneuver.
+     * LaneLock remains truth-gated. The backend combines OSM turn-lane metadata with Mapbox
+     * Directions lane arrays when configured; conflicting or insufficient evidence returns null.
+     * HERE Route Matching is no longer a dependency.
      */
     val laneGuidanceRepository: LaneGuidanceRepository = BackendLaneGuidanceRepository(
         endpointUrl = BuildConfig.LANE_GUIDANCE_GATEWAY_URL,
