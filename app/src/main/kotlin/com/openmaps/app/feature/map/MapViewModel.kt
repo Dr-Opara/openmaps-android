@@ -41,6 +41,8 @@ import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RouteAlert
 import com.openmaps.app.core.roadintelligence.SpeedLimitInfo
 import com.openmaps.app.core.roadintelligence.SpeedUnit
+import com.openmaps.app.core.roadintelligence.TrafficCondition
+import com.openmaps.app.core.roadintelligence.TrafficCongestionLevel
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.routing.RoutingException
@@ -565,7 +567,14 @@ class MapViewModel(
                 origin = originCoordinate,
                 destination = Coordinate(destination.latitude, destination.longitude),
             ).onSuccess { route ->
-                _uiState.update { it.copy(routeState = RouteState.Ready(route)) }
+                _uiState.update {
+                    it.copy(
+                        routeState = RouteState.Ready(route),
+                        roadIntelligenceState = it.roadIntelligenceState.copy(
+                            traffic = trafficConditionFor(route),
+                        ),
+                    )
+                }
                 route.bounds?.let { bounds -> commandChannel.trySend(MapCommand.FitBounds(bounds)) }
                 fetchPlacesAlongRoute(route)
                 fetchRoadEventsAlongRoute(route)
@@ -600,10 +609,37 @@ class MapViewModel(
             add(0, currentAsAlternative)
         }
         val selected = alternative.asRouteResult(remaining)
-        _uiState.update { it.copy(routeState = RouteState.Ready(selected)) }
+        _uiState.update {
+            it.copy(
+                routeState = RouteState.Ready(selected),
+                roadIntelligenceState = it.roadIntelligenceState.copy(
+                    traffic = trafficConditionFor(selected),
+                ),
+            )
+        }
         selected.bounds?.let { commandChannel.trySend(MapCommand.FitBounds(it)) }
         fetchPlacesAlongRoute(selected)
         fetchRoadEventsAlongRoute(selected)
+    }
+
+    private fun trafficConditionFor(route: RouteResult): TrafficCondition? {
+        if (!route.isTrafficAware) return null
+        val base = route.baseDurationSeconds ?: return null
+        val adjusted = route.durationSeconds
+        val delay = (adjusted - base).coerceAtLeast(0.0)
+        val ratio = if (base > 0.0) delay / base else 0.0
+        val level = when {
+            delay < 60.0 -> TrafficCongestionLevel.Light
+            ratio < 0.15 -> TrafficCongestionLevel.Moderate
+            ratio < 0.35 -> TrafficCongestionLevel.Heavy
+            else -> TrafficCongestionLevel.Severe
+        }
+        return TrafficCondition(
+            congestionLevel = level,
+            baseDurationSeconds = base,
+            trafficAdjustedDurationSeconds = adjusted,
+            isLive = true,
+        )
     }
 
     // endregion
