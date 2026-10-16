@@ -118,13 +118,77 @@ internal object BackendRoutingResponseParser {
                             distanceMeters = item.optDouble("distanceMeters", 0.0),
                             beginShapeIndex = item.optInt("beginShapeIndex", 0),
                             endShapeIndex = item.optInt("endShapeIndex", 0),
+                            exitSign = item.optNullableString("exitSign"),
+                            signpost = item.optNullableString("signpost"),
                         ),
                     )
                 }
             }
         }
 
+        val alternativesJson = root.optJSONArray("alternatives")
+        val alternatives = if (alternativesJson == null) {
+            emptyList()
+        } else {
+            buildList(alternativesJson.length()) {
+                for (index in 0 until alternativesJson.length()) {
+                    add(parseAlternative(alternativesJson.getJSONObject(index), trafficAware))
+                }
+            }
+        }
+
         return RouteResult(
+            id = route.optNullableString("id"),
+            label = route.optNullableString("label"),
+            geometry = geometry,
+            distanceMeters = route.getDouble("distanceMeters"),
+            durationSeconds = route.getDouble("durationSeconds"),
+            bounds = geometry.bounds(),
+            maneuvers = maneuvers,
+            baseDurationSeconds = route.optNullableDouble("baseDurationSeconds"),
+            typicalDurationSeconds = route.optNullableDouble("typicalDurationSeconds"),
+            trafficDelaySeconds = route.optNullableDouble("trafficDelaySeconds"),
+            isTrafficAware = trafficAware,
+            alternatives = alternatives,
+        )
+    }
+
+    private fun parseAlternative(route: JSONObject, trafficAware: Boolean): RouteAlternative {
+        val geometryJson = route.getJSONArray("geometry")
+        val geometry = buildList(geometryJson.length()) {
+            for (index in 0 until geometryJson.length()) {
+                val point = geometryJson.getJSONObject(index)
+                add(Coordinate(point.getDouble("latitude"), point.getDouble("longitude")))
+            }
+        }
+
+        val maneuversJson = route.optJSONArray("maneuvers")
+        val maneuvers = if (maneuversJson == null) {
+            emptyList()
+        } else {
+            buildList(maneuversJson.length()) {
+                for (index in 0 until maneuversJson.length()) {
+                    val item = maneuversJson.getJSONObject(index)
+                    add(
+                        RouteManeuver(
+                            instruction = item.getString("instruction"),
+                            verbalInstruction = item.optNullableString("verbalInstruction"),
+                            type = item.optString("type").toManeuverType(),
+                            streetName = item.optNullableString("streetName"),
+                            distanceMeters = item.optDouble("distanceMeters", 0.0),
+                            beginShapeIndex = item.optInt("beginShapeIndex", 0),
+                            endShapeIndex = item.optInt("endShapeIndex", 0),
+                            exitSign = item.optNullableString("exitSign"),
+                            signpost = item.optNullableString("signpost"),
+                        ),
+                    )
+                }
+            }
+        }
+
+        return RouteAlternative(
+            id = route.optNullableString("id"),
+            label = route.optNullableString("label"),
             geometry = geometry,
             distanceMeters = route.getDouble("distanceMeters"),
             durationSeconds = route.getDouble("durationSeconds"),
