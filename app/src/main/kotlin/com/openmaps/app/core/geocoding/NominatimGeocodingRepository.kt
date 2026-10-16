@@ -24,8 +24,8 @@ import java.net.URLEncoder
  * shipping, move to a self-hosted Nominatim/Photon instance or a contracted provider — the
  * same decision already flagged for the tile source.
  *
- * Results are restricted to the US (`countrycodes=us`), matching OpenMaps' documented
- * United-States-only scope (see ROADMAP.md).
+ * This fallback is worldwide. Current location is used only as an unbounded ranking bias; it never
+ * limits the query to one country or region.
  */
 class NominatimGeocodingRepository(
     private val userAgent: String,
