@@ -473,6 +473,7 @@ fun BottomPanel(
     onExploreCategoryClicked: (PlaceCategory) -> Unit,
     /** Opens the step list for the computed route (mockup's "Steps" button). */
     onSteps: () -> Unit,
+    onAlternativeSelected: (Int) -> Unit = {},
     canStart: Boolean,
     isNavigating: Boolean,
     navigationError: NavigationError?,
@@ -521,7 +522,7 @@ fun BottomPanel(
                 modifier = Modifier.align(Alignment.Start).padding(top = 2.dp),
             )
             Spacer(Modifier.height(12.dp))
-            RoutePreviewSummary(routeState)
+            RoutePreviewSummary(routeState, onAlternativeSelected)
             Spacer(Modifier.height(14.dp))
             NavigationControls(
                 canStart = canStart,
@@ -809,7 +810,10 @@ private fun homeDistanceLabel(meters: Double): String {
 private const val HOME_AHEAD_HALF_ANGLE_DEGREES = 55.0
 
 @Composable
-private fun RoutePreviewSummary(routeState: RouteState) {
+private fun RoutePreviewSummary(
+    routeState: RouteState,
+    onAlternativeSelected: (Int) -> Unit = {},
+) {
     when (routeState) {
         RouteState.Idle -> Unit
         RouteState.WaitingForLocation -> RouteStatusText(stringResource(R.string.route_waiting_for_location))
@@ -839,6 +843,59 @@ private fun RoutePreviewSummary(routeState: RouteState) {
                     modifier = Modifier.weight(1f),
                 )
             }
+            routeState.route.trafficDelaySeconds
+                ?.takeIf { routeState.route.isTrafficAware && it >= 60.0 }
+                ?.let { delay ->
+                    Text(
+                        text = "+${(delay / 60.0).roundToInt()} min traffic",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OpenMapsColors.TextSecondary,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+
+            if (routeState.route.alternatives.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "Other routes",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = OpenMapsColors.TextPrimary,
+                )
+                Spacer(Modifier.height(6.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    routeState.route.alternatives.take(2).forEachIndexed { index, alternative ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(OpenMapsColors.SurfaceMuted, GlassShapes.Row)
+                                .clickable { onAlternativeSelected(index) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    text = alternative.label ?: "Alternate route",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = OpenMapsColors.TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = "${formatDuration(alternative.durationSeconds)} · ${formatDistance(alternative.distanceMeters)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OpenMapsColors.TextSecondary,
+                                )
+                            }
+                            Text(
+                                text = "Use",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = OpenMapsColors.ElectricBlueFilled,
+                            )
+                        }
+                    }
+                }
+            }
+
             if (routeState.route.maneuvers.isNotEmpty()) {
                 Text(
                     text = stringResource(
