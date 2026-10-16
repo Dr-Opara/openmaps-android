@@ -207,20 +207,23 @@ cover the arrow window`). Arrows will still draw via the per-frame geographic pr
 they will slide and jitter with the GPS fix — that is degraded mode, not working road anchoring, and it
 should not be reported as a success.
 
-## Road intelligence (Phase 10)
+## Road intelligence (Phase 10 + production traffic)
 
-- No API keys needed: hazards and speed limits use the same public Overpass API instance Places
-  already calls; weather uses Open-Meteo (`api.open-meteo.com`), also free and keyless.
-- All three are additive — if the emulator/device has no network, or Overpass/Open-Meteo are
-  unreachable, navigation continues unaffected and the relevant chip/marker simply never appears.
-  There is no error banner for a road-intelligence failure by design; check `adb logcat` for
-  `Mbgl-HttpRequest`/`java.io.IOException` only if you need to confirm a request actually failed
-  versus "nothing to show" (no construction tag, no notable weather, no tagged `maxspeed` nearby).
-- To see a hazard marker render, pick a route through an area with an OSM `highway=construction` or
-  `hazard=*` tag (check [openstreetmap.org](https://www.openstreetmap.org) for one near your test
-  route first — this is real crowd-sourced tagging, not guaranteed to exist everywhere).
-- There is no live-traffic or lane-guidance UI to test: neither has a data source wired in yet (see
-  ARCHITECTURE.md's Road intelligence section).
+- `HERE_API_KEY` is server-side in Supabase and powers production traffic-aware routing, live
+  incidents/closures, exit/signpost guidance and the capability-gated lane-data path. The key must
+  never be copied into the Android client or committed to Git.
+- Static hazards and speed limits still use Overpass as an additive fallback; weather uses
+  Open-Meteo. Failure of those context providers never blocks navigation.
+- Route Preview shows traffic delay only when the routing provider supplied a real traffic-aware
+  duration and free-flow duration.
+- A severe provider-confirmed crash/closure ahead can trigger one traffic-aware recalculation; the
+  existing route remains usable if rerouting fails.
+- LaneLock renders only when HERE Route Matching returns real lane attributes and at least one lane
+  is compatible with the active maneuver. Recommended lanes are blue; nonrecommended lanes are
+  muted. No lane row means no trustworthy provider data — never a guessed lane layout.
+- Exit/signpost wording comes from the routing provider and appears in both Map and Live guidance.
+- Run `.\scripts\production-routing-acceptance.ps1` before calling routing/traffic production
+  ready. It validates worldwide HERE routing, live traffic connectivity and lane-provider access.
 
 ## Environment modes (Phase 11)
 
