@@ -47,7 +47,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
@@ -376,8 +375,9 @@ fun RouteEndpointFields(
 /**
  * The mockup's route-mode row: Driving / Transit / Walking.
  *
- * **Only Driving is real.** OpenMaps computes a single driving profile from Valhalla, so Transit and
- * Walking are rendered but permanently disabled rather than shown with invented travel times. They
+ * **Only Driving is real.** OpenMaps computes a production traffic-aware driving profile through
+ * its routing gateway (with Valhalla as a fallback), so Transit and Walking are rendered but
+ * permanently disabled rather than shown with invented travel times. They
  * are `enabled = false` buttons, not clickable-and-ignored ones, so the control can never be a lie.
  */
 @Composable
@@ -955,8 +955,8 @@ private fun RouteSummaryLine(routeState: RouteState) {
         RouteState.WaitingForLocation -> RouteStatusText(stringResource(R.string.route_waiting_for_location))
         RouteState.Loading -> RouteLoadingRow()
         // Mockup Route Preview: a large duration/distance headline, then the arrival line beneath.
-        // No traffic/quality note here — OpenMaps has no traffic provider, so that line only ever
-        // appears if a real source ever supplies it (see docs/ARCHITECTURE.md road intelligence).
+        // Traffic delay is shown in RoutePreviewSummary only when the production provider supplied
+        // real traffic-aware timing; this compact summary never invents a second estimate.
         is RouteState.Ready -> {
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
