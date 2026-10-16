@@ -28,11 +28,11 @@ data class Lane(
  * [recommendedLaneIndexes] indexes into it. [maneuverRelation] is the maneuver type this guidance
  * applies to, so a renderer can place it next to the matching banner without a second lookup.
  *
- * **Never built from route geometry alone** — see section 9 of the Phase 10 brief ("do not invent
- * lanes"). See `OsrmLaneGuidanceMapper` for the one real, documented wire format this maps from
- * (OSRM's `intersections[].lanes`), and docs/ARCHITECTURE.md's Lane guidance section for why this
- * model exists but is not yet wired to a live provider: Valhalla's native `/route` response (what
- * `ValhallaRoutingRepository` requests) carries no lane-level data at all.
+ * **Never built from route geometry alone.** Production LaneLock is populated only when the
+ * OpenMaps lane gateway receives real lane attributes from HERE Route Matching and can identify at
+ * least one maneuver-compatible lane. Otherwise this model stays absent. The older
+ * [OsrmLaneGuidanceMapper] remains as a provider-neutral fallback mapper, not as evidence that a
+ * lane exists.
  */
 data class LaneGuidance(
     val lanes: List<Lane>,
