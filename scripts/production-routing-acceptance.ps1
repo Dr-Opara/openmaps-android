@@ -51,6 +51,29 @@ function Invoke-OpenMapsTraffic {
     }
 }
 
+function Invoke-OpenMapsLaneGuidance {
+    param(
+        [object[]]$Trace,
+        [string]$ManeuverType
+    )
+
+    $body = @{
+        trace = @($Trace | ForEach-Object {
+            @{ latitude = [double]$_.latitude; longitude = [double]$_.longitude }
+        })
+        maneuverType = $ManeuverType
+    } | ConvertTo-Json -Depth 8
+
+    $started = Get-Date
+    $response = Invoke-RestMethod -Method Post -Uri "$BaseUrl/lane-guidance" -Headers @{ apikey = $PublishableKey } -ContentType "application/json" -Body $body
+    $elapsed = [int]((Get-Date) - $started).TotalMilliseconds
+
+    [pscustomobject]@{
+        Response = $response
+        LatencyMs = $elapsed
+    }
+}
+
 $cases = @(
     @{
         Name = "Houston regional"
@@ -95,6 +118,8 @@ $rows = New-Object System.Collections.Generic.List[object]
 $firstGeometry = $null
 $totalAlternatives = 0
 $exitGuidanceSeen = $false
+$laneCandidateTrace = $null
+$laneCandidateType = $null
 
 foreach ($case in $cases) {
     try {
@@ -111,7 +136,21 @@ foreach ($case in $cases) {
         foreach ($m in $maneuvers) {
             if (-not [string]::IsNullOrWhiteSpace([string]$m.exitSign) -or -not [string]::IsNullOrWhiteSpace([string]$m.signpost)) {
                 $exitGuidanceSeen = $true
-                break
+            }
+
+            if ($null -eq $laneCandidateTrace -and @("Ramp","TurnRight","TurnLeft","SlightRight","SlightLeft","Continue","Merge") -contains [string]$m.type) {
+                $endIndex = [Math]::Min([int]$m.endShapeIndex, $geometry.Count - 1)
+                if ($endIndex -ge 1) {
+                    $startIndex = [Math]::Max(0, $endIndex - 23)
+                    $trace = @()
+                    for ($j = $startIndex; $j -le $endIndex; $j++) {
+                        $trace += $geometry[$j]
+                    }
+                    if ($trace.Count -ge 2) {
+                        $laneCandidateTrace = $trace
+                        $laneCandidateType = [string]$m.type
+                    }
+                }
             }
         }
 
@@ -185,6 +224,45 @@ else {
     }
     catch {
         $failures.Add("Traffic incidents: request failed - $($_.Exception.Message)")
+    }
+}
+
+if ($null -eq $laneCandidateTrace) {
+    $failures.Add("Lane guidance: no suitable maneuver trace was produced by the routing suite")
+}
+else {
+    try {
+        $lane = Invoke-OpenMapsLaneGuidance -Trace $laneCandidateTrace -ManeuverType $laneCandidateType
+        $capability = [string]$lane.Response.capability
+        $laneLatencyOk = $lane.LatencyMs -le 6000
+        $laneProviderOk = $lane.Response.provider -eq "here" -or $capability -eq "provider_access_required"
+        $laneAccessOk = $capability -ne "provider_access_required"
+
+        if (-not $laneProviderOk) { $failures.Add("Lane guidance: HERE provider response missing") }
+        if (-not $laneAccessOk) { $failures.Add("Lane guidance: HERE Route Matching / lane attribute access is not enabled for this account") }
+        if (-not $laneLatencyOk) { $failures.Add("Lane guidance: latency $($lane.LatencyMs) ms exceeded 6000 ms") }
+
+        $laneCount = if ($null -ne $lane.Response.guidance) { @($lane.Response.guidance.lanes).Count } else { 0 }
+        $recommendedCount = if ($null -ne $lane.Response.guidance) { @($lane.Response.guidance.recommendedLaneIndexes).Count } else { 0 }
+
+        $rows.Add([pscustomobject]@{
+            Case = "Lane guidance capability"
+            Provider = $(if ($lane.Response.provider) { $lane.Response.provider } else { "here" })
+            TrafficAware = "-"
+            GeometryPoints = $laneCandidateTrace.Count
+            Maneuvers = "$laneCount lanes / $recommendedCount recommended"
+            Alternatives = $capability
+            LatencyMs = $lane.LatencyMs
+            Passed = $laneProviderOk -and $laneAccessOk -and $laneLatencyOk
+        })
+
+        Write-Host "Lane guidance capability: $capability"
+        if ($capability -eq "no_trustworthy_lane_guidance") {
+            Write-Host "Lane provider access works; this sampled maneuver simply had no trustworthy lane recommendation."
+        }
+    }
+    catch {
+        $failures.Add("Lane guidance: request failed - $($_.Exception.Message)")
     }
 }
 
