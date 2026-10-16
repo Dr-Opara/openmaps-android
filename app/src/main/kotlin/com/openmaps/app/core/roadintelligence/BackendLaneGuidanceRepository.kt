@@ -72,7 +72,7 @@ class BackendLaneGuidanceRepository(
                     val response = connection.inputStream.bufferedReader().use { it.readText() }
                     BackendLaneGuidanceResponseParser.parse(response)
                 }
-                429 -> throw RoadIntelligenceException.RateLimited
+                429 -> throw RoadIntelligenceException.Server(code)
                 in 500..599 -> throw RoadIntelligenceException.Server(code)
                 else -> null
             }
