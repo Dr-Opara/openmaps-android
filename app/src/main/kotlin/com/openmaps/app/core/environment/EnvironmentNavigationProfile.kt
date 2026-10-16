@@ -36,7 +36,7 @@ data class EnvironmentNavigationProfile(
 
     // Road intelligence (Part K): presentation thresholds only — provider truth is never changed.
     val hazardActivationConfig: RoadAlertActivationConfig,
-    /** When true, a (currently dormant — see docs) lane-guidance alert ranks above collision-class hazards. */
+    /** When true, provider-backed lane guidance ranks above lower-priority road context on highways. */
     val laneGuidancePriorityBoost: Boolean,
     /** When true, Live's speed line renders above the hazard/weather line instead of below it. */
     val speedEmphasis: Boolean,
