@@ -147,7 +147,7 @@ function directionFromText(raw: string): LaneDirection {
   const text = raw.trim().toLowerCase().replaceAll("_", " ").replaceAll("-", " ");
   if (text === "left" || text === "sharp left") return "Left";
   if (text === "slight left") return "SlightLeft";
-  if (text === "through" || text === "straight" || text === "none") return "Straight";
+  if (text === "through" || text === "straight") return "Straight";
   if (text === "slight right") return "SlightRight";
   if (text === "right" || text === "sharp right") return "Right";
   if (text === "reverse" || text === "uturn" || text === "u turn") return "UTurn";
@@ -186,8 +186,9 @@ function buildGuidance(
 ): Guidance | null {
   const normalized = lanes.map((lane) => {
     const directions = lane.directions.length > 0 ? Array.from(new Set(lane.directions)) : ["Unknown" as LaneDirection];
-    const recommended = lane.recommended === true ||
-      directions.some((direction) => compatible(direction, maneuverType));
+    const recommended = lane.recommended == null
+      ? directions.some((direction) => compatible(direction, maneuverType))
+      : lane.recommended;
     return { directions, recommended };
   });
 
