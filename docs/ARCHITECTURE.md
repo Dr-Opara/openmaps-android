@@ -14,9 +14,11 @@ OpenMaps is a United States-only, Android-first navigation app. This document de
 | Camera | CameraX `androidx.camera` 1.4.2 (preview use case) — the Live fallback camera |
 | AR / spatial | ARCore `com.google.ar:core` 1.56.0, Geospatial (Earth) mode, runtime support-checked, optional |
 | Map data | OpenStreetMap-derived vector tiles via a configurable style URL |
-| Geocoding | OSM Nominatim (`nominatim.openstreetmap.org`), development-only — see [Geocoding](#geocoding) |
-| Routing | Valhalla demo instance (`valhalla1.openstreetmap.de`), development-only — see [Routing](#routing) |
-| Road hazards / speed limits | Overpass API, development-only — see [Road intelligence (Phase 10)](#road-intelligence-phase-10) |
+| Geocoding | OpenMaps backend → HERE Geocoding/Search primary + worldwide Nominatim fallback |
+| Routing | OpenMaps backend → HERE Routing v8 traffic-aware primary + Valhalla fallback |
+| Live traffic | HERE Traffic incidents + HERE traffic-aware route timing |
+| Lane/exit guidance | HERE Routing exit/signpost data; HERE Route Matching lane attributes when account/road coverage supports them |
+| Road hazards / speed limits | HERE live incidents + Overpass static hazard/speed fallback |
 | Weather | Open-Meteo (`api.open-meteo.com`), free, no API key, development-only — see [Road intelligence (Phase 10)](#road-intelligence-phase-10) |
 | Location | Platform `LocationManager` (no Google Play services) |
 | State | `ViewModel` + `StateFlow` |
@@ -1419,9 +1421,10 @@ What a later phase can rely on, as it stands at the end of Phase 11:
 | Camera fallback | `LiveReadiness` + `onLiveReadinessChanged` | Reactive, not timer-based; disarmed by manual mode choice |
 | Arrival time | `ArrivalTimeFormatter` | Shown in both Route Preview and the Live summary |
 
-**Still not present:** any live traffic-congestion source, and a wired lane-guidance provider
-(requires a Valhalla `format=osrm` request or a different routing provider). `laneGuidancePriorityBoost`
-therefore currently has no lane alerts to promote.
+**Production routing additions:** HERE traffic-aware routing, selectable provider-returned
+alternatives, live HERE incidents/closures, heading-aware snap-to-road matching, provider-backed
+exit/signpost guidance, and capability-gated LaneLock are now wired. LaneLock intentionally remains
+absent on roads/accounts where HERE does not return trustworthy lane attributes.
 
 ### Phase 11 validation status
 
@@ -1466,5 +1469,5 @@ Nothing in the Map screen needs to change; only the provider does.
 - **No real-time parking/EV availability**: Phase 9 shows only what OSM's static tags state (type, access, fee; network, connectors). A live availability feed is a distinct, larger integration, not attempted here.
 - **Hazard/speed-limit provider (Phase 10)**: the public Overpass API instance is development-only (same category as Nominatim/Valhalla/Overpass-for-places), and hazard coverage is limited to what OSM states statically (construction + `hazard=*` tags) — no crash/debris/closure data exists without a live incident feed. Needs a production decision (self-hosted Overpass, or a contracted incident-feed provider) before shipping.
 - **Weather provider (Phase 10)**: Open-Meteo's free tier is development-only in the same sense — no SLA has been confirmed for this app's expected volume. Needs a production decision before shipping, same open question as every other provider here.
-- **No live traffic-congestion source**: `TrafficCondition`/`RoadEventType.Congestion` are modelled but nothing populates them. A contracted traffic provider (or a state 511 feed) is the natural fit behind `RoadIntelligenceRepository`, not attempted here.
-- **Lane guidance is modelled but unwired**: Valhalla's native `/route` response has no lane-level data; wiring `OsrmLaneGuidanceMapper` up would need either a `format=osrm` request to Valhalla or a different routing provider — a routing-architecture decision, not a Phase 10 one.
+- **Live traffic is production-wired**: traffic-adjusted ETA/free-flow timing comes from HERE Routing and route incidents/closures come from the HERE Traffic gateway. Static Overpass hazards remain an additive fallback source rather than being mislabeled as live traffic.
+- **LaneLock is provider-truth-gated**: the app requests HERE Route Matching lane attributes only for the active maneuver. The UI renders the provider-returned physical lane count and highlights only maneuver-compatible lanes. If the account lacks lane-attribute access, the road lacks lane records, or no compatible lane can be established, LaneLock stays hidden. Exit/signpost text comes directly from HERE routing guidance and is likewise never synthesized.
