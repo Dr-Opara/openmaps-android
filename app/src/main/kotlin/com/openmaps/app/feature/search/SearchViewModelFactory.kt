@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.openmaps.app.AppContainer
+import java.util.Locale
 
 /** Builds [SearchViewModel] from the app container (no DI framework). */
 fun searchViewModelFactory(container: AppContainer): ViewModelProvider.Factory = viewModelFactory {
@@ -11,6 +12,7 @@ fun searchViewModelFactory(container: AppContainer): ViewModelProvider.Factory =
         SearchViewModel(
             geocodingRepository = container.geocodingRepository,
             recentSearchStore = container.recentSearchStore,
+            initialLocaleTag = Locale.getDefault().toLanguageTag(),
         )
     }
 }
