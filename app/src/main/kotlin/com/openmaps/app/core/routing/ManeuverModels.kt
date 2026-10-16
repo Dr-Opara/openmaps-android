@@ -35,4 +35,8 @@ data class RouteManeuver(
     val distanceMeters: Double,
     val beginShapeIndex: Int,
     val endShapeIndex: Int,
+    /** Provider-backed exit number/name; null when the provider did not supply one. */
+    val exitSign: String? = null,
+    /** Provider-backed signpost destination text; null when unavailable. */
+    val signpost: String? = null,
 )
