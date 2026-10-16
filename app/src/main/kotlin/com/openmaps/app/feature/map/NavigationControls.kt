@@ -52,6 +52,7 @@ import com.openmaps.app.core.navigation.RouteProgress
 import com.openmaps.app.core.reporting.DriverReportType
 import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.routing.RouteManeuver
+import com.openmaps.app.core.routing.displayInstruction
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -192,7 +193,7 @@ private fun ManeuverRow(
     followSuspended: Boolean,
     foreground: Color,
 ) {
-    val instruction = maneuver.instruction.ifBlank { maneuver.streetName.orEmpty() }
+    val instruction = maneuver.displayInstruction()
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier.size(44.dp).semantics { contentDescription = maneuver.type.spokenLabel },
@@ -214,7 +215,9 @@ private fun ManeuverRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            val then = progress.nextManeuver?.instruction?.takeIf { it.isNotBlank() && it != instruction }
+            val then = progress.nextManeuver
+                ?.displayInstruction()
+                ?.takeIf { it.isNotBlank() && it != instruction }
             if (then != null) {
                 Text(
                     text = stringResource(R.string.nav_next_maneuver, then),
