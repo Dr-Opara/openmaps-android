@@ -174,19 +174,23 @@ try {
     $lane = $laneCall.Response
     $capability = [string]$lane.capability
     $laneAccessOk = $capability -eq "available" -or $capability -eq "no_trustworthy_lane_guidance"
+    $providersAttempted = @($lane.providersAttempted)
+    $mapboxConfigured = $providersAttempted -contains "mapbox"
+    $lanePassed = $laneAccessOk -and $mapboxConfigured
 
-    if (-not $laneAccessOk) { $failures.Add("LaneLock: provider capability is not provisioned: $capability") }
+    if (-not $laneAccessOk) { $failures.Add("LaneLock: invalid capability: $capability") }
+    if (-not $mapboxConfigured) { $failures.Add("LaneLock: Mapbox lane provider is not configured on the production gateway") }
 
     $rows.Add([pscustomobject]@{
-        Case = "LaneLock provider capability"
+        Case = "LaneLock OSM + Mapbox"
         Provider = $lane.provider
         TrafficAware = "-"
         DistanceKm = "-"
         DurationMin = "-"
         Alternatives = "-"
-        Maneuvers = $capability
+        Maneuvers = "$capability / mapbox=$mapboxConfigured"
         LatencyMs = $laneCall.LatencyMs
-        Passed = $laneAccessOk
+        Passed = $lanePassed
     })
 } catch {
     $failures.Add("LaneLock: request failed - $($_.Exception.Message)")
