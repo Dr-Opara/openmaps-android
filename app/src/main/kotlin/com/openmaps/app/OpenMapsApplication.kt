@@ -20,7 +20,9 @@ import com.openmaps.app.core.places.OverpassPlaceRepository
 import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.reporting.DriverReportRepository
 import com.openmaps.app.core.reporting.UnavailableDriverReportRepository
+import com.openmaps.app.core.roadintelligence.BackendLaneGuidanceRepository
 import com.openmaps.app.core.roadintelligence.CompositeRoadIntelligenceRepository
+import com.openmaps.app.core.roadintelligence.LaneGuidanceRepository
 import com.openmaps.app.core.roadintelligence.DefaultRoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.HereTrafficRoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
@@ -127,6 +129,15 @@ class AppContainer(application: Application) {
                 userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; fallback)",
             ),
         ),
+    )
+
+    /**
+     * LaneLock remains truth-gated: the repository returns null unless HERE Route Matching exposes
+     * lane attributes and at least one lane is compatible with the actual upcoming maneuver.
+     */
+    val laneGuidanceRepository: LaneGuidanceRepository = BackendLaneGuidanceRepository(
+        endpointUrl = BuildConfig.LANE_GUIDANCE_GATEWAY_URL,
+        publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
     )
 
     /**
