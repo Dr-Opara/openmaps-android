@@ -29,6 +29,9 @@ type UnifiedResult = {
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
 const USER_AGENT = "OpenMaps/1.0 (production geocoding gateway; https://openmaps.tech)";
 const RESULT_LIMIT = 20;
+const REQUESTS_PER_MINUTE = 60;
+const HERE_GENERAL_CACHE_SECONDS = 5 * 60;
+const HERE_ADDRESS_CACHE_SECONDS = 60 * 60;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -48,6 +51,58 @@ function authorized(req: Request): boolean {
     return Object.values(keys).includes(supplied);
   } catch {
     return false;
+  }
+}
+
+function serviceRoleKey(): string | null {
+  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim() || null;
+}
+
+function supabaseUrl(): string | null {
+  return Deno.env.get("SUPABASE_URL")?.trim() || null;
+}
+
+async function adminFetch(path: string, init: RequestInit = {}): Promise<Response | null> {
+  const base = supabaseUrl();
+  const key = serviceRoleKey();
+  if (!base || !key) return null;
+  const headers = new Headers(init.headers);
+  headers.set("apikey", key);
+  headers.set("authorization", "Bearer " + key);
+  if (!headers.has("content-type") && init.body) headers.set("content-type", "application/json");
+  return fetch(base + path, { ...init, headers });
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function clientAddress(req: Request): string {
+  return req.headers.get("cf-connecting-ip")?.trim()
+    || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || "unknown";
+}
+
+async function consumeRateLimit(req: Request): Promise<boolean> {
+  try {
+    const clientHash = await sha256Hex(clientAddress(req));
+    const now = new Date();
+    now.setSeconds(0, 0);
+    const response = await adminFetch("/rest/v1/rpc/consume_search_rate_limit", {
+      method: "POST",
+      body: JSON.stringify({
+        p_client_hash: clientHash,
+        p_bucket_start: now.toISOString(),
+        p_limit: REQUESTS_PER_MINUTE,
+      }),
+    });
+    if (!response || !response.ok) return true; // Availability beats telemetry infrastructure.
+    return (await response.json()) === true;
+  } catch {
+    return true;
   }
 }
 
@@ -84,6 +139,96 @@ function looksLikeExactAddress(query: string): boolean {
   ];
   return streetWords.some((word) => new RegExp("\\b" + word + "\\b").test(q)) &&
     /\d/.test(q);
+}
+
+function roundedBias(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(3) : "";
+}
+
+async function hereCacheKey(query: string, context: SearchContext): Promise<string> {
+  return sha256Hex([
+    "here-v1",
+    normalizeText(query),
+    roundedBias(context.latitude),
+    roundedBias(context.longitude),
+    context.localeTag?.trim().toLowerCase() ?? "",
+  ].join("|"));
+}
+
+async function readHereCache(key: string): Promise<UnifiedResult[] | null> {
+  try {
+    const filter = encodeURIComponent(key);
+    const now = encodeURIComponent(new Date().toISOString());
+    const response = await adminFetch(
+      "/rest/v1/search_cache?cache_key=eq." + filter +
+      "&expires_at=gt." + now +
+      "&select=response&limit=1",
+      { method: "GET" },
+    );
+    if (!response || !response.ok) return null;
+    const rows = await response.json();
+    if (!Array.isArray(rows) || rows.length === 0 || !Array.isArray(rows[0]?.response)) return null;
+    return rows[0].response as UnifiedResult[];
+  } catch {
+    return null;
+  }
+}
+
+async function writeHereCache(
+  key: string,
+  results: UnifiedResult[],
+  ttlSeconds: number,
+): Promise<void> {
+  if (results.length === 0) return;
+  try {
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+    await adminFetch("/rest/v1/search_cache?on_conflict=cache_key", {
+      method: "POST",
+      headers: { "prefer": "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({
+        cache_key: key,
+        response: results,
+        providers: ["here"],
+        expires_at: expiresAt,
+      }),
+    });
+  } catch {
+    // Search must not fail because cache persistence failed.
+  }
+}
+
+async function writeTelemetry(event: {
+  queryHash: string;
+  queryType: string;
+  resultCount: number;
+  providers: string[];
+  usedCache: boolean;
+  latencyMs: number;
+  hadLocationBias: boolean;
+  localeTag: string | null;
+  outcome: "success" | "zero_results" | "error";
+  fallbackUsed: boolean;
+}): Promise<void> {
+  try {
+    await adminFetch("/rest/v1/search_telemetry", {
+      method: "POST",
+      headers: { "prefer": "return=minimal" },
+      body: JSON.stringify({
+        query_hash: event.queryHash,
+        query_type: event.queryType,
+        result_count: event.resultCount,
+        providers: event.providers,
+        used_cache: event.usedCache,
+        latency_ms: event.latencyMs,
+        had_location_bias: event.hadLocationBias,
+        locale_tag: event.localeTag,
+        outcome: event.outcome,
+        fallback_used: event.fallbackUsed,
+      }),
+    });
+  } catch {
+    // Telemetry is best-effort and must never block navigation search.
+  }
 }
 
 function normalizeNominatim(item: Record<string, unknown>): UnifiedResult {
@@ -220,8 +365,6 @@ function finalScore(result: UnifiedResult, query: string, context: SearchContext
   const proximity = proximityScore(result, context);
   const provider = result.providerConfidence;
 
-  // Explicit addresses prioritize textual/address completeness over current proximity so a user can
-  // reliably search another city or country. Ambiguous POI queries lean more on nearby context.
   return exactAddress
     ? (text * 0.55) + (complete * 0.25) + (provider * 0.15) + (proximity * 0.05)
     : (text * 0.45) + (proximity * 0.30) + (provider * 0.15) + (complete * 0.10);
@@ -254,7 +397,14 @@ function mergeDeduplicateRank(
   return kept;
 }
 
-async function searchHere(query: string, context: SearchContext, apiKey: string) {
+async function searchHere(query: string, context: SearchContext, apiKey: string): Promise<{
+  results: UnifiedResult[];
+  cacheHit: boolean;
+}> {
+  const cacheKey = await hereCacheKey(query, context);
+  const cached = await readHereCache(cacheKey);
+  if (cached) return { results: cached, cacheHit: true };
+
   const lat = context.latitude;
   const lon = context.longitude;
   const hasPosition =
@@ -286,12 +436,19 @@ async function searchHere(query: string, context: SearchContext, apiKey: string)
 
   const body = await response.json() as Record<string, unknown>;
   const items = Array.isArray(body.items) ? body.items as Array<Record<string, unknown>> : [];
-  return items
+  const results = items
     .map(normalizeHere)
     .filter((item) => Number.isFinite(item.latitude) && Number.isFinite(item.longitude));
+
+  await writeHereCache(
+    cacheKey,
+    results,
+    useGeocode ? HERE_ADDRESS_CACHE_SECONDS : HERE_GENERAL_CACHE_SECONDS,
+  );
+  return { results, cacheHit: false };
 }
 
-async function searchNominatim(query: string, context: SearchContext) {
+async function searchNominatim(query: string, context: SearchContext): Promise<UnifiedResult[]> {
   const params = new URLSearchParams({
     q: query,
     format: "jsonv2",
@@ -333,8 +490,11 @@ async function searchNominatim(query: string, context: SearchContext) {
 }
 
 Deno.serve(async (req: Request) => {
+  const startedAt = performance.now();
+
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (!authorized(req)) return json({ error: "unauthorized" }, 401);
+  if (!(await consumeRateLimit(req))) return json({ error: "rate_limited" }, 429);
 
   let body: SearchRequest;
   try {
@@ -349,32 +509,83 @@ Deno.serve(async (req: Request) => {
   }
 
   const context = body.context ?? {};
+  const exactAddress = looksLikeExactAddress(query);
+  const queryType = exactAddress ? "address" : "general";
+  const queryHash = await sha256Hex(normalizeText(query));
+  const hasLocationBias =
+    typeof context.latitude === "number" && Number.isFinite(context.latitude) &&
+    typeof context.longitude === "number" && Number.isFinite(context.longitude);
   const hereApiKey = Deno.env.get("HERE_API_KEY")?.trim();
 
-  const searches: Promise<UnifiedResult[]>[] = [searchNominatim(query, context)];
-  if (hereApiKey) searches.unshift(searchHere(query, context, hereApiKey));
+  let hereCacheHit = false;
+  const providerNames: string[] = [];
+  const searches: Array<{ provider: "here" | "nominatim"; promise: Promise<UnifiedResult[]> }> = [
+    { provider: "nominatim", promise: searchNominatim(query, context) },
+  ];
 
-  const settled = await Promise.allSettled(searches);
-  const successful = settled
-    .filter((item): item is PromiseFulfilledResult<UnifiedResult[]> => item.status === "fulfilled")
-    .map((item) => item.value);
+  if (hereApiKey) {
+    searches.unshift({
+      provider: "here",
+      promise: searchHere(query, context, hereApiKey).then((value) => {
+        hereCacheHit = value.cacheHit;
+        return value.results;
+      }),
+    });
+  }
+
+  const settled = await Promise.allSettled(searches.map((item) => item.promise));
+  const successful: UnifiedResult[][] = [];
+  let hereSucceeded = false;
+  let nominatimSucceeded = false;
+
+  settled.forEach((item, index) => {
+    if (item.status !== "fulfilled") return;
+    const provider = searches[index].provider;
+    providerNames.push(provider);
+    successful.push(item.value);
+    if (provider === "here") hereSucceeded = true;
+    if (provider === "nominatim") nominatimSucceeded = true;
+  });
 
   if (successful.length === 0) {
     const rateLimited = settled.some(
       (item) => item.status === "rejected" && String(item.reason).includes("RATE_LIMITED"),
     );
+    void writeTelemetry({
+      queryHash,
+      queryType,
+      resultCount: 0,
+      providers: [],
+      usedCache: hereCacheHit,
+      latencyMs: Math.round(performance.now() - startedAt),
+      hadLocationBias: hasLocationBias,
+      localeTag: context.localeTag?.trim() || null,
+      outcome: "error",
+      fallbackUsed: Boolean(hereApiKey),
+    });
     return json({ error: rateLimited ? "rate_limited" : "upstream_unavailable" }, rateLimited ? 429 : 503);
   }
 
   const results = mergeDeduplicateRank(successful, query, context);
-  const providers = settled
-    .map((item, index) => ({ item, provider: hereApiKey && index === 0 ? "here" : "nominatim" }))
-    .filter(({ item }) => item.status === "fulfilled")
-    .map(({ provider }) => provider);
-
-  return json({
-    providers,
-    queryType: looksLikeExactAddress(query) ? "address" : "general",
+  const fallbackUsed = Boolean(hereApiKey) && !hereSucceeded && nominatimSucceeded;
+  const responseBody = {
+    providers: providerNames,
+    queryType,
     results: results.map(({ provider: _provider, providerConfidence: _confidence, ...result }) => result),
+  };
+
+  void writeTelemetry({
+    queryHash,
+    queryType,
+    resultCount: results.length,
+    providers: providerNames,
+    usedCache: hereCacheHit,
+    latencyMs: Math.round(performance.now() - startedAt),
+    hadLocationBias: hasLocationBias,
+    localeTag: context.localeTag?.trim() || null,
+    outcome: results.length > 0 ? "success" : "zero_results",
+    fallbackUsed,
   });
+
+  return json(responseBody);
 });
