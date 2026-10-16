@@ -1453,6 +1453,7 @@ class MapViewModel(
                 stepsRouteSummary = null,
                 navigationFollowSuspended = false,
                 isLiveSafetyWarningVisible = false,
+                roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
             )
         }
         recomputeVisiblePlaces()
@@ -1471,7 +1472,11 @@ class MapViewModel(
         laneGuidanceJob = null
         lastLaneGuidanceKey = null
         _uiState.update {
-            it.copy(navigationState = NavigationState.Idle, navigationFollowSuspended = false)
+            it.copy(
+                navigationState = NavigationState.Idle,
+                navigationFollowSuspended = false,
+                roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
+            )
         }
         _routeProgressView.value = null
         recomputeVisiblePlaces()
@@ -1690,6 +1695,7 @@ class MapViewModel(
                                 ?: NavigationState.Ready,
                             roadIntelligenceState = it.roadIntelligenceState.copy(
                                 traffic = trafficConditionFor(route),
+                                laneGuidance = null,
                             ),
                         )
                     }
