@@ -122,10 +122,19 @@ internal object BackendLaneGuidanceResponseParser {
         }
 
         if (lanes.isEmpty() || recommended.isEmpty()) return null
+        val source = guidance.optString("source").takeIf { it.isNotBlank() }
+        val confidence = when (guidance.optString("confidence").lowercase()) {
+            "high" -> LaneGuidanceConfidence.High
+            "medium" -> LaneGuidanceConfidence.Medium
+            else -> LaneGuidanceConfidence.Unknown
+        }
+
         return LaneGuidance(
             lanes = lanes,
             recommendedLaneIndexes = recommended.filter { it in lanes.indices },
             maneuverRelation = relation,
+            source = source,
+            confidence = confidence,
         )
     }
 }
