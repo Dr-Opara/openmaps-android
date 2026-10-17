@@ -270,6 +270,8 @@
     <string name="settings_voice_language_en_gb">الإنجليزية (المملكة المتحدة)</string>
     <string name="settings_voice_language_es">الإسبانية</string>
     <string name="settings_voice_language_fr">الفرنسية</string>
+    <string name="settings_voice_language_ar">العربية</string>
+    <string name="settings_voice_language_he">العبرية</string>
     <string name="settings_voice_language_pidgin">البدجن النيجيري</string>
     <string name="settings_section_map">الخريطة</string>
     <string name="settings_map_style">نمط الخريطة</string>
