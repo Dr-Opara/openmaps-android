@@ -138,6 +138,7 @@
     <string name="route_preview_distance">distance</string>
     <string name="route_preview_arrival">arrival</string>
     <string name="route_preview_turn_count">%1$d turns</string>
+    <string name="route_arrive_format">Arrive %1$s</string>
     <string name="nav_steps">Steps</string>
     <string name="cd_steps">Show turn-by-turn steps</string>
     <string name="nav_steps_unavailable">No turn-by-turn steps for this route.</string>
@@ -186,7 +187,7 @@
     <string name="nav_exit_continue">Continue trip</string>
     <string name="nav_exit_end">End navigation</string>
     <string name="nav_report_title">Report road condition</string>
-    <string name="nav_report_unavailable">Community report submission is not connected in this build yet. The report categories are shown here so the driving UI can be tested safely without pretending a report was sent.</string>
+    <string name="nav_report_unavailable">OpenMaps couldn\'t send that report right now. Check your connection and try again.</string>
     <string name="nav_report_police">Police</string>
     <string name="nav_report_traffic">Traffic</string>
     <string name="nav_report_crash">Crash</string>
@@ -196,8 +197,8 @@
     <string name="nav_report_flooding">Flooding</string>
     <string name="nav_report_disabled_vehicle">Disabled vehicle</string>
     <string name="nav_report_object_road">Object in road</string>
-    <string name="nav_share_unavailable_title">Live trip sharing isn’t available yet</string>
-    <string name="nav_share_unavailable_body">OpenMaps has the secure temporary-sharing workflow in place, but no expiring-link backend is connected in this build. Your live location is not sent anywhere.</string>
+    <string name="nav_share_unavailable_title">Live trip sharing is unavailable</string>
+    <string name="nav_share_unavailable_body">OpenMaps couldn\'t start or update this share session right now. Your navigation can continue normally.</string>
 
     <!-- Contextual places (Phase 9) -->
     <string name="place_navigate_action">Navigate</string>
@@ -254,6 +255,12 @@
     <string name="settings_perm_blocked">Blocked in system settings</string>
     <string name="settings_open_app_settings">Open app settings</string>
     <string name="settings_section_navigation">Navigation</string>
+    <string name="settings_app_language">App language</string>
+    <string name="settings_change_app_language">Change app language</string>
+    <string name="settings_units">Distance and speed units</string>
+    <string name="settings_units_auto">Automatic (regional)</string>
+    <string name="settings_units_imperial">Imperial</string>
+    <string name="settings_units_metric">Metric</string>
     <string name="settings_voice_language">Voice language</string>
     <string name="settings_voice_ai_disclosure">Navigation may use an AI-generated voice. Android speech is used automatically when neural voice is unavailable.</string>
     <string name="settings_voice_language_selected">Selected</string>
@@ -267,4 +274,6 @@
     <string name="settings_map_dev_only">Development only</string>
     <string name="settings_section_about">About</string>
     <string name="settings_version">Version</string>
+    <string name="community_still_there">Still there</string>
+    <string name="community_not_there">Not there</string>
 </resources>
