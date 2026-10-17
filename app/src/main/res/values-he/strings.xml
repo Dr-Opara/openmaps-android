@@ -270,6 +270,8 @@
     <string name="settings_voice_language_en_gb">אנגלית (בריטניה)</string>
     <string name="settings_voice_language_es">ספרדית</string>
     <string name="settings_voice_language_fr">צרפתית</string>
+    <string name="settings_voice_language_ar">ערבית</string>
+    <string name="settings_voice_language_he">עברית</string>
     <string name="settings_voice_language_pidgin">פידג׳ין ניגרי</string>
     <string name="settings_section_map">מפה</string>
     <string name="settings_map_style">סגנון מפה</string>
