@@ -1007,15 +1007,23 @@ class MapViewModel(
         _uiState.update { it.copy(visiblePlaces = ranked.take(cap)) }
     }
 
-    private fun Place.toSearchResult(): SearchResult = SearchResult(
-        id = id,
-        name = name,
-        displayName = address ?: name,
-        latitude = latitude,
-        longitude = longitude,
-        category = category.name,
-        address = address,
-    )
+    private fun Place.toSearchResult(): SearchResult {
+        // Prefer a provider-supplied entrance/access point for routing when available. A POI's
+        // visual centroid can be deep inside a mall, hospital campus, stadium or parking complex;
+        // routing to that centroid is a common consumer-map failure. We only use an access point
+        // when the provider explicitly supplied one, otherwise we preserve the canonical POI point.
+        val destinationLatitude = metadata.accessLatitude ?: latitude
+        val destinationLongitude = metadata.accessLongitude ?: longitude
+        return SearchResult(
+            id = id,
+            name = name,
+            displayName = address ?: name,
+            latitude = destinationLatitude,
+            longitude = destinationLongitude,
+            category = category.name,
+            address = address,
+        )
+    }
 
     private fun Throwable.toPlacesError(): PlacesError = when (this) {
         is PlaceException.NoNetwork -> PlacesError.NoNetwork
