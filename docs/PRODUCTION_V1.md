@@ -27,33 +27,42 @@ OpenMaps must be credible as a worldwide navigation product and capable of compe
    - Restaurants, gas, parking, EV, hospitals, hotels, schools and businesses.
    - Entrances/parking/access metadata where licensed and available.
 
-4. Live Trip Sharing
+4. Production Map Platform & Cartography
+   - Production-grade global vector tile source with operational SLA or self-hosted infrastructure.
+   - OpenMaps-owned day, night and navigation cartographic styles rather than shipping a development basemap unchanged.
+   - Road hierarchy, highway shields, ramps, exits, labels, buildings, land use, water and POI density tuned by zoom and driving context.
+   - Navigation-specific rendering for route casing, traveled route, alternate routes, congestion, incidents, closures and maneuver context.
+   - Smooth consumer-grade camera, zoom, pitch, rotation and gesture behavior.
+   - Regional visual QA across dense cities, suburbs, highways, rural roads, night driving and complex interchanges.
+   - Map presentation receives its own production acceptance gate; backend correctness alone is not launch readiness.
+
+5. Live Trip Sharing
    - Expiring opaque token.
    - Realtime location + ETA updates.
    - Viewer requires no account.
    - Stop sharing, auto-expiry, arrival cleanup, rate limiting and privacy controls.
 
-5. Community Road Reports
+6. Community Road Reports
    - Police, traffic, crash, lane closed, construction, road hazard, flooding,
      disabled vehicle and object on road.
    - Confirmation/dismissal, clustering, TTL, confidence, moderation and abuse controls.
 
-6. Human Navigation Voice
+7. Human Navigation Voice
    - Neural/cloud voice as primary.
    - Android TTS as offline/failure fallback.
    - Low latency, SSML/pronunciation controls, street-name handling and phrase caching.
 
-7. Internationalization
+8. Internationalization
    - App language separate from navigation voice.
    - Locale-aware units/time/number formatting.
    - RTL support.
    - Region-specific navigation terminology and street pronunciation.
 
-8. Backend Service Layer
+9. Backend Service Layer
    - OpenMaps API gateway/service layer between clients and external providers.
    - Provider key protection, caching, failover, rate limiting, observability and cost controls.
 
-9. Reliability and Observability
+10. Reliability and Observability
    - Crash/error reporting.
    - Search zero-result rate.
    - Search/routing/provider latency.
@@ -62,7 +71,7 @@ OpenMaps must be credible as a worldwide navigation product and capable of compe
    - AR readiness/anchor/render health.
    - Provider failover telemetry.
 
-10. Privacy and Security
+11. Privacy and Security
     - Minimal location retention.
     - TLS everywhere.
     - Short-lived trip-share tokens.
@@ -70,13 +79,13 @@ OpenMaps must be credible as a worldwide navigation product and capable of compe
     - Server-side secrets.
     - Retention/deletion policy and regional privacy requirements.
 
-11. Offline/Degraded Operation
+12. Offline/Degraded Operation
     - Cached route/map corridor.
     - Last-known navigation state.
     - Offline/fallback voice.
     - Clear degraded-service behavior.
 
-12. Regional Capability Matrix
+13. Regional Capability Matrix
     - Search, routing, traffic, lane data, speed limits, parking and AR coverage are tracked by region.
     - Map Navigation remains broadly available while Live AR degrades honestly where Geospatial/VPS support is limited.
 
@@ -204,3 +213,10 @@ Global Places release gates:
 - HERE must participate as the commercial provider in each acceptance city.
 - Physical-device validation confirms nearby discovery, route-corridor filtering, category filters and graceful cached/fallback behavior.
 - Provider limitations for live parking occupancy, imagery, reviews and unsupported metadata remain explicit; OpenMaps must not invent them.
+
+
+## Production Map Platform & Cartography acceptance principle
+
+OpenMaps must remain a credible premium consumer navigation product even with Live AR turned off. The conventional map experience must meet the usability, visual hierarchy, responsiveness and navigation clarity expected from leading consumer map products while retaining a distinct OpenMaps identity.
+
+The current OpenFreeMap Liberty default is a development surface, not the final production cartographic product. MapLibre may remain the renderer, but production tile infrastructure, OpenMaps-owned styles, navigation rendering and visual QA are separate launch requirements.
