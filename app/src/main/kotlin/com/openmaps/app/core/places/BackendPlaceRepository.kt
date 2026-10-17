@@ -11,6 +11,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
+import java.util.Locale
 
 /**
  * Production places provider backed by the OpenMaps Edge gateway.
@@ -96,6 +97,7 @@ class BackendPlaceRepository(
                 "categories",
                 JSONArray().apply { categories.forEach { put(it.name) } },
             )
+            .put("localeTag", Locale.getDefault().toLanguageTag())
             .toString()
 
         try {
