@@ -62,11 +62,11 @@ object NavigationUnits {
         }
     }
 
-    fun formatCurrentSpeed(
+    fun currentSpeedValue(
         metersPerSecond: Float,
         preference: MeasurementSystem = MeasurementSystem.Auto,
         locale: Locale = Locale.getDefault(),
-    ): String {
+    ): Int {
         val resolved = RegionMeasurementPolicy.resolve(preference, locale)
         val value = when (resolved) {
             ResolvedMeasurementSystem.ImperialUs,
@@ -74,7 +74,25 @@ object NavigationUnits {
             -> metersPerSecond * METERS_PER_SECOND_TO_MPH
             ResolvedMeasurementSystem.Metric -> metersPerSecond * METERS_PER_SECOND_TO_KMH
         }
-        return formatSpeed(value.toDouble(), resolved, locale)
+        return value.roundToInt()
+    }
+
+    fun speedUnitLabel(
+        preference: MeasurementSystem = MeasurementSystem.Auto,
+        locale: Locale = Locale.getDefault(),
+    ): String = if (RegionMeasurementPolicy.resolve(preference, locale) == ResolvedMeasurementSystem.Metric) {
+        "km/h"
+    } else {
+        "mph"
+    }
+
+    fun formatCurrentSpeed(
+        metersPerSecond: Float,
+        preference: MeasurementSystem = MeasurementSystem.Auto,
+        locale: Locale = Locale.getDefault(),
+    ): String {
+        val number = NumberFormat.getIntegerInstance(locale)
+        return "${number.format(currentSpeedValue(metersPerSecond, preference, locale))} ${speedUnitLabel(preference, locale)}"
     }
 
     fun formatPostedSpeed(
