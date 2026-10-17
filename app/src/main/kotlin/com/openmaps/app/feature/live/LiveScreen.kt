@@ -144,6 +144,8 @@ fun LiveScreen(
     driverReportStatus: ExternalActionStatus = ExternalActionStatus.Idle,
     tripShareStatus: ExternalActionStatus = ExternalActionStatus.Idle,
     onReport: (DriverReportType) -> Unit = {},
+    onCommunityReportConfirm: (String) -> Unit = {},
+    onCommunityReportDismiss: (String) -> Unit = {},
     onShareTrip: () -> Unit = {},
     onDismissExternalStatus: () -> Unit = {},
     /** Manual alternative-route request from the active driving HUD. */
@@ -343,6 +345,8 @@ fun LiveScreen(
         // lower-left block so the mockup's eyeline is respected.
         LiveRoadAlertHud(
             roadState = roadIntelligenceState,
+            onCommunityConfirm = onCommunityReportConfirm,
+            onCommunityDismiss = onCommunityReportDismiss,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
@@ -410,6 +414,8 @@ private fun LocalizationChip(status: LiveLocalizationStatus, modifier: Modifier 
 @Composable
 private fun LiveRoadAlertHud(
     roadState: RoadIntelligenceState,
+    onCommunityConfirm: (String) -> Unit = {},
+    onCommunityDismiss: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // Hazards only. Speed moved to its own lower-left block ([LiveSpeedBlock]) because the mockup
@@ -428,18 +434,35 @@ private fun LiveRoadAlertHud(
     val distance = RoadAlertPresentation.distanceAheadLabel(topAlert)
     val delay = RoadAlertPresentation.delayLabel(topAlert)
     val detail = listOfNotNull(distance, delay).joinToString(" · ")
-    LiveCompactPill(
-        text = buildString {
-            append(RoadAlertPresentation.headline(topAlert))
-            if (detail.isNotBlank()) {
-                append(" · ")
-                append(detail)
+    Column(modifier = modifier) {
+        LiveCompactPill(
+            text = buildString {
+                append(RoadAlertPresentation.headline(topAlert))
+                if (detail.isNotBlank()) {
+                    append(" · ")
+                    append(detail)
+                }
+            },
+            background = OpenMapsColors.Warning,
+            foreground = OpenMapsColors.Navy900,
+        )
+        topAlert.communityReportId()?.let { reportId ->
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .clip(GlassShapes.Pill)
+                    .background(OpenMapsColors.Navy950.copy(alpha = 0.68f)),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                TextButton(onClick = { onCommunityConfirm(reportId) }) {
+                    Text("Still there", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                }
+                TextButton(onClick = { onCommunityDismiss(reportId) }) {
+                    Text("Not there", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                }
             }
-        },
-        background = OpenMapsColors.Warning,
-        foreground = OpenMapsColors.Navy900,
-        modifier = modifier,
-    )
+        }
+    }
 }
 
 /**
@@ -1685,3 +1708,9 @@ private fun formatLiveDuration(seconds: Double): String {
 
 private const val FEET_PER_METER = 3.28084
 private const val METERS_PER_MILE = 1609.344
+
+private fun RouteAlert.communityReportId(): String? = when (this) {
+    is RouteAlert.Hazard -> event.metadata["communityReportId"]
+    is RouteAlert.Informational -> event.metadata["communityReportId"]
+    else -> null
+}
