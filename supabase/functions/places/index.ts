@@ -239,6 +239,35 @@ function normalize(item: Record<string, unknown>, requested: PlaceCategory[]) {
     : [];
   const brand = chains.map((c) => firstString(c.name)).find((v) => v != null) ?? null;
 
+  const contacts = Array.isArray(item.contacts)
+    ? item.contacts as Array<Record<string, unknown>>
+    : [];
+  const firstContact = contacts[0];
+  const phones = Array.isArray(firstContact?.phone)
+    ? firstContact.phone as Array<Record<string, unknown>>
+    : [];
+  const websites = Array.isArray(firstContact?.www)
+    ? firstContact.www as Array<Record<string, unknown>>
+    : [];
+  const phone = phones.map((entry) => firstString(entry.value)).find((v) => v != null) ?? null;
+  const website = websites.map((entry) => firstString(entry.value)).find((v) => v != null) ?? null;
+
+  const openingHours = Array.isArray(item.openingHours)
+    ? item.openingHours as Array<Record<string, unknown>>
+    : [];
+  const firstHours = openingHours[0];
+  const openNow = typeof firstHours?.isOpen === "boolean" ? firstHours.isOpen : null;
+  const hoursText = Array.isArray(firstHours?.text)
+    ? (firstHours.text as unknown[]).map(firstString).filter((v): v is string => v != null).join("; ")
+    : null;
+
+  const access = Array.isArray(item.access)
+    ? item.access as Array<Record<string, unknown>>
+    : [];
+  const firstAccess = access[0];
+  const accessLatitude = Number(firstAccess?.lat);
+  const accessLongitude = Number(firstAccess?.lng);
+
   return {
     id: "here:" + String(item.id ?? ""),
     name: firstString(item.title) ?? category,
@@ -247,13 +276,18 @@ function normalize(item: Record<string, unknown>, requested: PlaceCategory[]) {
     longitude,
     address: firstString(address?.label),
     distanceMeters: typeof item.distance === "number" ? item.distance : null,
-    openNow: null,
+    openNow,
     metadata: {
       parkingType: null,
       isPublicAccess: null,
       feeApplies: null,
       brand,
       connectors: [],
+      phone,
+      website,
+      openingHoursText: hoursText || null,
+      accessLatitude: Number.isFinite(accessLatitude) ? accessLatitude : null,
+      accessLongitude: Number.isFinite(accessLongitude) ? accessLongitude : null,
     },
   };
 }
@@ -339,6 +373,11 @@ function osmMetadata(category: PlaceCategory, tags: Record<string, string>) {
     connectors: category === "EvCharging"
       ? Object.keys(tags).filter((key) => key.startsWith("socket:")).map((key) => key.slice("socket:".length)).sort()
       : [],
+    phone: firstString(tags.phone) ?? firstString(tags["contact:phone"]),
+    website: firstString(tags.website) ?? firstString(tags["contact:website"]),
+    openingHoursText: firstString(tags.opening_hours),
+    accessLatitude: null,
+    accessLongitude: null,
   };
 }
 
