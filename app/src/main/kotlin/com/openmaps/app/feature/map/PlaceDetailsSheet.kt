@@ -701,6 +701,7 @@ internal fun PlaceCategory.iconRes(): Int = when (this) {
     PlaceCategory.Medical -> R.drawable.ic_medical
     PlaceCategory.Entertainment -> R.drawable.ic_entertainment
     PlaceCategory.Shopping -> R.drawable.ic_shopping
+    PlaceCategory.Education -> R.drawable.ic_place
 }
 
 /**
@@ -726,4 +727,5 @@ internal fun PlaceCategory.markerColor(): Color = when (this) {
     PlaceCategory.Medical -> Color(0xFFE05C5C)
     PlaceCategory.Entertainment -> Color(0xFFD16FD1)
     PlaceCategory.Shopping -> Color(0xFFE89B3D)
+    PlaceCategory.Education -> Color(0xFF6F8FD1)
 }
