@@ -23,6 +23,8 @@ enum class PlaceCategory {
     Entertainment,
     /** A curated `shop=*` subset (malls, department stores, clothing/shoes/electronics). */
     Shopping,
+    /** Schools, colleges, universities and kindergartens. */
+    Education,
 }
 
 /**
