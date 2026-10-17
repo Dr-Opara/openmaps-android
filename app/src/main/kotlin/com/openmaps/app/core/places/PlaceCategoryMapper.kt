@@ -46,6 +46,10 @@ object PlaceCategoryMapper {
         TagMapping("shop", "clothes", PlaceCategory.Shopping),
         TagMapping("shop", "shoes", PlaceCategory.Shopping),
         TagMapping("shop", "electronics", PlaceCategory.Shopping),
+        TagMapping("amenity", "school", PlaceCategory.Education),
+        TagMapping("amenity", "college", PlaceCategory.Education),
+        TagMapping("amenity", "university", PlaceCategory.Education),
+        TagMapping("amenity", "kindergarten", PlaceCategory.Education),
     )
 
     /**
