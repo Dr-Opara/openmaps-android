@@ -51,6 +51,91 @@ function authorized(req: Request): boolean {
   }
 }
 
+
+function serviceRoleKey(): string | null {
+  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim() || null;
+}
+
+function supabaseUrl(): string | null {
+  return Deno.env.get("SUPABASE_URL")?.trim() || null;
+}
+
+async function adminFetch(path: string, init: RequestInit = {}): Promise<Response | null> {
+  const base = supabaseUrl();
+  const key = serviceRoleKey();
+  if (!base || !key) return null;
+  const headers = new Headers(init.headers);
+  headers.set("apikey", key);
+  headers.set("authorization", "Bearer " + key);
+  if (!headers.has("content-type") && init.body) headers.set("content-type", "application/json");
+  return fetch(base + path, { ...init, headers });
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function clientAddress(req: Request): string {
+  return req.headers.get("cf-connecting-ip")?.trim()
+    || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || "unknown";
+}
+
+async function consumePlacesRateLimit(req: Request): Promise<boolean> {
+  const base = supabaseUrl();
+  const key = serviceRoleKey();
+  if (!base || !key) return true;
+  try {
+    const clientHash = await sha256Hex(clientAddress(req));
+    const now = new Date();
+    now.setSeconds(0, 0);
+    const response = await adminFetch("/rest/v1/rpc/consume_navigation_rate_limit", {
+      method: "POST",
+      body: JSON.stringify({
+        p_client_hash: clientHash,
+        p_endpoint: "places",
+        p_bucket_start: now.toISOString(),
+        p_limit: 60,
+      }),
+    });
+    if (!response || !response.ok) return true;
+    return (await response.json()) === true;
+  } catch {
+    return true;
+  }
+}
+
+async function writePlacesTelemetry(event: {
+  categories: PlaceCategory[];
+  radiusMeters: number;
+  resultCount: number;
+  providers: string[];
+  latencyMs: number;
+  outcome: "success" | "zero_results" | "error";
+  fallbackUsed: boolean;
+}): Promise<void> {
+  try {
+    await adminFetch("/rest/v1/places_telemetry", {
+      method: "POST",
+      headers: { prefer: "return=minimal" },
+      body: JSON.stringify({
+        categories: event.categories,
+        radius_meters: Math.round(event.radiusMeters),
+        result_count: event.resultCount,
+        providers: event.providers,
+        latency_ms: event.latencyMs,
+        outcome: event.outcome,
+        fallback_used: event.fallbackUsed,
+      }),
+    });
+  } catch {
+    // Places must never fail because observability failed.
+  }
+}
+
 function validCoordinate(value: Coordinate | undefined): value is Coordinate {
   return value != null &&
     Number.isFinite(value.latitude) && value.latitude >= -90 && value.latitude <= 90 &&
@@ -297,8 +382,10 @@ function mergeDeduplicate(primary: any[], fallback: any[]): any[] {
 }
 
 Deno.serve(async (req: Request) => {
+  const startedAt = performance.now();
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (!authorized(req)) return json({ error: "unauthorized" }, 401);
+  if (!(await consumePlacesRateLimit(req))) return json({ error: "rate_limited" }, 429);
 
   let body: PlacesRequest;
   try {
@@ -340,17 +427,37 @@ Deno.serve(async (req: Request) => {
         here: hereError.replace(apiKey, "[redacted]"),
         osm: osmError,
       }));
+      void writePlacesTelemetry({
+        categories,
+        radiusMeters,
+        resultCount: 0,
+        providers: [],
+        latencyMs: Math.round(performance.now() - startedAt),
+        outcome: "error",
+        fallbackUsed: true,
+      });
       return json({ error: "upstream_unavailable", providers: ["here", "osm"] }, 503);
     }
   }
 
   const places = mergeDeduplicate(herePlaces, osmPlaces);
+  const providers = [
+    ...(hereResult.status === "fulfilled" ? ["here"] : []),
+    ...(osmResult.status === "fulfilled" ? ["osm"] : []),
+  ];
+  const fallbackUsed = hereResult.status !== "fulfilled" || herePlaces.length === 0;
+  void writePlacesTelemetry({
+    categories,
+    radiusMeters,
+    resultCount: places.length,
+    providers,
+    latencyMs: Math.round(performance.now() - startedAt),
+    outcome: places.length > 0 ? "success" : "zero_results",
+    fallbackUsed,
+  });
   return json({
     provider: herePlaces.length > 0 && osmPlaces.length > 0 ? "here+osm" : herePlaces.length > 0 ? "here" : "osm",
-    providers: [
-      ...(hereResult.status === "fulfilled" ? ["here"] : []),
-      ...(osmResult.status === "fulfilled" ? ["osm"] : []),
-    ],
+    providers,
     capability: "available",
     places,
   });
