@@ -35,8 +35,10 @@ import com.openmaps.app.BuildConfig
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.location.LocationPermissionState
+import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.voice.VoiceLanguage
 import com.openmaps.app.map.MapStyleSource
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(
@@ -48,6 +50,9 @@ fun SettingsScreen(
     /** Delta-spec section 24. Defaulted so every other existing caller/preview keeps compiling. */
     voiceLanguage: VoiceLanguage = VoiceLanguage.EnglishUs,
     onVoiceLanguageChanged: (VoiceLanguage) -> Unit = {},
+    measurementSystem: MeasurementSystem = MeasurementSystem.Auto,
+    onMeasurementSystemChanged: (MeasurementSystem) -> Unit = {},
+    onOpenLanguageSettings: () -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -109,6 +114,44 @@ fun SettingsScreen(
             )
 
             SectionHeader(stringResource(R.string.settings_section_navigation))
+            SettingsRow(
+                title = stringResource(R.string.settings_app_language),
+                value = Locale.getDefault().getDisplayName(Locale.getDefault()),
+            )
+            ActionRow(stringResource(R.string.settings_change_app_language), onOpenLanguageSettings)
+
+            Text(
+                text = stringResource(R.string.settings_units),
+                style = MaterialTheme.typography.bodyLarge,
+                color = OpenMapsColors.TextPrimary,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+            )
+            MeasurementSystem.entries.forEach { system ->
+                val isSelected = system == measurementSystem
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clickable(role = Role.RadioButton) { onMeasurementSystemChanged(system) }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(system.labelRes()),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isSelected) OpenMapsColors.ElectricBlue else OpenMapsColors.TextSecondary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (isSelected) {
+                        Text(
+                            text = stringResource(R.string.settings_voice_language_selected),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = OpenMapsColors.ElectricBlue,
+                        )
+                    }
+                }
+            }
+
             Text(
                 text = stringResource(R.string.settings_voice_language),
                 style = MaterialTheme.typography.bodyLarge,
@@ -162,6 +205,8 @@ private fun VoiceLanguage.labelRes(): Int = when (this) {
     VoiceLanguage.EnglishUk -> R.string.settings_voice_language_en_gb
     VoiceLanguage.Spanish -> R.string.settings_voice_language_es
     VoiceLanguage.French -> R.string.settings_voice_language_fr
+    VoiceLanguage.Arabic -> R.string.settings_voice_language_ar
+    VoiceLanguage.Hebrew -> R.string.settings_voice_language_he
     VoiceLanguage.NigerianPidgin -> R.string.settings_voice_language_pidgin
 }
 
@@ -204,4 +249,11 @@ private fun ActionRow(text: String, onClick: () -> Unit) {
             .clickable(role = Role.Button, onClick = onClick)
             .padding(vertical = 14.dp),
     )
+}
+
+
+private fun MeasurementSystem.labelRes(): Int = when (this) {
+    MeasurementSystem.Auto -> R.string.settings_units_auto
+    MeasurementSystem.Imperial -> R.string.settings_units_imperial
+    MeasurementSystem.Metric -> R.string.settings_units_metric
 }

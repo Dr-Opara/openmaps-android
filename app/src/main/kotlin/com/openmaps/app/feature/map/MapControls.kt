@@ -797,15 +797,9 @@ private fun homeAngularDifference(a: Double, b: Double): Double {
     return if (raw > 180.0) 360.0 - raw else raw
 }
 
-private fun homeDistanceLabel(meters: Double): String {
-    val feet = meters * 3.28084
-    val miles = meters / 1609.344
-    return when {
-        feet < 1000.0 -> "${feet.roundToInt()} ft"
-        miles < 10.0 -> String.format(Locale.US, "%.1f mi", miles)
-        else -> "${miles.roundToInt()} mi"
-    }
-}
+@Composable
+private fun homeDistanceLabel(meters: Double): String =
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
 
 private const val HOME_AHEAD_HALF_ANGLE_DEGREES = 55.0
 
@@ -973,7 +967,10 @@ private fun RouteSummaryLine(routeState: RouteState) {
                 )
             }
             RouteStatusText(
-                text = "Arrive ${ArrivalTimeFormatter.format(routeState.route.durationSeconds, System.currentTimeMillis())}",
+                text = stringResource(
+                    R.string.route_arrive_format,
+                    ArrivalTimeFormatter.format(routeState.route.durationSeconds, System.currentTimeMillis()),
+                ),
                 color = OpenMapsColors.TextSecondary,
             )
         }
@@ -1012,19 +1009,13 @@ private fun RouteError.toMessageRes(): Int = when (this) {
     RouteError.NoRouteFound -> R.string.route_error_no_route
 }
 
-private fun formatDistance(meters: Double): String {
-    val miles = meters / METERS_PER_MILE
-    return if (miles < 10) String.format(Locale.US, "%.1f mi", miles) else "${miles.roundToInt()} mi"
-}
+@Composable
+private fun formatDistance(meters: Double): String =
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
 
-private fun formatDuration(seconds: Double): String {
-    val totalMinutes = (seconds / 60).roundToInt().coerceAtLeast(1)
-    val hours = totalMinutes / 60
-    val minutes = totalMinutes % 60
-    return if (hours > 0) "$hours hr $minutes min" else "$minutes min"
-}
-
-private const val METERS_PER_MILE = 1609.344
+@Composable
+private fun formatDuration(seconds: Double): String =
+    NavigationUnits.formatDuration(seconds)
 
 /** One card for every location situation; copy and primary action depend on [prompt]. */
 @Composable

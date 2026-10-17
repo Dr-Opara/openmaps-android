@@ -41,6 +41,8 @@ import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.localization.LocalMeasurementSystem
+import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PromotionType
@@ -209,10 +211,14 @@ fun NearbyExploreSheet(
  * A single selected category is named in the singular; a broad or multi-category fetch falls back to
  * the generic wording rather than producing an awkward list.
  */
+@Composable
 private fun loadingCopy(categories: Set<PlaceCategory>): String {
     val single = categories.singleOrNull()
-    return if (single != null) "Finding nearby ${single.displayName().lowercase()}s…"
-    else "Finding places nearby…"
+    return if (single != null) {
+        stringResource(R.string.nearby_finding_category, single.displayName().lowercase())
+    } else {
+        stringResource(R.string.nearby_finding)
+    }
 }
 
 /**
@@ -344,22 +350,26 @@ private fun NearbyPlaceCard(place: Place, onDetails: () -> Unit, onNavigate: () 
     }
 }
 
+@Composable
 private fun nearbyDisplayName(place: Place): String {
     val raw = place.name.trim()
     val generic = place.category.displayName()
     if (raw.isNotBlank() && !raw.equals(generic, ignoreCase = true)) return raw
     return when (place.category) {
-        PlaceCategory.Parking -> "Public Parking"
-        PlaceCategory.Gas -> "Gas Station"
-        PlaceCategory.EvCharging -> "EV Charging"
-        PlaceCategory.Atm -> "ATM"
-        else -> "Nearby ${generic}"
+        PlaceCategory.Parking -> stringResource(R.string.nearby_public_parking)
+        PlaceCategory.Gas -> stringResource(R.string.nearby_gas_station)
+        PlaceCategory.EvCharging -> stringResource(R.string.category_ev_charging)
+        PlaceCategory.Atm -> stringResource(R.string.category_atm)
+        else -> stringResource(R.string.nearby_generic_name, generic)
     }
 }
 
 /** "0.3 mi away" plus address, when available — never a route distance (section B8). */
+@Composable
 private fun nearbyCardSummary(place: Place): String? {
-    val distance = place.distanceMeters?.let { "${formatNearbyDistance(it)} away" }
+    val distance = place.distanceMeters?.let {
+        stringResource(R.string.distance_away_format, formatNearbyDistance(it))
+    }
     val address = place.address
     return listOfNotNull(distance, address).joinToString(" · ").ifBlank { null }
 }
@@ -446,18 +456,9 @@ private fun angularDifferenceDegrees(a: Double, b: Double): Double {
     return if (raw > 180.0) 360.0 - raw else raw
 }
 
-private fun formatNearbyDistance(meters: Double): String {
-    val feet = meters * FEET_PER_METER
-    val miles = meters / METERS_PER_MILE
-    return when {
-        feet < 1000.0 -> "${feet.roundToInt()} ft"
-        miles < 10 -> String.format(Locale.US, "%.1f mi", miles)
-        else -> "${miles.roundToInt()} mi"
-    }
-}
-
-private const val FEET_PER_METER = 3.28084
-private const val METERS_PER_MILE = 1609.344
+@Composable
+private fun formatNearbyDistance(meters: Double): String =
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
 private const val AHEAD_HALF_ANGLE_DEGREES = 55.0
 private const val MAX_AHEAD_PLACES = 4
 private val SUGGESTED_STOP_CATEGORIES = setOf(

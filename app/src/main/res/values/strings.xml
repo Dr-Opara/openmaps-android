@@ -138,6 +138,7 @@
     <string name="route_preview_distance">distance</string>
     <string name="route_preview_arrival">arrival</string>
     <string name="route_preview_turn_count">%1$d turns</string>
+    <string name="route_arrive_format">Arrive %1$s</string>
     <string name="nav_steps">Steps</string>
     <string name="cd_steps">Show turn-by-turn steps</string>
     <string name="nav_steps_unavailable">No turn-by-turn steps for this route.</string>
@@ -186,7 +187,7 @@
     <string name="nav_exit_continue">Continue trip</string>
     <string name="nav_exit_end">End navigation</string>
     <string name="nav_report_title">Report road condition</string>
-    <string name="nav_report_unavailable">Community report submission is not connected in this build yet. The report categories are shown here so the driving UI can be tested safely without pretending a report was sent.</string>
+    <string name="nav_report_unavailable">OpenMaps couldn\'t send that report right now. Check your connection and try again.</string>
     <string name="nav_report_police">Police</string>
     <string name="nav_report_traffic">Traffic</string>
     <string name="nav_report_crash">Crash</string>
@@ -196,8 +197,8 @@
     <string name="nav_report_flooding">Flooding</string>
     <string name="nav_report_disabled_vehicle">Disabled vehicle</string>
     <string name="nav_report_object_road">Object in road</string>
-    <string name="nav_share_unavailable_title">Live trip sharing isn’t available yet</string>
-    <string name="nav_share_unavailable_body">OpenMaps has the secure temporary-sharing workflow in place, but no expiring-link backend is connected in this build. Your live location is not sent anywhere.</string>
+    <string name="nav_share_unavailable_title">Live trip sharing is unavailable</string>
+    <string name="nav_share_unavailable_body">OpenMaps couldn\'t start or update this share session right now. Your navigation can continue normally.</string>
 
     <!-- Contextual places (Phase 9) -->
     <string name="place_navigate_action">Navigate</string>
@@ -214,6 +215,28 @@
     <string name="place_nearby_unavailable">No other nearby places to show right now.</string>
     <string name="place_save_action">Save</string>
     <string name="place_share_action">Share</string>
+    <string name="category_restaurant">Restaurant</string>
+    <string name="category_restaurants">Restaurants</string>
+    <string name="category_food">Food</string>
+    <string name="category_coffee">Coffee</string>
+    <string name="category_hotel">Hotel</string>
+    <string name="category_hotels">Hotels</string>
+    <string name="category_grocery">Grocery</string>
+    <string name="category_pharmacy">Pharmacy</string>
+    <string name="category_parking">Parking</string>
+    <string name="category_gas">Gas</string>
+    <string name="category_ev_charging">EV charging</string>
+    <string name="category_bank">Bank</string>
+    <string name="category_atm">ATM</string>
+    <string name="category_convenience">Convenience</string>
+    <string name="category_medical">Medical</string>
+    <string name="category_entertainment">Entertainment</string>
+    <string name="category_shopping">Shopping</string>
+    <string name="category_education">Education</string>
+    <string name="nearby_public_parking">Public Parking</string>
+    <string name="nearby_gas_station">Gas Station</string>
+    <string name="nearby_generic_name">Nearby %1$s</string>
+    <string name="nearby_finding_category">Finding nearby %1$s…</string>
 
     <!-- Nearby Explore (Phase 12A) -->
     <string name="nearby_title">Nearby</string>
@@ -241,6 +264,16 @@
     <string name="destination_arrival_ease_basis">Estimated from the final route geometry. Parking is only shown when provider data supports it.</string>
     <string name="destination_parking_nearby">Parking near destination</string>
     <string name="destination_parking_found">%1$d parking option(s) found near the destination</string>
+    <string name="destination_approach_complex">Complex final approach</string>
+    <string name="destination_approach_moderate">Moderate final approach</string>
+    <string name="destination_approach_simple">Simple final approach</string>
+    <string name="parking_default_name">Parking</string>
+    <string name="parking_public">Public</string>
+    <string name="parking_private">Private</string>
+    <string name="parking_fee">Fee</string>
+    <string name="parking_no_fee">No fee</string>
+    <string name="distance_away_format">%1$s away</string>
+    <string name="distance_off_route_format">%1$s off route</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>
@@ -254,6 +287,12 @@
     <string name="settings_perm_blocked">Blocked in system settings</string>
     <string name="settings_open_app_settings">Open app settings</string>
     <string name="settings_section_navigation">Navigation</string>
+    <string name="settings_app_language">App language</string>
+    <string name="settings_change_app_language">Change app language</string>
+    <string name="settings_units">Distance and speed units</string>
+    <string name="settings_units_auto">Automatic (regional)</string>
+    <string name="settings_units_imperial">Imperial</string>
+    <string name="settings_units_metric">Metric</string>
     <string name="settings_voice_language">Voice language</string>
     <string name="settings_voice_ai_disclosure">Navigation may use an AI-generated voice. Android speech is used automatically when neural voice is unavailable.</string>
     <string name="settings_voice_language_selected">Selected</string>
@@ -261,10 +300,14 @@
     <string name="settings_voice_language_en_gb">English (UK)</string>
     <string name="settings_voice_language_es">Spanish</string>
     <string name="settings_voice_language_fr">French</string>
+    <string name="settings_voice_language_ar">Arabic</string>
+    <string name="settings_voice_language_he">Hebrew</string>
     <string name="settings_voice_language_pidgin">Nigerian Pidgin</string>
     <string name="settings_section_map">Map</string>
     <string name="settings_map_style">Map style</string>
     <string name="settings_map_dev_only">Development only</string>
     <string name="settings_section_about">About</string>
     <string name="settings_version">Version</string>
+    <string name="community_still_there">Still there</string>
+    <string name="community_not_there">Not there</string>
 </resources>

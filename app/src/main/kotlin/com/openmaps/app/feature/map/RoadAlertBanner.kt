@@ -15,6 +15,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.roadintelligence.LaneDirection
+import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.roadintelligence.LaneGuidance
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceState
 import com.openmaps.app.core.roadintelligence.RouteAlert
@@ -33,6 +34,7 @@ fun RoadAlertBanner(
 ) {
     val topAlert = roadState.activeAlerts.firstOrNull { it !is RouteAlert.SpeedLimit }
     val speedLimitAlert = roadState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull()
+    val measurementSystem = LocalMeasurementSystem.current
     val currentSpeed = roadState.currentSpeedMetersPerSecond
     if (topAlert == null && speedLimitAlert == null) return
 
@@ -49,9 +51,13 @@ fun RoadAlertBanner(
             } else {
                 Column {
                     Chip(background = OpenMapsColors.Warning) {
-                        val distance = RoadAlertPresentation.distanceAheadLabel(alert)
+                        val distance = RoadAlertPresentation.distanceAheadLabel(alert, measurementSystem)
                         Text(
-                            text = if (distance != null) "${RoadAlertPresentation.headline(alert)} $distance" else RoadAlertPresentation.headline(alert),
+                            text = if (distance != null) {
+                                "${RoadAlertPresentation.headline(alert, measurementSystem)} $distance"
+                            } else {
+                                RoadAlertPresentation.headline(alert, measurementSystem)
+                            },
                             style = MaterialTheme.typography.labelMedium,
                             color = OpenMapsColors.Navy900,
                             maxLines = 1,
@@ -61,10 +67,10 @@ fun RoadAlertBanner(
                     alert.communityReportId()?.let { reportId ->
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { onCommunityConfirm(reportId) }) {
-                                Text("Still there", style = MaterialTheme.typography.labelSmall)
+                                Text(stringResource(R.string.community_still_there), style = MaterialTheme.typography.labelSmall)
                             }
                             TextButton(onClick = { onCommunityDismiss(reportId) }) {
-                                Text("Not there", style = MaterialTheme.typography.labelSmall)
+                                Text(stringResource(R.string.community_not_there), style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
@@ -74,9 +80,10 @@ fun RoadAlertBanner(
         speedLimitAlert?.let { alert ->
             Chip(background = OpenMapsColors.Navy800) {
                 val text = if (currentSpeed != null) {
-                    "${RoadAlertPresentation.formatCurrentSpeed(currentSpeed, alert.info.unit)} / ${RoadAlertPresentation.headline(alert)}"
+                    "${RoadAlertPresentation.formatCurrentSpeed(currentSpeed, alert.info.unit, measurementSystem)} / " +
+                        RoadAlertPresentation.headline(alert, measurementSystem)
                 } else {
-                    RoadAlertPresentation.headline(alert)
+                    RoadAlertPresentation.headline(alert, measurementSystem)
                 }
                 Text(
                     text = text,

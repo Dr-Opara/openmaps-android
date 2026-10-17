@@ -17,6 +17,8 @@ import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.LocationUpdate
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.location.isGranted
+import com.openmaps.app.core.localization.LocalizationPrefs
+import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.navigation.NavigationSession
 import com.openmaps.app.core.navigation.OffRouteDecision
 import com.openmaps.app.core.navigation.RouteProgress
@@ -78,6 +80,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.max
 
 /**
@@ -105,6 +108,8 @@ class MapViewModel(
     private val voiceGuidanceEngine: VoiceGuidanceEngine = NoopVoiceGuidanceEngine(),
     /** Null in tests (no Android `Context` there); the real instance is supplied by [AppContainer]. */
     private val voiceGuidancePrefs: VoiceGuidancePrefs? = null,
+    /** Phase 7 locale/unit preferences; null in pure ViewModel tests. */
+    private val localizationPrefs: LocalizationPrefs? = null,
     private val fixTimeoutMillis: Long = DEFAULT_FIX_TIMEOUT_MILLIS,
 ) : ViewModel() {
 
@@ -112,6 +117,7 @@ class MapViewModel(
         MapUiState(
             voiceEnabled = voiceGuidancePrefs?.isEnabled() ?: true,
             voiceLanguage = voiceGuidancePrefs?.language() ?: VoiceLanguage.EnglishUs,
+            measurementSystem = localizationPrefs?.measurementSystem() ?: MeasurementSystem.Auto,
         ),
     )
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
@@ -218,6 +224,12 @@ class MapViewModel(
         voiceGuidanceEngine.setEnabled(enabled)
         voiceGuidancePrefs?.setEnabled(enabled)
         _uiState.update { it.copy(voiceEnabled = enabled) }
+    }
+
+    fun onMeasurementSystemChanged(system: MeasurementSystem) {
+        localizationPrefs?.setMeasurementSystem(system)
+        voiceGuidanceEngine.setMeasurementSystem(system)
+        _uiState.update { it.copy(measurementSystem = system) }
     }
 
     /** Delta-spec section 24: Settings > Navigation > Voice Language. */
@@ -2060,7 +2072,11 @@ class MapViewModel(
 
         lastReverseGeocodedLocation = location
         reverseGeocodingJob = viewModelScope.launch {
-            repository.reverse(location.latitude, location.longitude)
+            repository.reverse(
+                location.latitude,
+                location.longitude,
+                Locale.getDefault().toLanguageTag(),
+            )
                 .onSuccess { resolved ->
                     if (resolved != null) {
                         _uiState.update { state ->

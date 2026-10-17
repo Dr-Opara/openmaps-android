@@ -10,6 +10,7 @@ type PlacesRequest = {
   center?: Coordinate;
   radiusMeters?: number;
   categories?: PlaceCategory[];
+  localeTag?: string | null;
 };
 
 const HERE_CATEGORY_IDS: Record<PlaceCategory, string[]> = {
@@ -143,6 +144,7 @@ async function placesCacheKey(
   center: Coordinate,
   radiusMeters: number,
   categories: PlaceCategory[],
+  localeTag: string | null,
 ): Promise<string> {
   const roundedLat = center.latitude.toFixed(3);
   const roundedLon = center.longitude.toFixed(3);
@@ -153,6 +155,7 @@ async function placesCacheKey(
     roundedLon,
     String(radiusBucket),
     [...categories].sort().join(","),
+    localeTag ?? "",
   ].join("|"));
 }
 
@@ -297,6 +300,7 @@ async function browseHere(
   radiusMeters: number,
   categories: PlaceCategory[],
   apiKey: string,
+  localeTag: string | null,
 ) {
   const ids = Array.from(new Set(categories.flatMap((c) => HERE_CATEGORY_IDS[c] ?? [])));
   if (ids.length === 0) return [];
@@ -308,6 +312,8 @@ async function browseHere(
     limit: "60",
     apiKey,
   });
+
+  if (localeTag) params.set("lang", localeTag);
 
   const response = await fetch(
     "https://browse.search.hereapi.com/v1/browse?" + params.toString(),
@@ -385,6 +391,7 @@ async function browseOsm(
   center: Coordinate,
   radiusMeters: number,
   categories: PlaceCategory[],
+  localeTag: string | null,
 ) {
   const selectors = categories.flatMap((category) => OSM_SELECTORS[category] ?? []);
   if (selectors.length === 0) return [];
@@ -428,7 +435,7 @@ async function browseOsm(
         if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
         return {
           id: "osm:" + String(element.type ?? "node") + "/" + String(element.id ?? ""),
-          name: firstString(tags.name) ?? category,
+          name: localizedOsmName(tags, localeTag) ?? category,
           category,
           latitude,
           longitude,
@@ -443,6 +450,22 @@ async function browseOsm(
     }
   }
   throw new Error("OSM_UNAVAILABLE");
+}
+
+function localizedOsmName(tags: Record<string, string>, localeTag: string | null): string | null {
+  const language = localeTag?.split("-")[0]?.toLowerCase();
+  if (language) {
+    const localized = firstString(tags["name:" + language]);
+    if (localized) return localized;
+  }
+  return firstString(tags.name);
+}
+
+function normalizeLocaleTag(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 35 || !/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(trimmed)) return null;
+  return trimmed;
 }
 
 function normalizeText(value: string | null | undefined): string {
@@ -504,8 +527,9 @@ Deno.serve(async (req: Request) => {
 
   const radiusMeters = Math.min(8000, Math.max(250, Number(body.radiusMeters) || 1500));
   const apiKey = Deno.env.get("HERE_API_KEY")?.trim() || null;
+  const localeTag = normalizeLocaleTag(body.localeTag);
 
-  const cacheKey = await placesCacheKey(body.center, radiusMeters, categories);
+  const cacheKey = await placesCacheKey(body.center, radiusMeters, categories, localeTag);
   const cached = await readPlacesCache(cacheKey);
   if (cached) {
     void writePlacesTelemetry({
@@ -530,12 +554,12 @@ Deno.serve(async (req: Request) => {
   }
 
   const herePromise = apiKey
-    ? browseHere(body.center, radiusMeters, categories, apiKey)
+    ? browseHere(body.center, radiusMeters, categories, apiKey, localeTag)
     : Promise.reject(new Error("HERE_NOT_CONFIGURED"));
 
   const [hereResult, osmResult] = await Promise.allSettled([
     herePromise,
-    browseOsm(body.center, radiusMeters, categories),
+    browseOsm(body.center, radiusMeters, categories, localeTag),
   ]);
 
   const herePlaces = hereResult.status === "fulfilled" ? hereResult.value : [];

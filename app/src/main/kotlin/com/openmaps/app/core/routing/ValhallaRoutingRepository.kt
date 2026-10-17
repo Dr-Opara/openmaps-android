@@ -11,6 +11,7 @@ import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 
 /**
  * [RoutingRepository] backed by the public Valhalla demo instance
@@ -29,6 +30,7 @@ import java.nio.charset.StandardCharsets
 class ValhallaRoutingRepository(
     private val userAgent: String,
     private val baseUrl: String = "https://valhalla1.openstreetmap.de/route",
+    private val localeTagProvider: () -> String = { Locale.getDefault().toLanguageTag() },
 ) : RoutingRepository {
 
     override suspend fun route(origin: Coordinate, destination: Coordinate): Result<RouteResult> =
@@ -96,7 +98,26 @@ class ValhallaRoutingRepository(
         )
         put("costing", "auto")
         put("units", "kilometers")
+        put(
+            "directions_options",
+            JSONObject().apply {
+                put("units", "kilometers")
+                put("language", valhallaLanguage(localeTagProvider()))
+            },
+        )
     }.toString()
+
+    private fun valhallaLanguage(tag: String): String {
+        val locale = Locale.forLanguageTag(tag)
+        return when (locale.language.lowercase(Locale.ROOT)) {
+            "en" -> if (locale.country.equals("GB", ignoreCase = true)) "en-GB" else "en-US"
+            "es" -> "es-ES"
+            "fr" -> "fr-FR"
+            "ar" -> "ar"
+            "he" -> "he"
+            else -> "en-US"
+        }
+    }
 
     private fun Coordinate.toJson(): JSONObject = JSONObject().apply {
         put("lat", latitude)

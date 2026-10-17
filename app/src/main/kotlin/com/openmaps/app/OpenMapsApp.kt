@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -19,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,6 +38,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.openmaps.app.core.camera.CameraPermissions
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.location.LocationPermissions
+import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.feature.live.LiveHud
 import com.openmaps.app.feature.live.LiveReadinessMapper
 import com.openmaps.app.feature.live.LiveScreen
@@ -191,7 +194,8 @@ private fun AppShell(container: AppContainer) {
 
     val styleSource = remember(container) { container.mapStyleProvider.resolve() }
 
-    Box(Modifier.fillMaxSize().background(OpenMapsColors.Navy900)) {
+    CompositionLocalProvider(LocalMeasurementSystem provides state.measurementSystem) {
+        Box(Modifier.fillMaxSize().background(OpenMapsColors.Navy900)) {
         MapScreen(
             viewModel = viewModel,
             styleProvider = container.mapStyleProvider,
@@ -306,7 +310,11 @@ private fun AppShell(container: AppContainer) {
                 onOpenAppSettings = { context.openAppSettings() },
                 voiceLanguage = state.voiceLanguage,
                 onVoiceLanguageChanged = viewModel::onVoiceLanguageChanged,
+                measurementSystem = state.measurementSystem,
+                onMeasurementSystemChanged = viewModel::onMeasurementSystemChanged,
+                onOpenLanguageSettings = { context.openLanguageSettings() },
             )
+        }
         }
     }
 }
@@ -337,4 +345,14 @@ private fun Context.startSafely(intent: Intent) {
     } catch (e: ActivityNotFoundException) {
         // No handler on this device: nothing sensible to do, and we must not crash.
     }
+}
+
+
+private fun Context.openLanguageSettings() {
+    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Intent(Settings.ACTION_APP_LOCALE_SETTINGS, Uri.fromParts("package", packageName, null))
+    } else {
+        Intent(Settings.ACTION_LOCALE_SETTINGS)
+    }
+    startSafely(intent)
 }
