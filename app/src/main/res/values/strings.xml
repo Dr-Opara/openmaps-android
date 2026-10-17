@@ -215,6 +215,28 @@
     <string name="place_nearby_unavailable">No other nearby places to show right now.</string>
     <string name="place_save_action">Save</string>
     <string name="place_share_action">Share</string>
+    <string name="category_restaurant">Restaurant</string>
+    <string name="category_restaurants">Restaurants</string>
+    <string name="category_food">Food</string>
+    <string name="category_coffee">Coffee</string>
+    <string name="category_hotel">Hotel</string>
+    <string name="category_hotels">Hotels</string>
+    <string name="category_grocery">Grocery</string>
+    <string name="category_pharmacy">Pharmacy</string>
+    <string name="category_parking">Parking</string>
+    <string name="category_gas">Gas</string>
+    <string name="category_ev_charging">EV charging</string>
+    <string name="category_bank">Bank</string>
+    <string name="category_atm">ATM</string>
+    <string name="category_convenience">Convenience</string>
+    <string name="category_medical">Medical</string>
+    <string name="category_entertainment">Entertainment</string>
+    <string name="category_shopping">Shopping</string>
+    <string name="category_education">Education</string>
+    <string name="nearby_public_parking">Public Parking</string>
+    <string name="nearby_gas_station">Gas Station</string>
+    <string name="nearby_generic_name">Nearby %1$s</string>
+    <string name="nearby_finding_category">Finding nearby %1$s…</string>
 
     <!-- Nearby Explore (Phase 12A) -->
     <string name="nearby_title">Nearby</string>
