@@ -177,7 +177,7 @@
     <string name="nav_error_no_location">We need your location to start navigation.</string>
     <string name="nav_error_no_route">This route doesn\'t have turn-by-turn directions yet.</string>
     <string name="nav_action_report">Report</string>
-    <string name="nav_action_volume">Volume</string>
+    <string name="nav_action_volume">AI voice</string>
     <string name="nav_action_share">Share</string>
     <string name="nav_action_reroute">Reroute</string>
     <string name="nav_exit">EXIT</string>
