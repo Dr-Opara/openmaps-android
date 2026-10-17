@@ -116,6 +116,7 @@ async function writePlacesTelemetry(event: {
   latencyMs: number;
   outcome: "success" | "zero_results" | "error";
   fallbackUsed: boolean;
+  usedCache: boolean;
 }): Promise<void> {
   try {
     await adminFetch("/rest/v1/places_telemetry", {
@@ -129,10 +130,69 @@ async function writePlacesTelemetry(event: {
         latency_ms: event.latencyMs,
         outcome: event.outcome,
         fallback_used: event.fallbackUsed,
+        used_cache: event.usedCache,
       }),
     });
   } catch {
     // Places must never fail because observability failed.
+  }
+}
+
+
+async function placesCacheKey(
+  center: Coordinate,
+  radiusMeters: number,
+  categories: PlaceCategory[],
+): Promise<string> {
+  const roundedLat = center.latitude.toFixed(3);
+  const roundedLon = center.longitude.toFixed(3);
+  const radiusBucket = Math.round(radiusMeters / 250) * 250;
+  return sha256Hex([
+    "places-v1",
+    roundedLat,
+    roundedLon,
+    String(radiusBucket),
+    [...categories].sort().join(","),
+  ].join("|"));
+}
+
+async function readPlacesCache(key: string): Promise<{ places: any[]; providers: string[] } | null> {
+  try {
+    const now = encodeURIComponent(new Date().toISOString());
+    const response = await adminFetch(
+      "/rest/v1/places_cache?cache_key=eq." + encodeURIComponent(key) +
+      "&expires_at=gt." + now +
+      "&select=response,providers&limit=1",
+      { method: "GET" },
+    );
+    if (!response || !response.ok) return null;
+    const rows = await response.json();
+    if (!Array.isArray(rows) || rows.length === 0 || !Array.isArray(rows[0]?.response)) return null;
+    return {
+      places: rows[0].response,
+      providers: Array.isArray(rows[0].providers) ? rows[0].providers : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writePlacesCache(key: string, places: any[], providers: string[]): Promise<void> {
+  if (places.length === 0) return;
+  try {
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    await adminFetch("/rest/v1/places_cache?on_conflict=cache_key", {
+      method: "POST",
+      headers: { prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({
+        cache_key: key,
+        response: places,
+        providers,
+        expires_at: expiresAt,
+      }),
+    });
+  } catch {
+    // Cache is best-effort.
   }
 }
 
@@ -407,6 +467,30 @@ Deno.serve(async (req: Request) => {
   const apiKey = Deno.env.get("HERE_API_KEY")?.trim();
   if (!apiKey) return json({ error: "provider_not_configured", provider: "here" }, 503);
 
+  const cacheKey = await placesCacheKey(body.center, radiusMeters, categories);
+  const cached = await readPlacesCache(cacheKey);
+  if (cached) {
+    void writePlacesTelemetry({
+      categories,
+      radiusMeters,
+      resultCount: cached.places.length,
+      providers: cached.providers,
+      latencyMs: Math.round(performance.now() - startedAt),
+      outcome: cached.places.length > 0 ? "success" : "zero_results",
+      fallbackUsed: false,
+      usedCache: true,
+    });
+    return json({
+      provider: cached.providers.includes("here") && cached.providers.includes("osm")
+        ? "here+osm"
+        : cached.providers[0] ?? "cache",
+      providers: cached.providers,
+      capability: "available",
+      cacheHit: true,
+      places: cached.places,
+    });
+  }
+
   const [hereResult, osmResult] = await Promise.allSettled([
     browseHere(body.center, radiusMeters, categories, apiKey),
     browseOsm(body.center, radiusMeters, categories),
@@ -435,6 +519,7 @@ Deno.serve(async (req: Request) => {
         latencyMs: Math.round(performance.now() - startedAt),
         outcome: "error",
         fallbackUsed: true,
+        usedCache: false,
       });
       return json({ error: "upstream_unavailable", providers: ["here", "osm"] }, 503);
     }
@@ -454,7 +539,9 @@ Deno.serve(async (req: Request) => {
     latencyMs: Math.round(performance.now() - startedAt),
     outcome: places.length > 0 ? "success" : "zero_results",
     fallbackUsed,
+    usedCache: false,
   });
+  void writePlacesCache(cacheKey, places, providers);
   return json({
     provider: herePlaces.length > 0 && osmPlaces.length > 0 ? "here+osm" : herePlaces.length > 0 ? "here" : "osm",
     providers,
