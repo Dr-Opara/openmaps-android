@@ -397,3 +397,22 @@ Run worldwide acceptance:
 ```
 
 The production path is HERE Browse + OSM aggregation behind the gateway, with direct Android Overpass as the last-resort fallback.
+
+
+## Live Trip Sharing
+
+The Android app uses the OpenMaps `trip-share` Edge Function. The Supabase publishable key is safe for the mobile client; session owner/share capability tokens are generated at runtime and are not committed.
+
+Deploy:
+
+```powershell
+npx supabase functions deploy trip-share --project-ref upcfmhcfuagloqlcmezr --no-verify-jwt
+```
+
+Run production lifecycle acceptance:
+
+```powershell
+.\scripts\production-trip-sharing-acceptance.ps1
+```
+
+The public viewer link contains only the share capability. Android retains the separate owner capability in memory for live updates and explicit revocation.
