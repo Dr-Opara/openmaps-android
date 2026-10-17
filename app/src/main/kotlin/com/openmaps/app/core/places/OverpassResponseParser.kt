@@ -93,7 +93,7 @@ internal object OverpassResponseParser {
         PlaceCategory.Restaurant, PlaceCategory.Coffee, PlaceCategory.Hotel,
         PlaceCategory.Grocery, PlaceCategory.Pharmacy, PlaceCategory.Bank, PlaceCategory.Atm,
         PlaceCategory.Convenience, PlaceCategory.Medical, PlaceCategory.Entertainment,
-        PlaceCategory.Shopping,
+        PlaceCategory.Shopping, PlaceCategory.Education,
         -> PlaceMetadata()
     }
 
@@ -124,6 +124,7 @@ internal object OverpassResponseParser {
         PlaceCategory.Medical -> "Medical"
         PlaceCategory.Entertainment -> "Entertainment"
         PlaceCategory.Shopping -> "Shopping"
+        PlaceCategory.Education -> "Education"
     }
 
     private fun JSONObject.toStringMap(): Map<String, String> {
