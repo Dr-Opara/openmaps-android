@@ -34,3 +34,18 @@ jobs:
 
       - name: Lint
         run: ./gradlew lint
+
+      - name: Community reports production acceptance
+        if: ${{ hashFiles('scripts/production-community-reports-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-community-reports-acceptance.ps1
+
+      - name: Trip sharing production acceptance
+        if: ${{ hashFiles('scripts/production-trip-sharing-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-trip-sharing-acceptance.ps1
+
+      - name: Places production acceptance
+        if: ${{ hashFiles('scripts/production-places-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-places-acceptance.ps1
