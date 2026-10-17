@@ -168,7 +168,7 @@ Deno.serve(async (req: Request) => {
         voice: "cedar",
         input: text,
         instructions: instructionsFor(language),
-        response_format: "aac",
+        response_format: "wav",
         speed: 1.04,
       }),
       signal: AbortSignal.timeout(5000),
@@ -189,7 +189,7 @@ Deno.serve(async (req: Request) => {
     return new Response(audio, {
       status: 200,
       headers: {
-        "content-type": "audio/aac",
+        "content-type": "audio/wav",
         "cache-control": "private, max-age=86400",
         "x-openmaps-voice-provider": "openai",
         "x-openmaps-voice-model": "gpt-4o-mini-tts",
