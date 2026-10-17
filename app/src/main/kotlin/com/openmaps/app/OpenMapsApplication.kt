@@ -16,6 +16,7 @@ import com.openmaps.app.core.environment.RoadClassRepository
 import com.openmaps.app.core.location.AndroidLocationRepository
 import com.openmaps.app.core.location.LocationPermissionPrefs
 import com.openmaps.app.core.location.LocationRepository
+import com.openmaps.app.core.localization.LocalizationPrefs
 import com.openmaps.app.core.places.BackendPlaceRepository
 import com.openmaps.app.core.places.CompositePlaceRepository
 import com.openmaps.app.core.places.OverpassPlaceRepository
@@ -49,6 +50,7 @@ class AppContainer(application: Application) {
     val locationRepository: LocationRepository = AndroidLocationRepository(application)
     val locationPermissionPrefs: LocationPermissionPrefs = LocationPermissionPrefs(application)
     val cameraPermissionPrefs: CameraPermissionPrefs = CameraPermissionPrefs(application)
+    val localizationPrefs: LocalizationPrefs = LocalizationPrefs(application)
     val mapStyleProvider: MapStyleProvider = BuildConfigMapStyleProvider()
     /**
      * Production geocoding path:
