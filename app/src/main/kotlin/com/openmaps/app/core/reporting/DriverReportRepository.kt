@@ -30,10 +30,18 @@ sealed class DriverReportException(message: String) : Exception(message) {
  */
 interface DriverReportRepository {
     suspend fun submit(report: DriverReport): Result<Unit>
+    suspend fun confirm(reportId: String): Result<Unit>
+    suspend fun dismiss(reportId: String): Result<Unit>
 }
 
 /** Production-safe default until a real, moderated incident provider is connected. */
 class UnavailableDriverReportRepository : DriverReportRepository {
     override suspend fun submit(report: DriverReport): Result<Unit> =
+        Result.failure(DriverReportException.Unavailable)
+
+    override suspend fun confirm(reportId: String): Result<Unit> =
+        Result.failure(DriverReportException.Unavailable)
+
+    override suspend fun dismiss(reportId: String): Result<Unit> =
         Result.failure(DriverReportException.Unavailable)
 }
