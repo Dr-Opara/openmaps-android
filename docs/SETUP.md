@@ -416,3 +416,16 @@ Run production lifecycle acceptance:
 ```
 
 The public viewer link contains only the share capability. Android retains the separate owner capability in memory for live updates and explicit revocation.
+
+
+## Community Reports
+
+The Android app uses the OpenMaps `community-reports` Edge Function. Reports are short-lived and moderated through confidence/feedback rather than treated as authoritative provider data.
+
+Production acceptance:
+
+```powershell
+.\scripts\production-community-reports-acceptance.ps1
+```
+
+GitHub Actions runs this acceptance together with Android assemble, unit tests and lint for pull requests targeting `production/platform-v1`.

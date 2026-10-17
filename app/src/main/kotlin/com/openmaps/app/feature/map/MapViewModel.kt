@@ -170,6 +170,7 @@ class MapViewModel(
     private var speedLimitJob: Job? = null
     private var laneGuidanceJob: Job? = null
     private var lastLaneGuidanceKey: String? = null
+    private var lastRoadEventsRefreshMillis: Long = 0L
 
     /** Where the last weather/speed-limit fetch was centered, for each's own move-threshold check. */
     private var lastWeatherFetchLocation: UserLocation? = null
@@ -1375,6 +1376,48 @@ class MapViewModel(
         }
     }
 
+    fun onCommunityReportConfirmed(reportId: String) {
+        voteOnCommunityReport(reportId, confirm = true)
+    }
+
+    fun onCommunityReportDismissed(reportId: String) {
+        voteOnCommunityReport(reportId, confirm = false)
+    }
+
+    private fun voteOnCommunityReport(reportId: String, confirm: Boolean) {
+        if (reportId.isBlank()) return
+        viewModelScope.launch {
+            val result = if (confirm) {
+                driverReportRepository.confirm(reportId)
+            } else {
+                driverReportRepository.dismiss(reportId)
+            }
+            result.onSuccess {
+                if (!confirm) {
+                    _uiState.update { state ->
+                        state.copy(
+                            roadIntelligenceState = state.roadIntelligenceState.copy(
+                                events = state.roadIntelligenceState.events.filterNot {
+                                    it.metadata["communityReportId"] == reportId
+                                },
+                            ),
+                        )
+                    }
+                    recomputeRoadAlerts()
+                }
+                refreshCommunityAndRoadEvents(force = true)
+            }
+        }
+    }
+
+    private fun refreshCommunityAndRoadEvents(force: Boolean = false) {
+        val route = (_uiState.value.routeState as? RouteState.Ready)?.route ?: return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastRoadEventsRefreshMillis < ROAD_EVENTS_REFRESH_INTERVAL_MILLIS) return
+        lastRoadEventsRefreshMillis = now
+        fetchRoadEventsAlongRoute(route)
+    }
+
     fun onTripShareRequested() {
         val state = _uiState.value
         val destination = state.selectedDestination
@@ -1604,6 +1647,7 @@ class MapViewModel(
         }
 
         maybeUpdateTripSharing(location, progress)
+        refreshCommunityAndRoadEvents()
         dispatchVoiceForProgress(progress)
         maybeFetchLaneGuidance(progress)
         maybeRerouteForCriticalIncident(location, progress)
@@ -1688,7 +1732,8 @@ class MapViewModel(
             .filter { event ->
                 event.id !in incidentRerouteIds &&
                     event.severity >= RoadEventSeverity.High &&
-                    (event.type == RoadEventType.Closure || event.type == RoadEventType.Crash)
+                    (event.type == RoadEventType.Closure || event.type == RoadEventType.Crash) &&
+                    event.isTrustedForAutomaticReroute()
             }
             .mapNotNull { event ->
                 val routeMeters = event.routeDistanceMeters ?: return@mapNotNull null
@@ -1702,6 +1747,13 @@ class MapViewModel(
         _uiState.update { it.copy(navigationState = NavigationState.Rerouting) }
         voiceGuidanceEngine.speak(VoiceEvent.Rerouting)
         requestReroute(location)
+    }
+
+    private fun com.openmaps.app.core.roadintelligence.RoadEvent.isTrustedForAutomaticReroute(): Boolean {
+        if (metadata["source"] != "community") return true
+        val confidence = metadata["confidence"]?.toDoubleOrNull() ?: return false
+        val confirmations = metadata["confirmations"]?.toIntOrNull() ?: 0
+        return confidence >= COMMUNITY_REROUTE_MIN_CONFIDENCE && confirmations >= COMMUNITY_REROUTE_MIN_CONFIRMATIONS
     }
 
     /** Completes the arrival lifecycle and returns to the clean Discover/Home state. */
@@ -2042,6 +2094,9 @@ class MapViewModel(
         const val TRIP_SHARE_GRACE_MILLIS = 30 * 60 * 1_000L
         const val MAX_TRIP_SHARE_EXPIRY_MILLIS = 24 * 60 * 60 * 1_000L
         const val TRIP_SHARE_UPDATE_INTERVAL_MILLIS = 5_000L
+        const val ROAD_EVENTS_REFRESH_INTERVAL_MILLIS = 90_000L
+        const val COMMUNITY_REROUTE_MIN_CONFIDENCE = 0.65
+        const val COMMUNITY_REROUTE_MIN_CONFIRMATIONS = 2
         const val ARRIVAL_RETURN_HOME_DELAY_MILLIS = 6_000L
         const val CRITICAL_INCIDENT_REROUTE_DISTANCE_METERS = 5_000.0
         const val LANE_TRACE_MAX_POINTS = 24

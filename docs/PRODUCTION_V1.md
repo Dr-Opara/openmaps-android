@@ -245,3 +245,28 @@ Remaining release validation:
 - Android build/unit/lint on the feature branch.
 - Production acceptance script against the deployed gateway.
 - Physical-device validation during a real trip, including screen lock/background behavior and link expiration.
+
+
+## Workstream 5: Community Reports
+
+Implemented on `feature/community-reports-v1`:
+
+- Real Supabase-backed community report storage with RLS-protected tables.
+- Supported report types: police, traffic, crash, lane closed, construction, road hazard, flooding, disabled vehicle and object on road.
+- Type-specific TTL prevents stale incidents from lingering indefinitely.
+- Nearby duplicate submissions of the same type are clustered within 100 m rather than creating repeated map incidents.
+- Confirmation/dismissal votes are unique per hashed client and recompute confidence.
+- Confidence starts at 0.35, increases with independent confirmations, decreases with dismissals and is capped to [0.0, 0.95].
+- Automatic moderation rejects reports after sustained negative feedback (at least three dismissals and more than twice the confirmations).
+- Active community reports are queried along the current route and merged into the existing provider-neutral road-intelligence pipeline.
+- Community reports therefore use the existing route matching, alert prioritization, map rendering and Live rendering rather than a parallel incident UI.
+- Map navigation exposes “Still there” / “Not there” feedback actions for community-backed alerts.
+- While navigating, road events refresh every 90 seconds so newly submitted reports can appear without requiring a reroute.
+- Submission/query/vote paths are rate limited and instrumented.
+- `community_report_health_24h` exposes operational volume, voting, clustering, errors and latency.
+- `scripts/production-community-reports-acceptance.ps1` validates submit, route query, confidence increase, duplicate clustering and dismissal.
+- GitHub Actions now runs Android assemble, unit tests, lint and community-report production acceptance on pull requests to `production/platform-v1`.
+
+Release validation:
+- CI must pass before merge.
+- Physical-device testing should confirm the report dialog, route-alert appearance, feedback buttons and refresh behavior during a real drive.
