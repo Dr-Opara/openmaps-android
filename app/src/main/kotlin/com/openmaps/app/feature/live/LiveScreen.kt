@@ -1355,6 +1355,9 @@ private fun LiveDrivingActions(
             DriverReportType.LaneClosed to R.string.nav_report_lane_closed,
             DriverReportType.Construction to R.string.nav_report_construction,
             DriverReportType.RoadHazard to R.string.nav_report_road_hazard,
+            DriverReportType.Flooding to R.string.nav_report_flooding,
+            DriverReportType.DisabledVehicle to R.string.nav_report_disabled_vehicle,
+            DriverReportType.ObjectOnRoad to R.string.nav_report_object_road,
         )
         AlertDialog(
             onDismissRequest = { showReports = false },
