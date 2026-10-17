@@ -4,7 +4,7 @@ type Coordinate = { latitude: number; longitude: number };
 type PlaceCategory =
   | "Restaurant" | "Coffee" | "Hotel" | "Grocery" | "Pharmacy" | "Parking"
   | "Gas" | "EvCharging" | "Bank" | "Atm" | "Convenience" | "Medical"
-  | "Entertainment" | "Shopping";
+  | "Entertainment" | "Shopping" | "Education";
 
 type PlacesRequest = {
   center?: Coordinate;
@@ -27,6 +27,7 @@ const HERE_CATEGORY_IDS: Record<PlaceCategory, string[]> = {
   Medical: ["800-8000"],
   Entertainment: ["200", "300"],
   Shopping: ["600"],
+  Education: ["800-8200", "800-8250"],
 };
 
 function json(body: unknown, status = 200) {
@@ -141,6 +142,160 @@ async function browseHere(
   return items.map((item) => normalize(item, categories)).filter((item) => item != null);
 }
 
+
+
+const OSM_SELECTORS: Partial<Record<PlaceCategory, Array<[string, string]>>> = {
+  Restaurant: [["amenity", "restaurant"], ["amenity", "fast_food"]],
+  Coffee: [["amenity", "cafe"]],
+  Hotel: [["tourism", "hotel"], ["tourism", "motel"], ["tourism", "guest_house"]],
+  Grocery: [["shop", "supermarket"], ["shop", "grocery"]],
+  Pharmacy: [["amenity", "pharmacy"]],
+  Parking: [["amenity", "parking"]],
+  Gas: [["amenity", "fuel"]],
+  EvCharging: [["amenity", "charging_station"]],
+  Bank: [["amenity", "bank"]],
+  Atm: [["amenity", "atm"]],
+  Convenience: [["shop", "convenience"]],
+  Medical: [["amenity", "clinic"], ["amenity", "hospital"], ["amenity", "doctors"]],
+  Entertainment: [["amenity", "cinema"], ["amenity", "theatre"], ["tourism", "attraction"]],
+  Shopping: [["shop", "mall"], ["shop", "department_store"], ["shop", "clothes"], ["shop", "shoes"], ["shop", "electronics"]],
+  Education: [["amenity", "school"], ["amenity", "college"], ["amenity", "university"], ["amenity", "kindergarten"]],
+};
+
+function osmCategory(tags: Record<string, string>, requested: PlaceCategory[]): PlaceCategory | null {
+  for (const category of requested) {
+    const selectors = OSM_SELECTORS[category] ?? [];
+    if (selectors.some(([key, value]) => tags[key] === value)) return category;
+  }
+  return null;
+}
+
+function osmAddress(tags: Record<string, string>): string | null {
+  const house = firstString(tags["addr:housenumber"]);
+  const street = firstString(tags["addr:street"]);
+  if (house && street) return house + " " + street;
+  return street;
+}
+
+function osmMetadata(category: PlaceCategory, tags: Record<string, string>) {
+  return {
+    parkingType: category === "Parking" ? firstString(tags.parking) : null,
+    isPublicAccess: category === "Parking"
+      ? (["yes", "public", "permissive"].includes(tags.access) ? true : ["private", "no"].includes(tags.access) ? false : null)
+      : null,
+    feeApplies: category === "Parking"
+      ? (tags.fee === "yes" ? true : tags.fee === "no" ? false : null)
+      : null,
+    brand: category === "Gas"
+      ? firstString(tags.brand) ?? firstString(tags.operator)
+      : category === "EvCharging"
+      ? firstString(tags.operator) ?? firstString(tags.network)
+      : firstString(tags.brand),
+    connectors: category === "EvCharging"
+      ? Object.keys(tags).filter((key) => key.startsWith("socket:")).map((key) => key.slice("socket:".length)).sort()
+      : [],
+  };
+}
+
+async function browseOsm(
+  center: Coordinate,
+  radiusMeters: number,
+  categories: PlaceCategory[],
+) {
+  const selectors = categories.flatMap((category) => OSM_SELECTORS[category] ?? []);
+  if (selectors.length === 0) return [];
+
+  const clauses = selectors
+    .map(([key, value]) => `nwr["${key}"="${value}"](around:${Math.round(radiusMeters)},${center.latitude},${center.longitude});`)
+    .join("\n  ");
+  const query = `[out:json][timeout:8];(\n  ${clauses}\n);out body center 80;`;
+
+  const endpoints = [
+    "https://overpass.openstreetmap.fr/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded; charset=utf-8",
+          accept: "application/json",
+          "user-agent": "OpenMaps/1.0 global-places gateway",
+        },
+        body: "data=" + encodeURIComponent(query),
+        signal: AbortSignal.timeout(7000),
+      });
+      if (!response.ok) continue;
+      const body = await response.json() as { elements?: Array<Record<string, unknown>> };
+      const elements = Array.isArray(body.elements) ? body.elements : [];
+      return elements.map((element) => {
+        const tags = element.tags && typeof element.tags === "object"
+          ? element.tags as Record<string, string>
+          : {};
+        const category = osmCategory(tags, categories);
+        if (!category) return null;
+        const centerObj = element.center && typeof element.center === "object"
+          ? element.center as Record<string, unknown>
+          : null;
+        const latitude = Number(element.lat ?? centerObj?.lat);
+        const longitude = Number(element.lon ?? centerObj?.lon);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+        return {
+          id: "osm:" + String(element.type ?? "node") + "/" + String(element.id ?? ""),
+          name: firstString(tags.name) ?? category,
+          category,
+          latitude,
+          longitude,
+          address: osmAddress(tags),
+          distanceMeters: null,
+          openNow: null,
+          metadata: osmMetadata(category, tags),
+        };
+      }).filter((item) => item != null);
+    } catch {
+      // Try next worldwide Overpass mirror.
+    }
+  }
+  throw new Error("OSM_UNAVAILABLE");
+}
+
+function normalizeText(value: string | null | undefined): string {
+  return (value ?? "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+}
+
+function metersBetween(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * rad;
+  const dLon = (b.longitude - a.longitude) * rad;
+  const lat1 = a.latitude * rad;
+  const lat2 = b.latitude * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function samePlace(a: any, b: any): boolean {
+  if (a.category !== b.category) return false;
+  if (metersBetween(a, b) > 80) return false;
+  const an = normalizeText(a.name);
+  const bn = normalizeText(b.name);
+  if (an && bn && an === bn) return true;
+  const aa = normalizeText(a.address);
+  const ba = normalizeText(b.address);
+  return aa.length > 0 && aa === ba;
+}
+
+function mergeDeduplicate(primary: any[], fallback: any[]): any[] {
+  const kept = [...primary];
+  for (const candidate of fallback) {
+    if (!kept.some((existing) => samePlace(existing, candidate))) kept.push(candidate);
+    if (kept.length >= 60) break;
+  }
+  return kept.slice(0, 60);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (!authorized(req)) return json({ error: "unauthorized" }, 401);
@@ -165,19 +320,38 @@ Deno.serve(async (req: Request) => {
   const apiKey = Deno.env.get("HERE_API_KEY")?.trim();
   if (!apiKey) return json({ error: "provider_not_configured", provider: "here" }, 503);
 
-  try {
-    const places = await browseHere(body.center, radiusMeters, categories, apiKey);
-    return json({ provider: "here", capability: "available", places });
-  } catch (error) {
-    const message = String(error);
-    if (message.includes("RATE_LIMITED")) {
-      return json({ error: "rate_limited", provider: "here" }, 429);
+  const [hereResult, osmResult] = await Promise.allSettled([
+    browseHere(body.center, radiusMeters, categories, apiKey),
+    browseOsm(body.center, radiusMeters, categories),
+  ]);
+
+  const herePlaces = hereResult.status === "fulfilled" ? hereResult.value : [];
+  const osmPlaces = osmResult.status === "fulfilled" ? osmResult.value : [];
+
+  if (herePlaces.length === 0 && osmPlaces.length === 0) {
+    const hereError = hereResult.status === "rejected" ? String(hereResult.reason) : "";
+    const osmError = osmResult.status === "rejected" ? String(osmResult.reason) : "";
+    if (hereError.includes("RATE_LIMITED")) {
+      return json({ error: "rate_limited", providers: ["here", "osm"] }, 429);
     }
-    console.error(JSON.stringify({
-      event: "places_provider_failed",
-      provider: "here",
-      error: message.replace(apiKey, "[redacted]"),
-    }));
-    return json({ error: "upstream_unavailable", provider: "here" }, 503);
+    if (hereResult.status === "rejected" && osmResult.status === "rejected") {
+      console.error(JSON.stringify({
+        event: "places_providers_failed",
+        here: hereError.replace(apiKey, "[redacted]"),
+        osm: osmError,
+      }));
+      return json({ error: "upstream_unavailable", providers: ["here", "osm"] }, 503);
+    }
   }
+
+  const places = mergeDeduplicate(herePlaces, osmPlaces);
+  return json({
+    provider: herePlaces.length > 0 && osmPlaces.length > 0 ? "here+osm" : herePlaces.length > 0 ? "here" : "osm",
+    providers: [
+      ...(hereResult.status === "fulfilled" ? ["here"] : []),
+      ...(osmResult.status === "fulfilled" ? ["osm"] : []),
+    ],
+    capability: "available",
+    places,
+  });
 });
