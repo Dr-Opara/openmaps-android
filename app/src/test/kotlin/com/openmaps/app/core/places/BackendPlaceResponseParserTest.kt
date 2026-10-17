@@ -29,7 +29,12 @@ class BackendPlaceResponseParserTest {
                     "isPublicAccess":null,
                     "feeApplies":null,
                     "brand":null,
-                    "connectors":[]
+                    "connectors":[],
+                    "phone":"+17135551212",
+                    "website":"https://example.com",
+                    "openingHoursText":"Mon-Fri: 08:00 - 17:00",
+                    "accessLatitude":29.7605,
+                    "accessLongitude":-95.3697
                   }
                 }
               ]
@@ -43,6 +48,11 @@ class BackendPlaceResponseParserTest {
         assertEquals("OpenMaps Academy", places.single().name)
         assertEquals(125.0, places.single().distanceMeters!!, 0.001)
         assertNull(places.single().openNow)
+        assertEquals("+17135551212", places.single().metadata.phone)
+        assertEquals("https://example.com", places.single().metadata.website)
+        assertEquals("Mon-Fri: 08:00 - 17:00", places.single().metadata.openingHoursText)
+        assertEquals(29.7605, places.single().metadata.accessLatitude!!, 0.0001)
+        assertEquals(-95.3697, places.single().metadata.accessLongitude!!, 0.0001)
     }
 
     @Test
