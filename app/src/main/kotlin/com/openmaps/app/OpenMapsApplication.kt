@@ -15,6 +15,7 @@ import com.openmaps.app.core.environment.RoadClassRepository
 import com.openmaps.app.core.location.AndroidLocationRepository
 import com.openmaps.app.core.location.LocationPermissionPrefs
 import com.openmaps.app.core.location.LocationRepository
+import com.openmaps.app.core.places.BackendPlaceRepository
 import com.openmaps.app.core.places.CompositePlaceRepository
 import com.openmaps.app.core.places.OverpassPlaceRepository
 import com.openmaps.app.core.places.PlaceRepository
@@ -104,13 +105,19 @@ class AppContainer(application: Application) {
      * against a provider that is measurably flaky: whichever mirror is currently healthy answers
      * first, and a total outage degrades to cached data instead of an error screen.
      *
-     * **Production seam:** when a contracted/self-hosted places provider exists, add it to [providers]
-     * ahead of Overpass — nothing else changes. The UI never learns which provider answered.
+     * Production path:
+     *   OpenMaps places gateway (HERE Browse) -> public Overpass/OSM fallback.
+     *
+     * Provider secrets remain server-side and the UI remains provider-neutral.
      */
     val placesRepository: PlaceRepository = CompositePlaceRepository(
         providers = listOf(
+            BackendPlaceRepository(
+                endpointUrl = BuildConfig.PLACES_GATEWAY_URL,
+                publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+            ),
             OverpassPlaceRepository(
-                userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+                userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; places fallback)",
             ),
         ),
     )

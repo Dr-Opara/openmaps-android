@@ -524,6 +524,36 @@ private fun OverviewTabContent(place: Place) {
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
+        place.metadata.openingHoursText?.takeIf { it.isNotBlank() }?.let { hours ->
+            Text(
+                text = hours,
+                style = MaterialTheme.typography.bodySmall,
+                color = OpenMapsColors.TextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        place.metadata.phone?.takeIf { it.isNotBlank() }?.let { phone ->
+            Text(
+                text = phone,
+                style = MaterialTheme.typography.bodyMedium,
+                color = OpenMapsColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        place.metadata.website?.takeIf { it.isNotBlank() }?.let { website ->
+            Text(
+                text = website,
+                style = MaterialTheme.typography.bodySmall,
+                color = OpenMapsColors.ElectricBlueFilled,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
         // Mockup: a dedicated pin + address row at the bottom of Overview. Only when the provider
         // actually supplied one — never a fabricated address.
         place.address?.takeIf { it.isNotBlank() }?.let { address ->
@@ -638,7 +668,7 @@ private fun placeMetadataLine(place: Place): String? {
         PlaceCategory.Restaurant, PlaceCategory.Coffee, PlaceCategory.Hotel,
         PlaceCategory.Grocery, PlaceCategory.Pharmacy, PlaceCategory.Bank, PlaceCategory.Atm,
         PlaceCategory.Convenience, PlaceCategory.Medical, PlaceCategory.Entertainment,
-        PlaceCategory.Shopping,
+        PlaceCategory.Shopping, PlaceCategory.Education,
         -> null
     }
 }
@@ -675,6 +705,7 @@ internal fun PlaceCategory.displayName(): String = when (this) {
     PlaceCategory.Medical -> "Medical"
     PlaceCategory.Entertainment -> "Entertainment"
     PlaceCategory.Shopping -> "Shopping"
+    PlaceCategory.Education -> "Education"
 }
 
 /**
@@ -700,6 +731,7 @@ internal fun PlaceCategory.iconRes(): Int = when (this) {
     PlaceCategory.Medical -> R.drawable.ic_medical
     PlaceCategory.Entertainment -> R.drawable.ic_entertainment
     PlaceCategory.Shopping -> R.drawable.ic_shopping
+    PlaceCategory.Education -> R.drawable.ic_place
 }
 
 /**
@@ -725,4 +757,5 @@ internal fun PlaceCategory.markerColor(): Color = when (this) {
     PlaceCategory.Medical -> Color(0xFFE05C5C)
     PlaceCategory.Entertainment -> Color(0xFFD16FD1)
     PlaceCategory.Shopping -> Color(0xFFE89B3D)
+    PlaceCategory.Education -> Color(0xFF6F8FD1)
 }

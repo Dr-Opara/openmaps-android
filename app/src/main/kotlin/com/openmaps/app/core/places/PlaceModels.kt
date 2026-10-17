@@ -23,6 +23,8 @@ enum class PlaceCategory {
     Entertainment,
     /** A curated `shop=*` subset (malls, department stores, clothing/shoes/electronics). */
     Shopping,
+    /** Schools, colleges, universities and kindergartens. */
+    Education,
 }
 
 /**
@@ -55,6 +57,15 @@ data class PlaceMetadata(
     val brand: String? = null,
     /** EV charging only: connector types reported by the provider (e.g. "type2", "ccs"). Never invented. */
     val connectors: List<String> = emptyList(),
+    /** Provider-supplied public phone number, when available. */
+    val phone: String? = null,
+    /** Provider-supplied public website, when available. */
+    val website: String? = null,
+    /** Provider-supplied opening-hours text. This is descriptive; OpenMaps never infers hours. */
+    val openingHoursText: String? = null,
+    /** Preferred access/entrance point when the provider supplies one. */
+    val accessLatitude: Double? = null,
+    val accessLongitude: Double? = null,
 )
 
 /**

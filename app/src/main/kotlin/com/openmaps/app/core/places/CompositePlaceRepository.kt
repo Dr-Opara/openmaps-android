@@ -73,7 +73,10 @@ class CompositePlaceRepository(
     ): Result<List<Place>> {
         if (routeGeometry.size < 2) return Result.success(emptyList())
         val bounds = RouteCorridor.boundingQuery(routeGeometry, corridorMeters, MAX_ROUTE_RADIUS_METERS)
-        return nearbyPlaces(bounds.center, bounds.radiusMeters, categories).map { it.places }
+        return nearbyPlaces(bounds.center, bounds.radiusMeters, categories).map { result ->
+            RouteCorridor.filterToCorridor(result.places, routeGeometry, corridorMeters)
+                .sortedBy { it.routeDetourMeters ?: Double.MAX_VALUE }
+        }
     }
 
     private fun Throwable.asPlaceException(): PlaceException = when (this) {

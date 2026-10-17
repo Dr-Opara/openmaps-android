@@ -378,3 +378,22 @@ The gateway confidence rule is fail-closed:
 - Missing/ambiguous evidence -> hide LaneLock.
 
 HERE remains the production provider for traffic-aware routing, incidents, alternatives, ETA, exits, and signposts.
+
+
+## Global Places
+
+Global Places uses the existing server-side `HERE_API_KEY` through the OpenMaps `places` Edge Function. No HERE provider credential is added to the Android APK.
+
+Deploy the gateway:
+
+```powershell
+npx supabase functions deploy places --project-ref upcfmhcfuagloqlcmezr --no-verify-jwt
+```
+
+Run worldwide acceptance:
+
+```powershell
+.\scripts\production-places-acceptance.ps1
+```
+
+The production path is HERE Browse + OSM aggregation behind the gateway, with direct Android Overpass as the last-resort fallback.
