@@ -29,7 +29,7 @@ object VoicePronunciationNormalizer {
         Regex("""\bLn(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Lane",
         Regex("""\bCt(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Court",
         Regex("""\bCir(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Circle",
-        Regex("""\bDr(?=\.?(?:\s+(?:and|toward|onto|then)\b|[,;]|$))""", RegexOption.IGNORE_CASE) to "Drive",
-        Regex("""\bSt(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Street",
+        Regex("""\bDr(?=\.?(?:\s+(?:N|S|E|W|NE|NW|SE|SW)\b|\s+(?:and|toward|onto|then)\b|[,;]|$))""", RegexOption.IGNORE_CASE) to "Drive",
+        Regex("""\bSt(?=\.?(?:\s+(?:N|S|E|W|NE|NW|SE|SW)\b|\s+(?:and|toward|onto|then)\b|[,;]|$))""", RegexOption.IGNORE_CASE) to "Street",
     )
 }
