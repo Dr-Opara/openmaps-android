@@ -29,6 +29,8 @@ class PlaceCategoryMapperTest {
         assertEquals(PlaceCategory.Entertainment, PlaceCategoryMapper.categoryFor(mapOf("tourism" to "attraction")))
         assertEquals(PlaceCategory.Shopping, PlaceCategoryMapper.categoryFor(mapOf("shop" to "mall")))
         assertEquals(PlaceCategory.Shopping, PlaceCategoryMapper.categoryFor(mapOf("shop" to "department_store")))
+        assertEquals(PlaceCategory.Education, PlaceCategoryMapper.categoryFor(mapOf("amenity" to "school")))
+        assertEquals(PlaceCategory.Education, PlaceCategoryMapper.categoryFor(mapOf("amenity" to "university")))
     }
 
     @Test
