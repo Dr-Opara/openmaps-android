@@ -83,13 +83,14 @@ function clientAddress(req: Request): string {
 
 async function clientHash(req: Request): Promise<string> {
   const installId = req.headers.get("x-openmaps-client-id")?.trim();
-  const normalizedInstallId = installId && /^[A-Za-z0-9._:-]{8,128}$/.test(installId)
-    ? installId
-    : "anonymous";
-  // The random per-install identifier prevents carrier-NAT/shared-WiFi users from collapsing into
-  // one voter. Combining it with the network address also makes copied identifiers less reusable.
-  // Neither raw value is persisted.
-  return sha256Hex(normalizedInstallId + "|" + clientAddress(req));
+  if (installId && /^[A-Za-z0-9._:-]{8,128}$/.test(installId)) {
+    // Stable per-install identity prevents carrier-NAT/shared-WiFi users from collapsing into one
+    // voter and does not change when the driver moves between Wi-Fi and cellular. Only the hash is
+    // persisted. Network address remains a separate rate-limit signal.
+    return sha256Hex("install|" + installId);
+  }
+  // Compatibility fallback for older clients that do not yet send an anonymous install id.
+  return sha256Hex("network|" + clientAddress(req));
 }
 
 async function consumeRateLimit(req: Request, endpoint: string, limit: number): Promise<boolean> {
