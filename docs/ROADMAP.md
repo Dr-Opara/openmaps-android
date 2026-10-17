@@ -495,3 +495,18 @@ Before turn-by-turn can start, these Phase 3 decisions need to be either confirm
 - Which production places provider, and at what volume (same category of question as tile/geocoding/routing)?
 - Should places along a long route refresh as the trip progresses, or is the one-time, capped-radius corridor query (current behaviour) sufficient in practice?
 - Should category filter preferences persist across sessions (currently reset to "all categories" on each app start)?
+
+
+## Major release workstream: Production Map Platform & Cartography, Not started
+
+This is a required launch workstream, not cosmetic polish.
+
+- Replace the development basemap dependency with production-grade global vector tile infrastructure.
+- Keep MapLibre as the renderer unless later evidence requires a change.
+- Build OpenMaps-owned Day, Night and Navigation styles.
+- Tune road hierarchy, route casing, highway shields, ramps, exits, labels, buildings, land use, water and POI density.
+- Navigation mode must reduce distraction and prioritize route, traffic, incidents, exits and maneuvers.
+- Browsing mode may show richer neighborhood and place context.
+- Validate smooth camera/gesture behavior, zoom/pitch/rotation, map loading and transitions between Map and Live.
+- Run visual QA in Houston, London, Paris, Lagos, Tokyo, Sydney plus suburban, rural, interstate, dense-city, night and complex-interchange scenarios.
+- The final map must be judged as a consumer navigation product on its own, not as a technical demo underneath the AR experience.
