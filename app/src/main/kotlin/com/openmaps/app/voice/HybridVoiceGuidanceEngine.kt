@@ -210,7 +210,7 @@ class HybridVoiceGuidanceEngine(
 
     private fun requiresImmediateFallback(event: VoiceEvent): Boolean =
         event == VoiceEvent.Rerouting ||
-            (event is VoiceEvent.Maneuver && event.stage == AnnouncementStage.Immediate)
+            (event is VoiceEvent.Maneuver && event.stage != AnnouncementStage.Far)
 
     private fun cacheFile(text: String, selectedLanguage: VoiceLanguage): File {
         val digest = MessageDigest.getInstance("SHA-256")
