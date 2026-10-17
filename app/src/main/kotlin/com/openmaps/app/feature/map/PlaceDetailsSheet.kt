@@ -52,6 +52,8 @@ import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.designsystem.surfaceCard
+import com.openmaps.app.core.localization.LocalMeasurementSystem
+import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import java.util.Locale
@@ -638,12 +640,13 @@ private fun NearbyTabContent(place: Place, nearbyPlaces: List<Place>, onSelect: 
 private const val MAX_NEARBY_TAB_RESULTS = 8
 
 /** "0.3 mi away" / "150 ft off route" — whichever distance figure the place actually carries. */
+@Composable
 private fun placeSummaryLine(place: Place): String? {
     val detour = place.routeDetourMeters
     val straight = place.distanceMeters
     return when {
-        detour != null -> "${formatPlaceDistance(detour)} off route"
-        straight != null -> "${formatPlaceDistance(straight)} away"
+        detour != null -> stringResource(R.string.distance_off_route_format, formatPlaceDistance(detour))
+        straight != null -> stringResource(R.string.distance_away_format, formatPlaceDistance(straight))
         else -> place.address
     }
 }
@@ -673,18 +676,9 @@ private fun placeMetadataLine(place: Place): String? {
     }
 }
 
-private fun formatPlaceDistance(meters: Double): String {
-    val feet = meters * FEET_PER_METER
-    val miles = meters / METERS_PER_MILE
-    return when {
-        feet < 1000.0 -> "${feet.roundToInt()} ft"
-        miles < 10 -> String.format(Locale.US, "%.1f mi", miles)
-        else -> "${miles.roundToInt()} mi"
-    }
-}
-
-private const val FEET_PER_METER = 3.28084
-private const val METERS_PER_MILE = 1609.344
+@Composable
+private fun formatPlaceDistance(meters: Double): String =
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
 
 /**
  * Screen-reader/UI label for a category. Hardcoded rather than `stringResource`, matching the
