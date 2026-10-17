@@ -797,15 +797,9 @@ private fun homeAngularDifference(a: Double, b: Double): Double {
     return if (raw > 180.0) 360.0 - raw else raw
 }
 
-private fun homeDistanceLabel(meters: Double): String {
-    val feet = meters * 3.28084
-    val miles = meters / 1609.344
-    return when {
-        feet < 1000.0 -> "${feet.roundToInt()} ft"
-        miles < 10.0 -> String.format(Locale.US, "%.1f mi", miles)
-        else -> "${miles.roundToInt()} mi"
-    }
-}
+@Composable
+private fun homeDistanceLabel(meters: Double): String =
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
 
 private const val HOME_AHEAD_HALF_ANGLE_DEGREES = 55.0
 
