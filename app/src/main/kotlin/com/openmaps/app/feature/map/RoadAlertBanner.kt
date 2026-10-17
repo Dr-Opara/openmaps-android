@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,7 +25,12 @@ import com.openmaps.app.core.roadintelligence.RouteAlert
  * search bar/navigation banner so it never covers the route or destination.
  */
 @Composable
-fun RoadAlertBanner(roadState: RoadIntelligenceState, modifier: Modifier = Modifier) {
+fun RoadAlertBanner(
+    roadState: RoadIntelligenceState,
+    onCommunityConfirm: (String) -> Unit = {},
+    onCommunityDismiss: (String) -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     val topAlert = roadState.activeAlerts.firstOrNull { it !is RouteAlert.SpeedLimit }
     val speedLimitAlert = roadState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull()
     val currentSpeed = roadState.currentSpeedMetersPerSecond
@@ -41,15 +47,27 @@ fun RoadAlertBanner(roadState: RoadIntelligenceState, modifier: Modifier = Modif
                     modifier = Modifier,
                 )
             } else {
-                Chip(background = OpenMapsColors.Warning) {
-                    val distance = RoadAlertPresentation.distanceAheadLabel(alert)
-                    Text(
-                        text = if (distance != null) "${RoadAlertPresentation.headline(alert)} $distance" else RoadAlertPresentation.headline(alert),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = OpenMapsColors.Navy900,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                Column {
+                    Chip(background = OpenMapsColors.Warning) {
+                        val distance = RoadAlertPresentation.distanceAheadLabel(alert)
+                        Text(
+                            text = if (distance != null) "${RoadAlertPresentation.headline(alert)} $distance" else RoadAlertPresentation.headline(alert),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = OpenMapsColors.Navy900,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    alert.communityReportId()?.let { reportId ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextButton(onClick = { onCommunityConfirm(reportId) }) {
+                                Text("Still there", style = MaterialTheme.typography.labelSmall)
+                            }
+                            TextButton(onClick = { onCommunityDismiss(reportId) }) {
+                                Text("Not there", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -149,4 +167,11 @@ private fun Chip(background: androidx.compose.ui.graphics.Color, content: @Compo
     ) {
         content()
     }
+}
+
+
+private fun RouteAlert.communityReportId(): String? = when (this) {
+    is RouteAlert.Hazard -> event.metadata["communityReportId"]
+    is RouteAlert.Informational -> event.metadata["communityReportId"]
+    else -> null
 }
