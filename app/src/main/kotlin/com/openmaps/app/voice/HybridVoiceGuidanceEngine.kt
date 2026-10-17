@@ -2,6 +2,8 @@ package com.openmaps.app.voice
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.util.Log
 import com.openmaps.app.core.voice.AnnouncementStage
@@ -38,8 +40,18 @@ class HybridVoiceGuidanceEngine(
 
     override val state: Flow<VoiceGuidanceState> = fallback.state
 
+    private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val cacheDirectory = File(context.applicationContext.cacheDir, "openmaps_neural_voice").apply { mkdirs() }
+    private val cacheDirectory = File(appContext.cacheDir, "openmaps_neural_voice").apply { mkdirs() }
+    private val navigationAudioAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+        .setAudioAttributes(navigationAudioAttributes)
+        .setOnAudioFocusChangeListener { }
+        .build()
     private val generation = AtomicLong(0L)
     private val playerLock = Any()
 
@@ -130,12 +142,7 @@ class HybridVoiceGuidanceEngine(
         try {
             fallback.stop()
             val player = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build(),
-                )
+                setAudioAttributes(navigationAudioAttributes)
                 setDataSource(file.absolutePath)
                 prepare()
             }
@@ -150,19 +157,23 @@ class HybridVoiceGuidanceEngine(
                 synchronized(playerLock) {
                     if (currentPlayer === completed) currentPlayer = null
                 }
+                audioManager.abandonAudioFocusRequest(audioFocusRequest)
                 completed.release()
             }
             player.setOnErrorListener { failed, _, _ ->
                 synchronized(playerLock) {
                     if (currentPlayer === failed) currentPlayer = null
                 }
+                audioManager.abandonAudioFocusRequest(audioFocusRequest)
                 failed.release()
                 file.delete()
                 if (generation.get() == token && enabled) fallback.speak(event)
                 true
             }
+            audioManager.requestAudioFocus(audioFocusRequest)
             player.start()
         } catch (t: Throwable) {
+            audioManager.abandonAudioFocusRequest(audioFocusRequest)
             file.delete()
             Log.w(TAG, "Neural voice playback failed; using Android TTS", t)
             if (generation.get() == token && enabled) fallback.speak(event)
@@ -214,6 +225,7 @@ class HybridVoiceGuidanceEngine(
             currentPlayer?.release()
             currentPlayer = null
         }
+        audioManager.abandonAudioFocusRequest(audioFocusRequest)
     }
 
     private fun pruneCache() {
