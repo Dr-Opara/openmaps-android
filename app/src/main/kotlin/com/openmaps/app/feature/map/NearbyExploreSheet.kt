@@ -211,10 +211,14 @@ fun NearbyExploreSheet(
  * A single selected category is named in the singular; a broad or multi-category fetch falls back to
  * the generic wording rather than producing an awkward list.
  */
+@Composable
 private fun loadingCopy(categories: Set<PlaceCategory>): String {
     val single = categories.singleOrNull()
-    return if (single != null) "Finding nearby ${single.displayName().lowercase()}s…"
-    else "Finding places nearby…"
+    return if (single != null) {
+        stringResource(R.string.nearby_finding_category, single.displayName().lowercase())
+    } else {
+        stringResource(R.string.nearby_finding)
+    }
 }
 
 /**
@@ -346,16 +350,17 @@ private fun NearbyPlaceCard(place: Place, onDetails: () -> Unit, onNavigate: () 
     }
 }
 
+@Composable
 private fun nearbyDisplayName(place: Place): String {
     val raw = place.name.trim()
     val generic = place.category.displayName()
     if (raw.isNotBlank() && !raw.equals(generic, ignoreCase = true)) return raw
     return when (place.category) {
-        PlaceCategory.Parking -> "Public Parking"
-        PlaceCategory.Gas -> "Gas Station"
-        PlaceCategory.EvCharging -> "EV Charging"
-        PlaceCategory.Atm -> "ATM"
-        else -> "Nearby ${generic}"
+        PlaceCategory.Parking -> stringResource(R.string.nearby_public_parking)
+        PlaceCategory.Gas -> stringResource(R.string.nearby_gas_station)
+        PlaceCategory.EvCharging -> stringResource(R.string.category_ev_charging)
+        PlaceCategory.Atm -> stringResource(R.string.category_atm)
+        else -> stringResource(R.string.nearby_generic_name, generic)
     }
 }
 
