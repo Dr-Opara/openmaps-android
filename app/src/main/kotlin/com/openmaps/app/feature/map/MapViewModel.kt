@@ -52,6 +52,7 @@ import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.core.sharing.TripShareRepository
 import com.openmaps.app.core.sharing.TripShareRequest
 import com.openmaps.app.core.sharing.TripShareSession
+import com.openmaps.app.core.sharing.TripShareUpdate
 import com.openmaps.app.core.sharing.UnavailableTripShareRepository
 import com.openmaps.app.core.voice.NoopVoiceGuidanceEngine
 import com.openmaps.app.core.voice.VoiceAnnouncementPlanner
@@ -242,6 +243,8 @@ class MapViewModel(
     // endregion
 
     private var activeTripShareSession: TripShareSession? = null
+    private var tripShareUpdateJob: Job? = null
+    private var lastTripShareUpdateMillis: Long = 0L
 
     /**
      * Prevents a persistent live incident from triggering a network reroute on every GPS tick.
@@ -1380,8 +1383,17 @@ class MapViewModel(
             _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Unavailable) }
             return
         }
+
+        val existing = activeTripShareSession
+        if (existing != null && existing.expiresAtMillis > System.currentTimeMillis()) {
+            _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Success) }
+            eventChannel.trySend(MapUiEvent.ShareTripUrl(existing.url))
+            return
+        }
+
         _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Working) }
-        val remainingSeconds = state.navigationProgress?.remainingDurationSeconds ?: 0.0
+        val progress = state.navigationProgress
+        val remainingSeconds = progress?.remainingDurationSeconds ?: 0.0
         val expiresInMillis = maxOf(
             MIN_TRIP_SHARE_EXPIRY_MILLIS,
             (remainingSeconds * 1_000.0).toLong() + TRIP_SHARE_GRACE_MILLIS,
@@ -1392,9 +1404,12 @@ class MapViewModel(
                     destination = destination,
                     currentLocation = location,
                     expiresAtMillis = System.currentTimeMillis() + expiresInMillis,
+                    remainingDistanceMeters = progress?.remainingDistanceMeters,
+                    remainingDurationSeconds = progress?.remainingDurationSeconds,
                 ),
             ).onSuccess { session ->
                 activeTripShareSession = session
+                lastTripShareUpdateMillis = System.currentTimeMillis()
                 _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Success) }
                 eventChannel.send(MapUiEvent.ShareTripUrl(session.url))
             }.onFailure {
@@ -1415,7 +1430,66 @@ class MapViewModel(
     private fun stopTripSharingIfNeeded() {
         val session = activeTripShareSession ?: return
         activeTripShareSession = null
+        tripShareUpdateJob?.cancel()
+        tripShareUpdateJob = null
+        lastTripShareUpdateMillis = 0L
         viewModelScope.launch { tripShareRepository.stopSession(session) }
+        _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Idle) }
+    }
+
+    private fun maybeUpdateTripSharing(location: UserLocation, progress: RouteProgress) {
+        val session = activeTripShareSession ?: return
+        if (System.currentTimeMillis() >= session.expiresAtMillis) {
+            activeTripShareSession = null
+            tripShareUpdateJob?.cancel()
+            tripShareUpdateJob = null
+            _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Idle) }
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (now - lastTripShareUpdateMillis < TRIP_SHARE_UPDATE_INTERVAL_MILLIS) return
+        if (tripShareUpdateJob?.isActive == true) return
+
+        lastTripShareUpdateMillis = now
+        tripShareUpdateJob = viewModelScope.launch {
+            tripShareRepository.updateSession(
+                session,
+                TripShareUpdate(
+                    currentLocation = location,
+                    remainingDistanceMeters = progress.remainingDistanceMeters,
+                    remainingDurationSeconds = progress.remainingDurationSeconds,
+                ),
+            ).onFailure { error ->
+                if (error is com.openmaps.app.core.sharing.TripShareException.Expired ||
+                    error is com.openmaps.app.core.sharing.TripShareException.Closed
+                ) {
+                    activeTripShareSession = null
+                    _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Idle) }
+                }
+            }
+        }
+    }
+
+    private fun completeTripSharingOnArrival(location: UserLocation, progress: RouteProgress) {
+        val session = activeTripShareSession ?: return
+        activeTripShareSession = null
+        tripShareUpdateJob?.cancel()
+        lastTripShareUpdateMillis = 0L
+        tripShareUpdateJob = viewModelScope.launch {
+            tripShareRepository.updateSession(
+                session,
+                TripShareUpdate(
+                    currentLocation = location,
+                    remainingDistanceMeters = 0.0,
+                    remainingDurationSeconds = 0.0,
+                    arrived = true,
+                ),
+            ).onFailure {
+                // Privacy fallback: if "arrived" cannot be persisted, attempt to invalidate the
+                // public link rather than leaving a live-looking session behind until expiry.
+                tripShareRepository.stopSession(session)
+            }
+        }
         _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Idle) }
     }
 
@@ -1511,6 +1585,7 @@ class MapViewModel(
         publishRouteProgress(progress)
 
         if (progress.hasArrived) {
+            completeTripSharingOnArrival(location, progress)
             session = null
             // Arrival ends the trip: release the AR anchors and remove the arrows.
             onNavigationEnded()
@@ -1528,6 +1603,7 @@ class MapViewModel(
             return
         }
 
+        maybeUpdateTripSharing(location, progress)
         dispatchVoiceForProgress(progress)
         maybeFetchLaneGuidance(progress)
         maybeRerouteForCriticalIncident(location, progress)
@@ -1965,6 +2041,7 @@ class MapViewModel(
         const val MIN_TRIP_SHARE_EXPIRY_MILLIS = 60 * 60 * 1_000L
         const val TRIP_SHARE_GRACE_MILLIS = 30 * 60 * 1_000L
         const val MAX_TRIP_SHARE_EXPIRY_MILLIS = 24 * 60 * 60 * 1_000L
+        const val TRIP_SHARE_UPDATE_INTERVAL_MILLIS = 5_000L
         const val ARRIVAL_RETURN_HOME_DELAY_MILLIS = 6_000L
         const val CRITICAL_INCIDENT_REROUTE_DISTANCE_METERS = 5_000.0
         const val LANE_TRACE_MAX_POINTS = 24
