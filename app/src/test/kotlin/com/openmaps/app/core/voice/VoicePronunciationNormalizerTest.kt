@@ -1,0 +1,40 @@
+package com.openmaps.app.core.voice
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class VoicePronunciationNormalizerTest {
+
+    @Test
+    fun englishRoadAbbreviations_areExpandedForSpeech() {
+        assertEquals(
+            "Turn onto Westheimer Road and Memorial Drive.",
+            VoicePronunciationNormalizer.normalize(
+                "Turn onto Westheimer Rd and Memorial Dr.",
+                VoiceLanguage.EnglishUs,
+            ),
+        )
+    }
+
+    @Test
+    fun interstateAndUsHighway_areExpandedForSpeech() {
+        assertEquals(
+            "Take Interstate 10 toward U.S. Highway 59.",
+            VoicePronunciationNormalizer.normalize(
+                "Take I-10 toward US-59.",
+                VoiceLanguage.EnglishUs,
+            ),
+        )
+    }
+
+    @Test
+    fun frenchText_isNotAnglicized() {
+        assertEquals(
+            "Tournez sur Rue St. Denis.",
+            VoicePronunciationNormalizer.normalize(
+                "Tournez sur Rue St. Denis.",
+                VoiceLanguage.French,
+            ),
+        )
+    }
+}
