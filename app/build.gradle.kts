@@ -69,6 +69,8 @@ val defaultTrafficIncidentsGatewayUrl =
     "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/traffic-incidents"
 val defaultLaneGuidanceGatewayUrl =
     "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/lane-guidance"
+val defaultPlacesGatewayUrl =
+    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/places"
 val defaultGeocodingPublishableKey =
     "sb_publishable_gF9KreSTfMY24vhsaVd_bQ_WVGEqRYH"
 
@@ -97,6 +99,11 @@ val laneGuidanceGatewayUrl = providers.gradleProperty("OPENMAPS_LANE_GUIDANCE_GA
     .orElse(localProperties.getProperty("OPENMAPS_LANE_GUIDANCE_GATEWAY_URL") ?: defaultLaneGuidanceGatewayUrl)
     .getOrElse(defaultLaneGuidanceGatewayUrl)
 
+val placesGatewayUrl = providers.gradleProperty("OPENMAPS_PLACES_GATEWAY_URL")
+    .orElse(providers.environmentVariable("OPENMAPS_PLACES_GATEWAY_URL"))
+    .orElse(localProperties.getProperty("OPENMAPS_PLACES_GATEWAY_URL") ?: defaultPlacesGatewayUrl)
+    .getOrElse(defaultPlacesGatewayUrl)
+
 val geocodingPublishableKey = providers.gradleProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY")
     .orElse(providers.environmentVariable("OPENMAPS_GEOCODING_PUBLISHABLE_KEY"))
     .orElse(localProperties.getProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY") ?: defaultGeocodingPublishableKey)
@@ -121,6 +128,7 @@ android {
         buildConfigField("String", "ROUTING_GATEWAY_URL", "\"$routingGatewayUrl\"")
         buildConfigField("String", "TRAFFIC_INCIDENTS_GATEWAY_URL", "\"$trafficIncidentsGatewayUrl\"")
         buildConfigField("String", "LANE_GUIDANCE_GATEWAY_URL", "\"$laneGuidanceGatewayUrl\"")
+        buildConfigField("String", "PLACES_GATEWAY_URL", "\"$placesGatewayUrl\"")
         buildConfigField("String", "GEOCODING_PUBLISHABLE_KEY", "\"$geocodingPublishableKey\"")
 
         // Feeds the `com.google.android.ar.API_KEY` meta-data in AndroidManifest.xml.
