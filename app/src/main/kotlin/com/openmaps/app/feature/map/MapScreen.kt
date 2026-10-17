@@ -152,7 +152,11 @@ fun MapScreen(
                     followSuspended = state.navigationFollowSuspended,
                 )
             }
-            RoadAlertBanner(roadState = state.roadIntelligenceState)
+            RoadAlertBanner(
+                roadState = state.roadIntelligenceState,
+                onCommunityConfirm = viewModel::onCommunityReportConfirmed,
+                onCommunityDismiss = viewModel::onCommunityReportDismissed,
+            )
             // Part A7: a concise, dismissible reason when Start's automatic switch to Live had to
             // fall back to Map because the camera turned out to be unusable. Null (and this renders
             // nothing) once dismissed or once Live is next entered successfully.
