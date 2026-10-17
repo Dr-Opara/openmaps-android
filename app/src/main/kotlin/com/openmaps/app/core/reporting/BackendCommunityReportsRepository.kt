@@ -23,6 +23,7 @@ import java.net.URL
 class BackendCommunityReportsRepository(
     private val endpointUrl: String,
     private val publishableKey: String,
+    private val anonymousClientId: String,
 ) : DriverReportRepository, RoadIntelligenceRepository {
 
     override suspend fun submit(report: DriverReport): Result<Unit> = requestResult {
@@ -110,6 +111,7 @@ class BackendCommunityReportsRepository(
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         connection.setRequestProperty("apikey", publishableKey)
+        connection.setRequestProperty("X-OpenMaps-Client-Id", anonymousClientId)
         try {
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             val code = connection.responseCode
