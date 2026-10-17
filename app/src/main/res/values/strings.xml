@@ -242,6 +242,16 @@
     <string name="destination_arrival_ease_basis">Estimated from the final route geometry. Parking is only shown when provider data supports it.</string>
     <string name="destination_parking_nearby">Parking near destination</string>
     <string name="destination_parking_found">%1$d parking option(s) found near the destination</string>
+    <string name="destination_approach_complex">Complex final approach</string>
+    <string name="destination_approach_moderate">Moderate final approach</string>
+    <string name="destination_approach_simple">Simple final approach</string>
+    <string name="parking_default_name">Parking</string>
+    <string name="parking_public">Public</string>
+    <string name="parking_private">Private</string>
+    <string name="parking_fee">Fee</string>
+    <string name="parking_no_fee">No fee</string>
+    <string name="distance_away_format">%1$s away</string>
+    <string name="distance_off_route_format">%1$s off route</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>
