@@ -115,6 +115,12 @@ fun SettingsScreen(
                 color = OpenMapsColors.TextPrimary,
                 modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
             )
+            Text(
+                text = stringResource(R.string.settings_voice_ai_disclosure),
+                style = MaterialTheme.typography.bodySmall,
+                color = OpenMapsColors.TextSecondary,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
             VoiceLanguage.entries.forEach { language ->
                 val isSelected = language == voiceLanguage
                 Row(
