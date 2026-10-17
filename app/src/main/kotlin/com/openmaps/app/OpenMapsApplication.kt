@@ -30,8 +30,8 @@ import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.routing.BackendRoutingRepository
 import com.openmaps.app.core.routing.CompositeRoutingRepository
 import com.openmaps.app.core.routing.RoutingRepository
+import com.openmaps.app.core.sharing.BackendTripShareRepository
 import com.openmaps.app.core.sharing.TripShareRepository
-import com.openmaps.app.core.sharing.UnavailableTripShareRepository
 import com.openmaps.app.core.routing.ValhallaRoutingRepository
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
 import com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization
@@ -75,8 +75,11 @@ class AppContainer(application: Application) {
     /** Community reporting is intentionally unavailable until a moderated provider is connected. */
     val driverReportRepository: DriverReportRepository = UnavailableDriverReportRepository()
 
-    /** Live trip sharing is intentionally unavailable until an expiring-token backend is connected. */
-    val tripShareRepository: TripShareRepository = UnavailableTripShareRepository()
+    /** Production live trip sharing with expiring public links and private owner capabilities. */
+    val tripShareRepository: TripShareRepository = BackendTripShareRepository(
+        endpointUrl = BuildConfig.TRIP_SHARE_GATEWAY_URL,
+        publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+    )
 
     /**
      * Production routing path:
