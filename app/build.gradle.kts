@@ -71,6 +71,8 @@ val defaultLaneGuidanceGatewayUrl =
     "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/lane-guidance"
 val defaultPlacesGatewayUrl =
     "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/places"
+val defaultTripShareGatewayUrl =
+    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/trip-share"
 val defaultGeocodingPublishableKey =
     "sb_publishable_gF9KreSTfMY24vhsaVd_bQ_WVGEqRYH"
 
@@ -103,6 +105,11 @@ val placesGatewayUrl = providers.gradleProperty("OPENMAPS_PLACES_GATEWAY_URL")
     .orElse(providers.environmentVariable("OPENMAPS_PLACES_GATEWAY_URL"))
     .orElse(localProperties.getProperty("OPENMAPS_PLACES_GATEWAY_URL") ?: defaultPlacesGatewayUrl)
     .getOrElse(defaultPlacesGatewayUrl)
+
+val tripShareGatewayUrl = providers.gradleProperty("OPENMAPS_TRIP_SHARE_GATEWAY_URL")
+    .orElse(providers.environmentVariable("OPENMAPS_TRIP_SHARE_GATEWAY_URL"))
+    .orElse(localProperties.getProperty("OPENMAPS_TRIP_SHARE_GATEWAY_URL") ?: defaultTripShareGatewayUrl)
+    .getOrElse(defaultTripShareGatewayUrl)
 
 val geocodingPublishableKey = providers.gradleProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY")
     .orElse(providers.environmentVariable("OPENMAPS_GEOCODING_PUBLISHABLE_KEY"))
