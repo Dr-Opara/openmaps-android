@@ -524,6 +524,36 @@ private fun OverviewTabContent(place: Place) {
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
+        place.metadata.openingHoursText?.takeIf { it.isNotBlank() }?.let { hours ->
+            Text(
+                text = hours,
+                style = MaterialTheme.typography.bodySmall,
+                color = OpenMapsColors.TextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        place.metadata.phone?.takeIf { it.isNotBlank() }?.let { phone ->
+            Text(
+                text = phone,
+                style = MaterialTheme.typography.bodyMedium,
+                color = OpenMapsColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        place.metadata.website?.takeIf { it.isNotBlank() }?.let { website ->
+            Text(
+                text = website,
+                style = MaterialTheme.typography.bodySmall,
+                color = OpenMapsColors.ElectricBlueFilled,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
         // Mockup: a dedicated pin + address row at the bottom of Overview. Only when the provider
         // actually supplied one — never a fabricated address.
         place.address?.takeIf { it.isNotBlank() }?.let { address ->
