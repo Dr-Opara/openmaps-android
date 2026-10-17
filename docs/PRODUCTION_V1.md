@@ -177,3 +177,30 @@ Implemented on `production/platform-v1` and the OpenMaps Supabase project:
 - Versioned all database migrations under `supabase/migrations`.
 
 Global Search production status: **complete**. The commercial HERE credential is active, production telemetry confirmed live HERE responses, and the automated worldwide acceptance suite passed.
+
+
+## Workstream 3: Global Places
+
+Implemented on `feature/global-places-v1`:
+
+- Added an OpenMaps `places` Edge Function with HERE Browse as the commercial global primary.
+- Added OSM/Overpass aggregation inside the gateway and retained direct Android Overpass as a last-resort gateway fallback.
+- HERE and OSM results are normalized into the existing provider-neutral `Place` model.
+- Cross-provider duplicate suppression uses category, normalized name/address and an 80 m proximity gate.
+- Global categories now include restaurants, coffee, hotels, grocery, pharmacy, parking, gas, EV charging, banks, ATMs, convenience, medical, entertainment, shopping and education.
+- Education covers schools, colleges, universities and kindergartens through HERE and OSM.
+- Android now uses `BackendPlaceRepository` before `OverpassPlaceRepository`.
+- Route-corridor results are filtered back to the actual corridor rather than returning every POI in the bounding search radius.
+- The places gateway is protected by the shared database-backed per-client rate limiter at 60 requests/minute.
+- Server-side places caching uses a rounded location/category/radius key with a five-minute TTL.
+- Places telemetry records category set, result count, provider participation, latency, zero-result/error outcome, fallback use and cache hits without storing raw latitude/longitude.
+- `places_health_24h` exposes launch-facing health metrics.
+- `scripts/production-places-acceptance.ps1` covers Houston, London, Paris, Lagos, Tokyo and Sydney.
+
+Global Places release gates:
+
+- Android `assembleDebug`, unit tests and lint pass on the feature branch.
+- Worldwide places acceptance passes against the deployed production gateway.
+- HERE must participate as the commercial provider in each acceptance city.
+- Physical-device validation confirms nearby discovery, route-corridor filtering, category filters and graceful cached/fallback behavior.
+- Provider limitations for live parking occupancy, imagery, reviews and unsupported metadata remain explicit; OpenMaps must not invent them.
