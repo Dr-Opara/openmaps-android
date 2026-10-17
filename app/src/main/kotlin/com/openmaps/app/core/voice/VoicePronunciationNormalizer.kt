@@ -15,8 +15,8 @@ object VoicePronunciationNormalizer {
         substitutions.forEach { (pattern, replacement) ->
             out = out.replace(pattern, replacement)
         }
-        out = out.replace(Regex("""\bI[- ](\d{1,3})\b""", RegexOption.IGNORE_CASE), "Interstate $1")
-        out = out.replace(Regex("""\bUS[- ](\d{1,3})\b""", RegexOption.IGNORE_CASE), "U.S. Highway $1")
+        out = out.replace(Regex("""\bI[- ](\d{1,3})\b""", RegexOption.IGNORE_CASE), "Interstate \$1")
+        out = out.replace(Regex("""\bUS[- ](\d{1,3})\b""", RegexOption.IGNORE_CASE), "U.S. Highway \$1")
         return out
     }
 
