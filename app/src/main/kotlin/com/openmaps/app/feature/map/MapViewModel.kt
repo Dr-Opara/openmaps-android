@@ -228,6 +228,7 @@ class MapViewModel(
 
     fun onMeasurementSystemChanged(system: MeasurementSystem) {
         localizationPrefs?.setMeasurementSystem(system)
+        voiceGuidanceEngine.setMeasurementSystem(system)
         _uiState.update { it.copy(measurementSystem = system) }
     }
 
