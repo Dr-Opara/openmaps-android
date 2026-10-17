@@ -6,6 +6,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.util.Log
+import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.voice.AnnouncementStage
 import com.openmaps.app.core.voice.NeuralVoiceRepository
 import com.openmaps.app.core.voice.VoiceAnnouncementTemplates
@@ -64,6 +65,9 @@ class HybridVoiceGuidanceEngine(
     @Volatile
     private var language: VoiceLanguage = VoiceLanguage.EnglishUs
 
+    @Volatile
+    private var measurementSystem: MeasurementSystem = MeasurementSystem.Auto
+
     init {
         pruneCache()
     }
@@ -73,13 +77,14 @@ class HybridVoiceGuidanceEngine(
 
         val token = generation.incrementAndGet()
         val selectedLanguage = language
-        val spokenText = spokenText(event, selectedLanguage)
-        val cached = cacheFile(spokenText, selectedLanguage)
+        val selectedMeasurementSystem = measurementSystem
+        val spokenText = spokenText(event, selectedLanguage, selectedMeasurementSystem)
+        val cached = cacheFile(spokenText, selectedLanguage, selectedMeasurementSystem)
 
         if (cached.isFile && cached.length() > 0) {
             scope.launch {
                 playCached(cached, token, event)
-                maybePrefetchLaterStages(event, selectedLanguage)
+                maybePrefetchLaterStages(event, selectedLanguage, selectedMeasurementSystem)
             }
             return
         }
@@ -99,7 +104,7 @@ class HybridVoiceGuidanceEngine(
                     cached.writeBytes(bytes)
                     pruneCache()
                     playCached(cached, token, event)
-                    maybePrefetchLaterStages(event, selectedLanguage)
+                    maybePrefetchLaterStages(event, selectedLanguage, selectedMeasurementSystem)
                 }.onFailure {
                     Log.w(TAG, "Unable to cache/play neural voice; using Android TTS", it)
                     if (generation.get() == token && enabled) fallback.speak(event)
@@ -121,6 +126,13 @@ class HybridVoiceGuidanceEngine(
         generation.incrementAndGet()
         stopNeuralPlayer()
         fallback.setLanguage(language)
+    }
+
+    override fun setMeasurementSystem(system: MeasurementSystem) {
+        measurementSystem = system
+        generation.incrementAndGet()
+        stopNeuralPlayer()
+        fallback.setMeasurementSystem(system)
     }
 
     override fun stop() {
@@ -180,14 +192,18 @@ class HybridVoiceGuidanceEngine(
         }
     }
 
-    private fun maybePrefetchLaterStages(event: VoiceEvent, selectedLanguage: VoiceLanguage) {
+    private fun maybePrefetchLaterStages(
+        event: VoiceEvent,
+        selectedLanguage: VoiceLanguage,
+        selectedMeasurementSystem: MeasurementSystem,
+    ) {
         val maneuver = event as? VoiceEvent.Maneuver ?: return
         if (maneuver.stage != AnnouncementStage.Far) return
 
         listOf(AnnouncementStage.Near, AnnouncementStage.Immediate).forEach { stage ->
             val futureEvent = maneuver.copy(stage = stage)
-            val text = spokenText(futureEvent, selectedLanguage)
-            val target = cacheFile(text, selectedLanguage)
+            val text = spokenText(futureEvent, selectedLanguage, selectedMeasurementSystem)
+            val target = cacheFile(text, selectedLanguage, selectedMeasurementSystem)
             if (target.isFile && target.length() > 0) return@forEach
 
             scope.launch {
@@ -202,9 +218,13 @@ class HybridVoiceGuidanceEngine(
         }
     }
 
-    private fun spokenText(event: VoiceEvent, selectedLanguage: VoiceLanguage): String =
+    private fun spokenText(
+        event: VoiceEvent,
+        selectedLanguage: VoiceLanguage,
+        selectedMeasurementSystem: MeasurementSystem,
+    ): String =
         VoicePronunciationNormalizer.normalize(
-            VoiceAnnouncementTemplates.phraseFor(event, selectedLanguage),
+            VoiceAnnouncementTemplates.phraseFor(event, selectedLanguage, selectedMeasurementSystem),
             selectedLanguage,
         )
 
@@ -212,9 +232,16 @@ class HybridVoiceGuidanceEngine(
         event == VoiceEvent.Rerouting ||
             (event is VoiceEvent.Maneuver && event.stage != AnnouncementStage.Far)
 
-    private fun cacheFile(text: String, selectedLanguage: VoiceLanguage): File {
+    private fun cacheFile(
+        text: String,
+        selectedLanguage: VoiceLanguage,
+        selectedMeasurementSystem: MeasurementSystem,
+    ): File {
         val digest = MessageDigest.getInstance("SHA-256")
-            .digest((selectedLanguage.name + "\n" + text).toByteArray(Charsets.UTF_8))
+            .digest(
+                (selectedLanguage.name + "\n" + selectedMeasurementSystem.name + "\n" + text)
+                    .toByteArray(Charsets.UTF_8),
+            )
             .joinToString("") { "%02x".format(it) }
         return File(cacheDirectory, "$digest.wav")
     }
