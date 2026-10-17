@@ -464,8 +464,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const radiusMeters = Math.min(8000, Math.max(250, Number(body.radiusMeters) || 1500));
-  const apiKey = Deno.env.get("HERE_API_KEY")?.trim();
-  if (!apiKey) return json({ error: "provider_not_configured", provider: "here" }, 503);
+  const apiKey = Deno.env.get("HERE_API_KEY")?.trim() || null;
 
   const cacheKey = await placesCacheKey(body.center, radiusMeters, categories);
   const cached = await readPlacesCache(cacheKey);
@@ -491,8 +490,12 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  const herePromise = apiKey
+    ? browseHere(body.center, radiusMeters, categories, apiKey)
+    : Promise.reject(new Error("HERE_NOT_CONFIGURED"));
+
   const [hereResult, osmResult] = await Promise.allSettled([
-    browseHere(body.center, radiusMeters, categories, apiKey),
+    herePromise,
     browseOsm(body.center, radiusMeters, categories),
   ]);
 
@@ -508,7 +511,7 @@ Deno.serve(async (req: Request) => {
     if (hereResult.status === "rejected" && osmResult.status === "rejected") {
       console.error(JSON.stringify({
         event: "places_providers_failed",
-        here: hereError.replace(apiKey, "[redacted]"),
+        here: apiKey ? hereError.replace(apiKey, "[redacted]") : hereError,
         osm: osmError,
       }));
       void writePlacesTelemetry({
