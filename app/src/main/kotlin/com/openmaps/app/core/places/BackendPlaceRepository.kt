@@ -171,6 +171,11 @@ internal object BackendPlaceResponseParser {
                     ?.optBoolean("feeApplies"),
                 brand = metadata?.optString("brand")?.takeIf { it.isNotBlank() },
                 connectors = connectors,
+                phone = metadata?.optString("phone")?.takeIf { it.isNotBlank() },
+                website = metadata?.optString("website")?.takeIf { it.isNotBlank() },
+                openingHoursText = metadata?.optString("openingHoursText")?.takeIf { it.isNotBlank() },
+                accessLatitude = metadata?.optDouble("accessLatitude", Double.NaN)?.takeIf { it.isFinite() },
+                accessLongitude = metadata?.optDouble("accessLongitude", Double.NaN)?.takeIf { it.isFinite() },
             ),
         )
     }
