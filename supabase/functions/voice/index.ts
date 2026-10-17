@@ -79,7 +79,7 @@ async function rateLimit(req: Request): Promise<boolean> {
         p_client_hash: await sha256Hex(clientAddress(req)),
         p_endpoint: "voice",
         p_bucket_start: now.toISOString(),
-        p_limit: 90,
+        p_limit: 30,
       }),
     });
     if (!response || !response.ok) return true;
@@ -109,6 +109,42 @@ async function telemetry(
   } catch {
     // Voice metrics never block navigation.
   }
+}
+
+function validNavigationPhrase(text: string, language: VoiceLanguage): boolean {
+  if (text.length < 1 || text.length > 240) return false;
+  if (/[\r\n\t<>]/.test(text) || /https?:\/\//i.test(text)) return false;
+
+  const allowedPrefixes: Record<VoiceLanguage, string[]> = {
+    EnglishUs: [
+      "Navigation started.", "Rerouting.", "Route updated.", "Approaching your destination.",
+      "You have arrived.", "In half a mile, ", "In 500 feet, ", "Continue", "Keep ", "Turn ",
+      "Make ", "Merge", "Take ", "Enter ",
+    ],
+    EnglishUk: [
+      "Navigation started.", "Rerouting.", "Route updated.", "Approaching your destination.",
+      "You have arrived.", "In half a mile, ", "In 500 feet, ", "Continue", "Keep ", "Turn ",
+      "Make ", "Merge", "Take ", "Enter ",
+    ],
+    Spanish: [
+      "Navegación iniciada.", "Recalculando ruta.", "Ruta actualizada.", "Se acerca a su destino.",
+      "Ha llegado a su destino.", "En media milla, ", "En 500 pies, ", "Continúe", "Manténgase",
+      "Gire ", "Haga ", "Incorpórese", "Tome ", "Entre ",
+    ],
+    French: [
+      "Navigation commencée.", "Recalcul de l'itinéraire.", "Itinéraire mis à jour.",
+      "Vous approchez de votre destination.", "Vous êtes arrivé à destination.",
+      "Dans un demi-mile, ", "Dans 500 pieds, ", "Continuez", "Restez ", "Tournez ",
+      "Faites ", "Rejoignez ", "Prenez ", "Entrez ",
+    ],
+    NigerianPidgin: [
+      "Navigation don start.", "I dey find new road.", "New road don ready.",
+      "You dey near your destination.", "You don reach your destination.", "For about half mile, ",
+      "For about 500 feet, ", "Continue", "Stay ", "Turn ", "Make ", "Merge ", "Take ", "Enter ",
+    ],
+  };
+
+  return allowedPrefixes[language].some((prefix) => text.startsWith(prefix));
 }
 
 function instructionsFor(language: VoiceLanguage): string {
@@ -145,7 +181,7 @@ Deno.serve(async (req: Request) => {
 
   const text = body.text?.trim() ?? "";
   const language = body.language;
-  if (!language || !LANGUAGES.has(language) || text.length < 1 || text.length > 500) {
+  if (!language || !LANGUAGES.has(language) || !validNavigationPhrase(text, language)) {
     void telemetry(language ?? "unknown", "error", startedAt);
     return json({ error: "invalid_request" }, 400);
   }
