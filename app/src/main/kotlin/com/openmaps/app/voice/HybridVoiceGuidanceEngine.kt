@@ -65,8 +65,10 @@ class HybridVoiceGuidanceEngine(
         val cached = cacheFile(spokenText, selectedLanguage)
 
         if (cached.isFile && cached.length() > 0) {
-            playCached(cached, token, event)
-            maybePrefetchLaterStages(event, selectedLanguage)
+            scope.launch {
+                playCached(cached, token, event)
+                maybePrefetchLaterStages(event, selectedLanguage)
+            }
             return
         }
 
@@ -83,6 +85,7 @@ class HybridVoiceGuidanceEngine(
                 runCatching {
                     cached.parentFile?.mkdirs()
                     cached.writeBytes(bytes)
+                    pruneCache()
                     playCached(cached, token, event)
                     maybePrefetchLaterStages(event, selectedLanguage)
                 }.onFailure {
@@ -181,6 +184,7 @@ class HybridVoiceGuidanceEngine(
                     runCatching {
                         target.parentFile?.mkdirs()
                         target.writeBytes(bytes)
+                        pruneCache()
                     }
                 }
             }
