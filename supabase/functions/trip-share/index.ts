@@ -129,6 +129,23 @@ async function rateLimit(req: Request, endpoint: string, limit: number): Promise
   }
 }
 
+
+async function writeTelemetry(event: string, outcome: "success" | "error", startedAt: number): Promise<void> {
+  try {
+    await adminFetch("/rest/v1/trip_share_telemetry", {
+      method: "POST",
+      headers: { prefer: "return=minimal" },
+      body: JSON.stringify({
+        event,
+        outcome,
+        latency_ms: Math.round(performance.now() - startedAt),
+      }),
+    });
+  } catch {
+    // Observability must never block navigation or sharing.
+  }
+}
+
 function validCoordinate(value: Coordinate | undefined): value is Coordinate {
   return !!value &&
     Number.isFinite(value.latitude) && value.latitude >= -90 && value.latitude <= 90 &&
@@ -280,7 +297,7 @@ function safePublicPayload(row: Record<string, unknown>) {
       latitude: row.destination_latitude,
       longitude: row.destination_longitude,
     },
-    location: {
+    location: row.status === "arrived" ? null : {
       latitude: row.current_latitude,
       longitude: row.current_longitude,
       headingDegrees: row.heading_degrees,
@@ -302,10 +319,11 @@ function viewerPage(): string {
     '<div class="card"><div class="label">ETA</div><div class="value" id="eta">-</div></div><div class="card"><div class="label">Remaining</div><div class="value" id="distance">-</div></div>' +
     '<div class="card"><div class="label">Current location</div><div class="value" id="location">-</div></div><div class="card"><div class="label">Last updated</div><div class="value" id="updated">-</div></div></div>' +
     '<footer>Location sharing automatically ends when the trip arrives, is stopped, or expires.</footer>' +
-    '<script>function fd(m){if(m==null)return "-";var mi=m/1609.344;return mi<0.2?Math.round(m*3.28084)+" ft":mi.toFixed(mi<10?1:0)+" mi"}function ft(s){if(s==null)return "-";var m=Math.max(0,Math.round(s/60));return m<60?m+" min":Math.floor(m/60)+" hr "+(m%60)+" min"}async function r(){try{var u=new URL(location.href);u.searchParams.set("format","json");var x=await fetch(u.toString(),{cache:"no-store"});var d=await x.json();if(!x.ok){document.getElementById("status").textContent=d.error||"Unavailable";return}document.getElementById("destination").textContent=d.destination&&d.destination.name||"Destination";document.getElementById("status").textContent=String(d.status||"active").replace(/^./,function(c){return c.toUpperCase()});document.getElementById("eta").textContent=d.status==="arrived"?"Arrived":ft(d.remainingDurationSeconds);document.getElementById("distance").textContent=fd(d.remainingDistanceMeters);document.getElementById("location").textContent=Number(d.location.latitude).toFixed(5)+", "+Number(d.location.longitude).toFixed(5);document.getElementById("updated").textContent=new Date(d.updatedAt).toLocaleTimeString();if(["arrived","stopped","expired"].indexOf(d.status)>=0)return;setTimeout(r,3000)}catch(e){document.getElementById("status").textContent="Reconnecting";setTimeout(r,5000)}}r();</script></main></body></html>';
+    '<script>function fd(m){if(m==null)return "-";var mi=m/1609.344;return mi<0.2?Math.round(m*3.28084)+" ft":mi.toFixed(mi<10?1:0)+" mi"}function ft(s){if(s==null)return "-";var m=Math.max(0,Math.round(s/60));return m<60?m+" min":Math.floor(m/60)+" hr "+(m%60)+" min"}async function r(){try{var u=new URL(location.href);u.searchParams.set("format","json");var x=await fetch(u.toString(),{cache:"no-store"});var d=await x.json();if(!x.ok){document.getElementById("status").textContent=d.error||"Unavailable";return}document.getElementById("destination").textContent=d.destination&&d.destination.name||"Destination";document.getElementById("status").textContent=String(d.status||"active").replace(/^./,function(c){return c.toUpperCase()});document.getElementById("eta").textContent=d.status==="arrived"?"Arrived":ft(d.remainingDurationSeconds);document.getElementById("distance").textContent=fd(d.remainingDistanceMeters);document.getElementById("location").textContent=d.location?Number(d.location.latitude).toFixed(5)+", "+Number(d.location.longitude).toFixed(5):"Sharing ended";document.getElementById("updated").textContent=new Date(d.updatedAt).toLocaleTimeString();if(["arrived","stopped","expired"].indexOf(d.status)>=0)return;setTimeout(r,3000)}catch(e){document.getElementById("status").textContent="Reconnecting";setTimeout(r,5000)}}r();</script></main></body></html>';
 }
 
 Deno.serve(async (req: Request) => {
+  const startedAt = performance.now();
   const url = new URL(req.url);
 
   if (req.method === "GET") {
@@ -314,8 +332,19 @@ Deno.serve(async (req: Request) => {
     const wantsJson = url.searchParams.get("format") === "json";
     if (!token || token.length < 20) return wantsJson ? json({ error: "not_found" }, 404) : html("<p>Trip link unavailable.</p>", 404);
     const row = await publicSession(token);
-    if (!row) return wantsJson ? json({ error: "not_found" }, 404) : html("<p>Trip link unavailable.</p>", 404);
-    return wantsJson ? json(safePublicPayload(row)) : html(viewerPage());
+    if (!row) {
+      void writeTelemetry("error", "error", startedAt);
+      return wantsJson ? json({ error: "not_found" }, 404) : html("<p>Trip link unavailable.</p>", 404);
+    }
+    const payload = safePublicPayload(row);
+    if (payload.status === "stopped" || payload.status === "expired") {
+      void writeTelemetry("view", "success", startedAt);
+      return wantsJson
+        ? json({ status: payload.status, error: "sharing_ended" }, 410)
+        : html("<!doctype html><title>OpenMaps</title><p>This trip is no longer being shared.</p>", 410);
+    }
+    void writeTelemetry("view", "success", startedAt);
+    return wantsJson ? json(payload) : html(viewerPage());
   }
 
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -330,15 +359,21 @@ Deno.serve(async (req: Request) => {
 
   if (body.action === "create") {
     if (!(await rateLimit(req, "trip-share-create", 20))) return json({ error: "rate_limited" }, 429);
-    return createSession(body);
+    const response = await createSession(body);
+    void writeTelemetry("create", response.ok ? "success" : "error", startedAt);
+    return response;
   }
   if (body.action === "update") {
     if (!(await rateLimit(req, "trip-share-update", 90))) return json({ error: "rate_limited" }, 429);
-    return updateSession(body);
+    const response = await updateSession(body);
+    void writeTelemetry(body.arrived === true ? "arrive" : "update", response.ok ? "success" : "error", startedAt);
+    return response;
   }
   if (body.action === "stop") {
     if (!(await rateLimit(req, "trip-share-stop", 30))) return json({ error: "rate_limited" }, 429);
-    return stopSession(body);
+    const response = await stopSession(body);
+    void writeTelemetry("stop", response.ok ? "success" : "error", startedAt);
+    return response;
   }
   return json({ error: "invalid_action" }, 400);
 });
