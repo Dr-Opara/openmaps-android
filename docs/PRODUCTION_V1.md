@@ -280,7 +280,7 @@ Implemented on `feature/human-voice-v1`:
 - Neural speech uses OpenAI `gpt-4o-mini-tts` with the `cedar` voice when `OPENAI_API_KEY` is configured server-side.
 - The cloud request is constrained to the deterministic navigation phrase OpenMaps already generated; the provider is explicitly instructed not to add, remove, explain or paraphrase navigation instructions.
 - Android now has a neural-first `HybridVoiceGuidanceEngine` with the existing Android TextToSpeech engine as a safety fallback.
-- Immediate maneuver and rerouting prompts never wait on the network: cached neural audio is used when available, otherwise Android TTS speaks immediately.
+- Near/immediate maneuver and rerouting prompts never wait on the network: cached neural audio is used when available, otherwise Android TTS speaks immediately.
 - Far-stage maneuver prompts prefetch Near and Immediate variants so critical later prompts are normally already local.
 - Neural audio is cached in the Android app cache by language + normalized phrase and bounded to 160 files.
 - Common road abbreviations and US highway labels are expanded only for speech pronunciation; visible map/street labels are unchanged.
