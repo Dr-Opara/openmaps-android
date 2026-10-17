@@ -27,8 +27,8 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Neural-first navigation voice with a deterministic Android TTS safety fallback.
  *
- * Immediate turn/reroute prompts never wait on the network: cached neural audio is used when
- * available, otherwise Android TTS speaks immediately. Earlier-stage prompts can wait briefly for
+ * Near/immediate turn and reroute prompts never wait on the network: cached neural audio is used
+ * when available, otherwise Android TTS speaks immediately. Earlier-stage prompts can wait briefly for
  * neural synthesis; a failed/slow request falls back automatically.
  */
 @Suppress("LogNotTimber")
