@@ -220,3 +220,28 @@ Global Places release gates:
 OpenMaps must remain a credible premium consumer navigation product even with Live AR turned off. The conventional map experience must meet the usability, visual hierarchy, responsiveness and navigation clarity expected from leading consumer map products while retaining a distinct OpenMaps identity.
 
 The current OpenFreeMap Liberty default is a development surface, not the final production cartographic product. MapLibre may remain the renderer, but production tile infrastructure, OpenMaps-owned styles, navigation rendering and visual QA are separate launch requirements.
+
+
+## Workstream 4: Live Trip Sharing
+
+Implemented on `feature/live-trip-sharing-v1`:
+
+- Added a real Supabase-backed trip-sharing session store.
+- Public viewer links use random share capability tokens stored only as SHA-256 hashes server-side.
+- Android receives a separate private owner capability token for update/stop operations; the owner token is never embedded in the public URL.
+- Sessions are time-bounded to a minimum 5 minutes and maximum 24 hours.
+- Navigation streams current location, heading, speed, remaining distance and remaining ETA to the backend on a throttled 5-second cadence while sharing is active.
+- Tapping Share again reuses the active link instead of creating duplicate sessions.
+- Arrival automatically marks the session arrived, stops further device updates, and removes current-location exposure from the public payload.
+- Explicit navigation exit revokes the active share session.
+- Expired or manually stopped links return an ended response rather than the last known location.
+- The public viewer page polls the same capability URL every 3 seconds and shows destination, ETA, remaining distance, status and last update.
+- RLS blocks direct anonymous/authenticated table access; all session access is through the Edge gateway.
+- Create/update/stop/view paths use rate limiting and telemetry.
+- `trip_share_health_24h` provides operational metrics.
+- `scripts/production-trip-sharing-acceptance.ps1` validates create -> viewer -> live update -> arrival shutdown and explicit stop/revocation.
+
+Remaining release validation:
+- Android build/unit/lint on the feature branch.
+- Production acceptance script against the deployed gateway.
+- Physical-device validation during a real trip, including screen lock/background behavior and link expiration.
