@@ -60,12 +60,13 @@ class HybridVoiceGuidanceEngine(
         if (!enabled) return
 
         val token = generation.incrementAndGet()
-        val spokenText = spokenText(event, language)
-        val cached = cacheFile(spokenText, language)
+        val selectedLanguage = language
+        val spokenText = spokenText(event, selectedLanguage)
+        val cached = cacheFile(spokenText, selectedLanguage)
 
         if (cached.isFile && cached.length() > 0) {
             playCached(cached, token, event)
-            maybePrefetchLaterStages(event, language)
+            maybePrefetchLaterStages(event, selectedLanguage)
             return
         }
 
@@ -83,7 +84,7 @@ class HybridVoiceGuidanceEngine(
                     cached.parentFile?.mkdirs()
                     cached.writeBytes(bytes)
                     playCached(cached, token, event)
-                    maybePrefetchLaterStages(event, language)
+                    maybePrefetchLaterStages(event, selectedLanguage)
                 }.onFailure {
                     Log.w(TAG, "Unable to cache/play neural voice; using Android TTS", it)
                     if (generation.get() == token && enabled) fallback.speak(event)
@@ -200,7 +201,7 @@ class HybridVoiceGuidanceEngine(
         val digest = MessageDigest.getInstance("SHA-256")
             .digest((selectedLanguage.name + "\n" + text).toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
-        return File(cacheDirectory, "$digest.aac")
+        return File(cacheDirectory, "$digest.wav")
     }
 
     private fun stopNeuralPlayer() {
