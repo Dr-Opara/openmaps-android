@@ -48,6 +48,8 @@ import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.localization.LocalMeasurementSystem
+import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.RouteCorridor
@@ -397,6 +399,7 @@ private fun ArrivalIntelligenceCard(
     }
 }
 
+@Composable
 private fun arrivalComplexityLabel(types: List<ManeuverType>): String? {
     if (types.isEmpty()) return null
     val final = types.takeLast(6)
@@ -418,9 +421,9 @@ private fun arrivalComplexityLabel(types: List<ManeuverType>): String? {
         )
     }
     return when {
-        complex >= 2 -> "Complex final approach"
-        complex == 1 || turns >= 3 -> "Moderate final approach"
-        else -> "Simple final approach"
+        complex >= 2 -> stringResource(R.string.destination_approach_complex)
+        complex == 1 || turns >= 3 -> stringResource(R.string.destination_approach_moderate)
+        else -> stringResource(R.string.destination_approach_simple)
     }
 }
 
@@ -441,46 +444,40 @@ private fun parkingNearDestination(destination: SearchResult, places: List<Place
         .take(3)
         .toList()
 
+@Composable
 private fun parkingLine(place: Place): String {
     val parts = mutableListOf<String>()
-    parts += place.name.ifBlank { "Parking" }
+    parts += place.name.ifBlank { stringResource(R.string.parking_default_name) }
     place.metadata.parkingType
         ?.replace('_', ' ')
         ?.replaceFirstChar { it.uppercase() }
         ?.let(parts::add)
-    place.metadata.isPublicAccess?.let { parts += if (it) "Public" else "Private" }
-    place.metadata.feeApplies?.let { parts += if (it) "Fee" else "No fee" }
+    place.metadata.isPublicAccess?.let {
+        parts += stringResource(if (it) R.string.parking_public else R.string.parking_private)
+    }
+    place.metadata.feeApplies?.let {
+        parts += stringResource(if (it) R.string.parking_fee else R.string.parking_no_fee)
+    }
     return parts.joinToString(" · ")
 }
 
-private fun formatTripDistance(meters: Double): String {
-    val miles = meters / METERS_PER_MILE
-    return if (miles < 10.0) String.format(Locale.US, "%.1f mi", miles) else "${miles.roundToInt()} mi"
-}
+@Composable
+private fun formatTripDistance(meters: Double): String =
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
 
-private fun formatTripDuration(seconds: Double): String {
-    val totalMinutes = (seconds / 60.0).roundToInt().coerceAtLeast(1)
-    val hours = totalMinutes / 60
-    val minutes = totalMinutes % 60
-    return if (hours > 0) "${hours} hr ${minutes} min" else "${minutes} min"
-}
+@Composable
+private fun formatTripDuration(seconds: Double): String =
+    NavigationUnits.formatDuration(seconds)
 
+@Composable
 private fun approximateDistanceLabel(destination: SearchResult, currentLocation: UserLocation?): String? {
     val location = currentLocation ?: return null
     val meters = RouteCorridor.metersBetween(
         Coordinate(location.latitude, location.longitude),
         Coordinate(destination.latitude, destination.longitude),
     )
-    val feet = meters * FEET_PER_METER
-    val miles = meters / METERS_PER_MILE
-    val formatted = when {
-        feet < 1000.0 -> "${feet.roundToInt()} ft"
-        miles < 10 -> String.format(Locale.US, "%.1f mi", miles)
-        else -> "${miles.roundToInt()} mi"
-    }
-    return "$formatted away"
+    val formatted = NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
+    return stringResource(R.string.distance_away_format, formatted)
 }
 
 private const val DESTINATION_PARKING_RADIUS_METERS = 800.0
-private const val FEET_PER_METER = 3.28084
-private const val METERS_PER_MILE = 1609.344
