@@ -19,8 +19,8 @@ import com.openmaps.app.core.places.BackendPlaceRepository
 import com.openmaps.app.core.places.CompositePlaceRepository
 import com.openmaps.app.core.places.OverpassPlaceRepository
 import com.openmaps.app.core.places.PlaceRepository
+import com.openmaps.app.core.reporting.BackendCommunityReportsRepository
 import com.openmaps.app.core.reporting.DriverReportRepository
-import com.openmaps.app.core.reporting.UnavailableDriverReportRepository
 import com.openmaps.app.core.roadintelligence.BackendLaneGuidanceRepository
 import com.openmaps.app.core.roadintelligence.CompositeRoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.LaneGuidanceRepository
@@ -72,8 +72,12 @@ class AppContainer(application: Application) {
     )
     val recentSearchStore: RecentSearchStore = SharedPreferencesRecentSearchStore(application)
 
-    /** Community reporting is intentionally unavailable until a moderated provider is connected. */
-    val driverReportRepository: DriverReportRepository = UnavailableDriverReportRepository()
+    /** Production moderated community-reporting backend. */
+    private val communityReportsRepository = BackendCommunityReportsRepository(
+        endpointUrl = BuildConfig.COMMUNITY_REPORTS_GATEWAY_URL,
+        publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+    )
+    val driverReportRepository: DriverReportRepository = communityReportsRepository
 
     /** Production live trip sharing with expiring public links and private owner capabilities. */
     val tripShareRepository: TripShareRepository = BackendTripShareRepository(
@@ -131,6 +135,7 @@ class AppContainer(application: Application) {
      */
     val roadIntelligenceRepository: RoadIntelligenceRepository = CompositeRoadIntelligenceRepository(
         providers = listOf(
+            communityReportsRepository,
             HereTrafficRoadIntelligenceRepository(
                 endpointUrl = BuildConfig.TRAFFIC_INCIDENTS_GATEWAY_URL,
                 publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
