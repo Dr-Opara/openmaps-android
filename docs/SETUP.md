@@ -429,3 +429,18 @@ Production acceptance:
 ```
 
 GitHub Actions runs this acceptance together with Android assemble, unit tests and lint for pull requests targeting `production/platform-v1`.
+
+
+## Neural Navigation Voice
+
+The OpenMaps `voice` Edge Function keeps the neural TTS provider credential server-side. Android never receives the provider key.
+
+Required Supabase secret:
+
+```text
+OPENAI_API_KEY
+```
+
+The function uses the OpenAI Speech API with `gpt-4o-mini-tts`, requests low-latency WAV audio and returns it to the app. If the secret, provider or network is unavailable, Android automatically falls back to the platform TextToSpeech engine; navigation itself never waits on voice.
+
+The app includes a user-facing disclosure that the neural navigation voice is AI-generated.

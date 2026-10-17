@@ -49,3 +49,8 @@ jobs:
         if: ${{ hashFiles('scripts/production-places-acceptance.ps1') != '' }}
         shell: pwsh
         run: ./scripts/production-places-acceptance.ps1
+
+      - name: Human-quality voice production acceptance
+        if: ${{ hashFiles('scripts/production-voice-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-voice-acceptance.ps1

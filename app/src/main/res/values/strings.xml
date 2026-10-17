@@ -177,7 +177,7 @@
     <string name="nav_error_no_location">We need your location to start navigation.</string>
     <string name="nav_error_no_route">This route doesn\'t have turn-by-turn directions yet.</string>
     <string name="nav_action_report">Report</string>
-    <string name="nav_action_volume">Volume</string>
+    <string name="nav_action_volume">AI voice</string>
     <string name="nav_action_share">Share</string>
     <string name="nav_action_reroute">Reroute</string>
     <string name="nav_exit">EXIT</string>
@@ -255,6 +255,7 @@
     <string name="settings_open_app_settings">Open app settings</string>
     <string name="settings_section_navigation">Navigation</string>
     <string name="settings_voice_language">Voice language</string>
+    <string name="settings_voice_ai_disclosure">Navigation may use an AI-generated voice. Android speech is used automatically when neural voice is unavailable.</string>
     <string name="settings_voice_language_selected">Selected</string>
     <string name="settings_voice_language_en_us">English (US)</string>
     <string name="settings_voice_language_en_gb">English (UK)</string>
