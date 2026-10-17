@@ -75,6 +75,8 @@ val defaultTripShareGatewayUrl =
     "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/trip-share"
 val defaultCommunityReportsGatewayUrl =
     "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/community-reports"
+val defaultVoiceGatewayUrl =
+    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/voice"
 val defaultGeocodingPublishableKey =
     "sb_publishable_gF9KreSTfMY24vhsaVd_bQ_WVGEqRYH"
 
@@ -118,6 +120,11 @@ val communityReportsGatewayUrl = providers.gradleProperty("OPENMAPS_COMMUNITY_RE
     .orElse(localProperties.getProperty("OPENMAPS_COMMUNITY_REPORTS_GATEWAY_URL") ?: defaultCommunityReportsGatewayUrl)
     .getOrElse(defaultCommunityReportsGatewayUrl)
 
+val voiceGatewayUrl = providers.gradleProperty("OPENMAPS_VOICE_GATEWAY_URL")
+    .orElse(providers.environmentVariable("OPENMAPS_VOICE_GATEWAY_URL"))
+    .orElse(localProperties.getProperty("OPENMAPS_VOICE_GATEWAY_URL") ?: defaultVoiceGatewayUrl)
+    .getOrElse(defaultVoiceGatewayUrl)
+
 val geocodingPublishableKey = providers.gradleProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY")
     .orElse(providers.environmentVariable("OPENMAPS_GEOCODING_PUBLISHABLE_KEY"))
     .orElse(localProperties.getProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY") ?: defaultGeocodingPublishableKey)
@@ -145,6 +152,7 @@ android {
         buildConfigField("String", "PLACES_GATEWAY_URL", "\"$placesGatewayUrl\"")
         buildConfigField("String", "TRIP_SHARE_GATEWAY_URL", "\"$tripShareGatewayUrl\"")
         buildConfigField("String", "COMMUNITY_REPORTS_GATEWAY_URL", "\"$communityReportsGatewayUrl\"")
+        buildConfigField("String", "VOICE_GATEWAY_URL", "\"$voiceGatewayUrl\"")
         buildConfigField("String", "GEOCODING_PUBLISHABLE_KEY", "\"$geocodingPublishableKey\"")
 
         // Feeds the `com.google.android.ar.API_KEY` meta-data in AndroidManifest.xml.
