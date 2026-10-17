@@ -205,6 +205,8 @@ private fun VoiceLanguage.labelRes(): Int = when (this) {
     VoiceLanguage.EnglishUk -> R.string.settings_voice_language_en_gb
     VoiceLanguage.Spanish -> R.string.settings_voice_language_es
     VoiceLanguage.French -> R.string.settings_voice_language_fr
+    VoiceLanguage.Arabic -> R.string.settings_voice_language_ar
+    VoiceLanguage.Hebrew -> R.string.settings_voice_language_he
     VoiceLanguage.NigerianPidgin -> R.string.settings_voice_language_pidgin
 }
 
