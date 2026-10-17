@@ -90,7 +90,7 @@ class HybridVoiceGuidanceEngine(
         }
 
         scope.launch {
-            val result = neuralRepository.synthesize(spokenText, language)
+            val result = neuralRepository.synthesize(spokenText, selectedLanguage)
             if (generation.get() != token || !enabled) return@launch
 
             result.onSuccess { bytes ->
@@ -234,7 +234,7 @@ class HybridVoiceGuidanceEngine(
                 ?.filter { it.isFile }
                 ?.sortedByDescending { it.lastModified() }
                 ?.drop(MAX_CACHE_FILES)
-                ?.forEach(File::delete)
+                ?.forEach { it.delete() }
         }
     }
 
