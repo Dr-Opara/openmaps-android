@@ -39,6 +39,28 @@ class VoicePronunciationNormalizerTest {
     }
 
     @Test
+    fun saintPrefix_isNotExpandedAsStreet() {
+        assertEquals(
+            "Turn onto St. James Place.",
+            VoicePronunciationNormalizer.normalize(
+                "Turn onto St. James Place.",
+                VoiceLanguage.EnglishUk,
+            ),
+        )
+    }
+
+    @Test
+    fun streetSuffix_isExpandedForSpeech() {
+        assertEquals(
+            "Turn onto Main Street.",
+            VoicePronunciationNormalizer.normalize(
+                "Turn onto Main St.",
+                VoiceLanguage.EnglishUs,
+            ),
+        )
+    }
+
+    @Test
     fun frenchText_isNotAnglicized() {
         assertEquals(
             "Tournez sur Rue St. Denis.",
