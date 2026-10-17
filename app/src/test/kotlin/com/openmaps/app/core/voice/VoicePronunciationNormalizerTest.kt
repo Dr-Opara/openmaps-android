@@ -28,6 +28,17 @@ class VoicePronunciationNormalizerTest {
     }
 
     @Test
+    fun doctorTitle_isNotExpandedAsDrive() {
+        assertEquals(
+            "Turn onto Dr. Martin Luther King Boulevard.",
+            VoicePronunciationNormalizer.normalize(
+                "Turn onto Dr. Martin Luther King Blvd.",
+                VoiceLanguage.EnglishUs,
+            ),
+        )
+    }
+
+    @Test
     fun frenchText_isNotAnglicized() {
         assertEquals(
             "Tournez sur Rue St. Denis.",
