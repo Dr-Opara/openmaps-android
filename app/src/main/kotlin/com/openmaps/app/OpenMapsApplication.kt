@@ -205,6 +205,7 @@ class AppContainer(application: Application) {
         fallback = androidTtsFallback,
     ).apply {
         setLanguage(voiceGuidancePrefs.language())
+        setMeasurementSystem(localizationPrefs.measurementSystem())
         setEnabled(voiceGuidancePrefs.isEnabled())
     }
 }
