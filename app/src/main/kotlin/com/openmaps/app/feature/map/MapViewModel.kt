@@ -80,6 +80,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.max
 
 /**
@@ -2070,7 +2071,11 @@ class MapViewModel(
 
         lastReverseGeocodedLocation = location
         reverseGeocodingJob = viewModelScope.launch {
-            repository.reverse(location.latitude, location.longitude)
+            repository.reverse(
+                location.latitude,
+                location.longitude,
+                Locale.getDefault().toLanguageTag(),
+            )
                 .onSuccess { resolved ->
                     if (resolved != null) {
                         _uiState.update { state ->
