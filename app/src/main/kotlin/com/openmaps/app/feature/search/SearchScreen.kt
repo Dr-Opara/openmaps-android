@@ -407,6 +407,7 @@ private val SEARCH_CATEGORIES = listOf(
     SearchCategoryEntry(PlaceCategory.Shopping, "Shopping", "S", listOf("mall", "stores")),
     SearchCategoryEntry(PlaceCategory.Entertainment, "Entertainment", "★", listOf("cinema", "theatre", "attraction")),
     SearchCategoryEntry(PlaceCategory.Convenience, "Convenience", "C", listOf("convenience store")),
+    SearchCategoryEntry(PlaceCategory.Education, "Schools", "E", listOf("school", "college", "university", "education")),
 )
 
 @Composable
