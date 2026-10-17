@@ -638,7 +638,7 @@ private fun placeMetadataLine(place: Place): String? {
         PlaceCategory.Restaurant, PlaceCategory.Coffee, PlaceCategory.Hotel,
         PlaceCategory.Grocery, PlaceCategory.Pharmacy, PlaceCategory.Bank, PlaceCategory.Atm,
         PlaceCategory.Convenience, PlaceCategory.Medical, PlaceCategory.Entertainment,
-        PlaceCategory.Shopping,
+        PlaceCategory.Shopping, PlaceCategory.Education,
         -> null
     }
 }
@@ -675,6 +675,7 @@ internal fun PlaceCategory.displayName(): String = when (this) {
     PlaceCategory.Medical -> "Medical"
     PlaceCategory.Entertainment -> "Entertainment"
     PlaceCategory.Shopping -> "Shopping"
+    PlaceCategory.Education -> "Education"
 }
 
 /**
