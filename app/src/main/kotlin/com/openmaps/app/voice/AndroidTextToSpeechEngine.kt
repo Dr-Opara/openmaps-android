@@ -1,6 +1,7 @@
 package com.openmaps.app.voice
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import com.openmaps.app.core.voice.VoiceAnnouncementTemplates
@@ -34,7 +35,15 @@ class AndroidTextToSpeechEngine(context: Context) : VoiceGuidanceEngine {
         tts = TextToSpeech(context.applicationContext) { status ->
             val available = status == TextToSpeech.SUCCESS
             _state.value = _state.value.copy(ttsAvailable = available)
-            if (available) applyLocale(_state.value.language)
+            if (available) {
+                tts?.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                )
+                applyLocale(_state.value.language)
+            }
         }
     }
 
