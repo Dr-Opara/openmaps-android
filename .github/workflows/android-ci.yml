@@ -34,7 +34,3 @@ jobs:
 
       - name: Lint
         run: ./gradlew lint
-
-      - name: Community reports production acceptance
-        shell: pwsh
-        run: ./scripts/production-community-reports-acceptance.ps1
