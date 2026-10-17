@@ -21,15 +21,15 @@ object VoicePronunciationNormalizer {
     }
 
     private val substitutions = listOf(
-        Regex("""\bBlvd\.?(?=\s|,|$)""", RegexOption.IGNORE_CASE) to "Boulevard",
-        Regex("""\bPkwy\.?(?=\s|,|$)""", RegexOption.IGNORE_CASE) to "Parkway",
-        Regex("""\bHwy\.?(?=\s|,|$)""", RegexOption.IGNORE_CASE) to "Highway",
-        Regex("""\bAve\.?(?=\s|,|$)""", RegexOption.IGNORE_CASE) to "Avenue",
-        Regex("""\bRd\.?(?=\s|,|$)""", RegexOption.IGNORE_CASE) to "Road",
-        Regex("""\bLn\.?(?=\s|,|$)""", RegexOption.IGNORE_CASE) to "Lane",
-        Regex("""\bCt\.?(?=\s|,|$)""", RegexOption.IGNORE_CASE) to "Court",
-        Regex("""\bCir\.?(?=\s|,|$)""", RegexOption.IGNORE_CASE) to "Circle",
-        Regex("""\bDr\.?(?=(?:\s+(?:and|toward|onto|then)\b)|[,;]|$)""", RegexOption.IGNORE_CASE) to "Drive",
-        Regex("""\bSt\.?(?=\s|,|$)""", RegexOption.IGNORE_CASE) to "Street",
+        Regex("""\bBlvd(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Boulevard",
+        Regex("""\bPkwy(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Parkway",
+        Regex("""\bHwy(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Highway",
+        Regex("""\bAve(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Avenue",
+        Regex("""\bRd(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Road",
+        Regex("""\bLn(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Lane",
+        Regex("""\bCt(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Court",
+        Regex("""\bCir(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Circle",
+        Regex("""\bDr(?=\.?(?:\s+(?:and|toward|onto|then)\b|[,;]|$))""", RegexOption.IGNORE_CASE) to "Drive",
+        Regex("""\bSt(?=\.?(?:\s|,|$))""", RegexOption.IGNORE_CASE) to "Street",
     )
 }
