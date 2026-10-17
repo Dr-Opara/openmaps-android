@@ -41,6 +41,8 @@ import com.openmaps.app.core.voice.VoiceGuidancePrefs
 import com.openmaps.app.map.BuildConfigMapStyleProvider
 import com.openmaps.app.map.MapStyleProvider
 import com.openmaps.app.voice.AndroidTextToSpeechEngine
+import com.openmaps.app.voice.BackendNeuralVoiceRepository
+import com.openmaps.app.voice.HybridVoiceGuidanceEngine
 
 /** Minimal manual dependency container (no DI framework needed at this size). */
 class AppContainer(application: Application) {
@@ -190,7 +192,16 @@ class AppContainer(application: Application) {
      * to kick off at app start — unlike ARCore it never touches the camera or needs an Activity),
      * seeded from the persisted language/mute preference.
      */
-    val voiceGuidanceEngine: VoiceGuidanceEngine = AndroidTextToSpeechEngine(application).apply {
+    private val androidTtsFallback = AndroidTextToSpeechEngine(application)
+
+    val voiceGuidanceEngine: VoiceGuidanceEngine = HybridVoiceGuidanceEngine(
+        context = application,
+        neuralRepository = BackendNeuralVoiceRepository(
+            endpointUrl = BuildConfig.VOICE_GATEWAY_URL,
+            publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+        ),
+        fallback = androidTtsFallback,
+    ).apply {
         setLanguage(voiceGuidancePrefs.language())
         setEnabled(voiceGuidancePrefs.isEnabled())
     }
