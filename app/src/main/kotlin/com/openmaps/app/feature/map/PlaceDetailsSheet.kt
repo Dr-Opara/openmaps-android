@@ -205,8 +205,9 @@ internal val HOME_CHIP_CATEGORIES = listOf(
 )
 
 /** Tile caption: the mockup's discovery tiles use the same plural wording as the home chip strip. */
+@Composable
 internal fun PlaceCategory.tileLabel(): String = when (this) {
-    PlaceCategory.Restaurant -> "Food"
+    PlaceCategory.Restaurant -> stringResource(R.string.category_food)
     else -> chipLabel()
 }
 
@@ -215,10 +216,11 @@ internal fun PlaceCategory.tileLabel(): String = when (this) {
  * The Explore sheet uses the singular [displayName], so the two surfaces read naturally without
  * renaming the category itself.
  */
+@Composable
 internal fun PlaceCategory.chipLabel(): String = when (this) {
-    PlaceCategory.Restaurant -> "Restaurants"
-    PlaceCategory.Hotel -> "Hotels"
-    PlaceCategory.EvCharging -> "EV charging"
+    PlaceCategory.Restaurant -> stringResource(R.string.category_restaurants)
+    PlaceCategory.Hotel -> stringResource(R.string.category_hotels)
+    PlaceCategory.EvCharging -> stringResource(R.string.category_ev_charging)
     else -> displayName()
 }
 
@@ -684,23 +686,26 @@ private fun formatPlaceDistance(meters: Double): String =
  * Screen-reader/UI label for a category. Hardcoded rather than `stringResource`, matching the
  * established pattern for short derived labels in this codebase (see `ManeuverType.spokenLabel`).
  */
-internal fun PlaceCategory.displayName(): String = when (this) {
-    PlaceCategory.Restaurant -> "Restaurant"
-    PlaceCategory.Coffee -> "Coffee"
-    PlaceCategory.Hotel -> "Hotel"
-    PlaceCategory.Grocery -> "Grocery"
-    PlaceCategory.Pharmacy -> "Pharmacy"
-    PlaceCategory.Parking -> "Parking"
-    PlaceCategory.Gas -> "Gas"
-    PlaceCategory.EvCharging -> "EV charging"
-    PlaceCategory.Bank -> "Bank"
-    PlaceCategory.Atm -> "ATM"
-    PlaceCategory.Convenience -> "Convenience"
-    PlaceCategory.Medical -> "Medical"
-    PlaceCategory.Entertainment -> "Entertainment"
-    PlaceCategory.Shopping -> "Shopping"
-    PlaceCategory.Education -> "Education"
-}
+@Composable
+internal fun PlaceCategory.displayName(): String = stringResource(
+    when (this) {
+        PlaceCategory.Restaurant -> R.string.category_restaurant
+        PlaceCategory.Coffee -> R.string.category_coffee
+        PlaceCategory.Hotel -> R.string.category_hotel
+        PlaceCategory.Grocery -> R.string.category_grocery
+        PlaceCategory.Pharmacy -> R.string.category_pharmacy
+        PlaceCategory.Parking -> R.string.category_parking
+        PlaceCategory.Gas -> R.string.category_gas
+        PlaceCategory.EvCharging -> R.string.category_ev_charging
+        PlaceCategory.Bank -> R.string.category_bank
+        PlaceCategory.Atm -> R.string.category_atm
+        PlaceCategory.Convenience -> R.string.category_convenience
+        PlaceCategory.Medical -> R.string.category_medical
+        PlaceCategory.Entertainment -> R.string.category_entertainment
+        PlaceCategory.Shopping -> R.string.category_shopping
+        PlaceCategory.Education -> R.string.category_education
+    },
+)
 
 /**
  * The category's semantic icon.
