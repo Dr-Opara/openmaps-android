@@ -1,6 +1,7 @@
 package com.openmaps.app
 
 import android.app.Application
+import android.content.Context
 import com.openmaps.app.core.geocoding.BackendGeocodingRepository
 import com.openmaps.app.core.geocoding.BackendReverseGeocodingRepository
 import com.openmaps.app.core.geocoding.CompositeGeocodingRepository
@@ -73,9 +74,17 @@ class AppContainer(application: Application) {
     val recentSearchStore: RecentSearchStore = SharedPreferencesRecentSearchStore(application)
 
     /** Production moderated community-reporting backend. */
+    private val communityReportClientId: String by lazy {
+        val prefs = application.getSharedPreferences("openmaps_community_reports", Context.MODE_PRIVATE)
+        prefs.getString("anonymous_client_id", null) ?: java.util.UUID.randomUUID().toString().also {
+            prefs.edit().putString("anonymous_client_id", it).apply()
+        }
+    }
+
     private val communityReportsRepository = BackendCommunityReportsRepository(
         endpointUrl = BuildConfig.COMMUNITY_REPORTS_GATEWAY_URL,
         publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+        anonymousClientId = communityReportClientId,
     )
     val driverReportRepository: DriverReportRepository = communityReportsRepository
 
