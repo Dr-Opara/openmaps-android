@@ -270,6 +270,8 @@
     <string name="settings_voice_language_en_gb">Anglais (Royaume-Uni)</string>
     <string name="settings_voice_language_es">Espagnol</string>
     <string name="settings_voice_language_fr">Français</string>
+    <string name="settings_voice_language_ar">Arabe</string>
+    <string name="settings_voice_language_he">Hébreu</string>
     <string name="settings_voice_language_pidgin">Pidgin nigérian</string>
     <string name="settings_section_map">Carte</string>
     <string name="settings_map_style">Style de carte</string>
