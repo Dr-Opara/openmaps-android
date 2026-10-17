@@ -15,7 +15,9 @@ create index if not exists places_cache_expires_at_idx
 alter table public.places_telemetry
   add column if not exists used_cache boolean not null default false;
 
-create or replace view public.places_health_24h
+drop view if exists public.places_health_24h;
+
+create view public.places_health_24h
 with (security_invoker = false)
 as
 select
