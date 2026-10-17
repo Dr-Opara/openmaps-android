@@ -40,7 +40,7 @@ class BackendNeuralVoiceRepository(
         connection.doOutput = true
         connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
         connection.readTimeout = READ_TIMEOUT_MILLIS
-        connection.setRequestProperty("Accept", "audio/aac")
+        connection.setRequestProperty("Accept", "audio/wav")
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         connection.setRequestProperty("apikey", publishableKey)
 
