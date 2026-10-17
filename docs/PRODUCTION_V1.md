@@ -270,3 +270,25 @@ Implemented on `feature/community-reports-v1`:
 Release validation:
 - CI must pass before merge.
 - Physical-device testing should confirm the report dialog, route-alert appearance, feedback buttons and refresh behavior during a real drive.
+
+
+## Workstream 6: Human-quality Navigation Voice
+
+Implemented on `feature/human-voice-v1`:
+
+- Added an OpenMaps `voice` Edge gateway so cloud-provider credentials never ship in Android.
+- Neural speech uses OpenAI `gpt-4o-mini-tts` with the `cedar` voice when `OPENAI_API_KEY` is configured server-side.
+- The cloud request is constrained to the deterministic navigation phrase OpenMaps already generated; the provider is explicitly instructed not to add, remove, explain or paraphrase navigation instructions.
+- Android now has a neural-first `HybridVoiceGuidanceEngine` with the existing Android TextToSpeech engine as a safety fallback.
+- Immediate maneuver and rerouting prompts never wait on the network: cached neural audio is used when available, otherwise Android TTS speaks immediately.
+- Far-stage maneuver prompts prefetch Near and Immediate variants so critical later prompts are normally already local.
+- Neural audio is cached in the Android app cache by language + normalized phrase and bounded to 160 files.
+- Common road abbreviations and US highway labels are expanded only for speech pronunciation; visible map/street labels are unchanged.
+- Existing localized templates remain the source of truth for English US/UK, Spanish, French and Nigerian Pidgin.
+- Settings disclose that navigation may use an AI-generated voice and that Android speech is the automatic fallback.
+- Voice requests are rate limited and instrumented through `voice_telemetry` / `voice_health_24h`.
+
+Credential/release gates:
+- Configure `OPENAI_API_KEY` in the Supabase project before neural voice production acceptance.
+- Android build, unit tests and lint must pass after Phase 5 lands in production.
+- Physical-device validation must cover Bluetooth/car audio, interruption/ducking, screen lock, offline fallback and real street-name pronunciation.
