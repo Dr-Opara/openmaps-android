@@ -489,6 +489,7 @@ class MapLibreMapEngine(
         Expression.literal(PlaceCategory.Medical.name), Expression.color(PLACE_COLOR_MEDICAL),
         Expression.literal(PlaceCategory.Entertainment.name), Expression.color(PLACE_COLOR_ENTERTAINMENT),
         Expression.literal(PlaceCategory.Shopping.name), Expression.color(PLACE_COLOR_SHOPPING),
+        Expression.literal(PlaceCategory.Education.name), Expression.color(PLACE_COLOR_EDUCATION),
         Expression.color(PLACE_COLOR_DEFAULT),
     )
 
@@ -683,6 +684,7 @@ class MapLibreMapEngine(
         val PLACE_COLOR_MEDICAL: Int = Color.parseColor("#E05C5C")
         val PLACE_COLOR_ENTERTAINMENT: Int = Color.parseColor("#D16FD1")
         val PLACE_COLOR_SHOPPING: Int = Color.parseColor("#E89B3D")
+        val PLACE_COLOR_EDUCATION: Int = Color.parseColor("#6F8FD1")
         val PLACE_COLOR_DEFAULT: Int = Color.parseColor("#B9C6DD")
 
         // Phase 10: road-hazard markers.
