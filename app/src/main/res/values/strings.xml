@@ -300,6 +300,8 @@
     <string name="settings_voice_language_en_gb">English (UK)</string>
     <string name="settings_voice_language_es">Spanish</string>
     <string name="settings_voice_language_fr">French</string>
+    <string name="settings_voice_language_ar">Arabic</string>
+    <string name="settings_voice_language_he">Hebrew</string>
     <string name="settings_voice_language_pidgin">Nigerian Pidgin</string>
     <string name="settings_section_map">Map</string>
     <string name="settings_map_style">Map style</string>
