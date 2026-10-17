@@ -8,12 +8,14 @@ import com.openmaps.app.core.routing.ManeuverType
  * `voice/AndroidTextToSpeechEngine` imports `android.speech.tts`.
  */
 
-/** The five initial language/voice options (section 18). */
+/** Production navigation voice languages, including Phase 7 RTL locales. */
 enum class VoiceLanguage {
     EnglishUs,
     EnglishUk,
     Spanish,
     French,
+    Arabic,
+    Hebrew,
     NigerianPidgin,
 }
 
