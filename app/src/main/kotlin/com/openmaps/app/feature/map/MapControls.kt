@@ -60,6 +60,8 @@ import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.localization.LocalMeasurementSystem
+import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.map.MapMode
