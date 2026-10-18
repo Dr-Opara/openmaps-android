@@ -280,4 +280,12 @@
     <string name="settings_version">גרסה</string>
     <string name="community_still_there">עדיין שם</string>
     <string name="community_not_there">כבר לא שם</string>
+
+    <string name="share_trip_title">נסיעת OpenMaps</string>
+    <string name="share_destination_title">יעד OpenMaps</string>
+    <string name="route_traffic_delay_format">+%1$d דק׳ בגלל תנועה</string>
+    <string name="route_other_routes">מסלולים אחרים</string>
+    <string name="route_alternate_fallback">מסלול חלופי</string>
+    <string name="route_use_action">שימוש</string>
+    <string name="lane_use_lane">השתמשו בנתיב הזה</string>
 </resources>
