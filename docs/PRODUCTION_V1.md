@@ -292,3 +292,30 @@ Credential/release gates:
 - Configure `OPENAI_API_KEY` in the Supabase project before neural voice production acceptance.
 - Android build, unit tests and lint must pass after Phase 5 lands in production.
 - Physical-device validation must cover Bluetooth/car audio, interruption/ducking, screen lock, offline fallback and real street-name pronunciation.
+
+
+## Workstream 7: Worldwide Localization
+
+Implemented on `feature/worldwide-localization-v1`:
+
+- Android per-app language configuration is enabled with declared support for English US, English UK, Spanish, French, Arabic and Hebrew.
+- Full UI resource packs are present for Spanish, French, Arabic and Hebrew; English UK carries regional terminology overrides such as car park and petrol.
+- Arabic and Hebrew use Android RTL layout support rather than a mirrored custom navigation implementation.
+- Navigation units default to regional automatic behavior and can be overridden to Imperial or Metric in Settings.
+- US/Liberia/Myanmar automatic behavior resolves to US-style imperial; the UK resolves to miles/yards/mph; other regions resolve to metric.
+- Route preview, active Map navigation, Live navigation, destination/place/nearby distances, speed limits and road alerts use the same regional unit policy.
+- Arrival time is formatted using the active app locale and local 12/24-hour conventions.
+- Search, reverse geocoding, commercial routing, Valhalla fallback, Places and Android voice search receive the active app locale rather than a hard-coded US locale.
+- Places passes the locale through the OpenMaps gateway to HERE and uses language-specific OSM `name:<lang>` tags when they exist; it never fabricates translated POI names.
+- Neural/TTS navigation now supports Arabic and Hebrew in addition to English US/UK, Spanish, French and Nigerian Pidgin.
+- Far/near spoken maneuver distances follow the selected measurement system: metric, US imperial or UK imperial.
+- Non-English street/place names are preserved rather than run through English road-abbreviation expansion.
+- The production `voice` and `places` Edge Functions have been upgraded for localization.
+- `scripts/production-localization-acceptance.ps1` requires complete Spanish/French/Arabic/Hebrew string-key parity, the declared locale set and RTL wiring.
+- Worldwide Places acceptance now sends regional locale tags for Houston, London, Paris, Lagos, Tokyo and Sydney.
+- Voice production acceptance includes Arabic, Hebrew and metric-distance neural prompts.
+
+Release validation:
+- Android assemble, unit tests, lint and all production acceptance suites must pass before merge.
+- Physical-device QA must switch the app through LTR and RTL languages and validate truncation, mirroring, Map/Live overlays, voice search and system app-language return behavior.
+- Real driving QA should validate automatic unit selection in at least a US, UK and metric locale configuration.
