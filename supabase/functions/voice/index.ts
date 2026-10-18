@@ -144,7 +144,8 @@ function validNavigationPhrase(text: string, language: VoiceLanguage): boolean {
       "Incorpórese", "Tome ", "Entre ",
     ],
     French: [
-      "Navigation commencée.", "Recalcul de l'itinéraire.", "Itinéraire mis à jour.",
+      "Navigation commencée.", "Recalcul de l'itinéraire.", "Recalcul de l’itinéraire.",
+      "Itinéraire mis à jour.",
       "Vous approchez de votre destination.", "Vous êtes arrivé à destination.",
       "Dans un demi-mile, ", "Dans 500 pieds, ", "Dans 800 mètres, ", "Dans 150 mètres, ",
       "Dans 200 yards, ", "Continuez", "Restez ", "Tournez ", "Faites ", "Rejoignez ",
