@@ -310,4 +310,12 @@
     <string name="settings_version">Version</string>
     <string name="community_still_there">Still there</string>
     <string name="community_not_there">Not there</string>
+
+    <string name="share_trip_title">OpenMaps trip</string>
+    <string name="share_destination_title">OpenMaps destination</string>
+    <string name="route_traffic_delay_format">+%1$d min traffic</string>
+    <string name="route_other_routes">Other routes</string>
+    <string name="route_alternate_fallback">Alternate route</string>
+    <string name="route_use_action">Use</string>
+    <string name="lane_use_lane">USE LANE</string>
 </resources>
