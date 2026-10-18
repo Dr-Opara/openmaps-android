@@ -376,7 +376,11 @@ private fun nearbyCardSummary(place: Place): String? {
 
 @Composable
 private fun AheadPlaceChip(place: Place, onClick: () -> Unit) {
-    val distance = place.distanceMeters?.let(::formatNearbyDistance)
+    val distance = if (place.distanceMeters != null) {
+        formatNearbyDistance(place.distanceMeters)
+    } else {
+        null
+    }
     Row(
         modifier = Modifier
             .background(OpenMapsColors.SurfaceMuted, GlassShapes.Pill)
