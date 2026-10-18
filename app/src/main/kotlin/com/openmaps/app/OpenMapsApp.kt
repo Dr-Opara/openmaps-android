@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -38,6 +39,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.openmaps.app.core.camera.CameraPermissions
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.location.LocationPermissions
+import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.feature.live.LiveHud
 import com.openmaps.app.feature.live.LiveReadinessMapper
@@ -193,8 +195,12 @@ private fun AppShell(container: AppContainer) {
     }
 
     val styleSource = remember(container) { container.mapStyleProvider.resolve() }
+    val appLocale = LocalConfiguration.current.locales[0]
 
-    CompositionLocalProvider(LocalMeasurementSystem provides state.measurementSystem) {
+    CompositionLocalProvider(
+        LocalMeasurementSystem provides state.measurementSystem,
+        LocalAppLocale provides appLocale,
+    ) {
         Box(Modifier.fillMaxSize().background(OpenMapsColors.Navy900)) {
         MapScreen(
             viewModel = viewModel,
