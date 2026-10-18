@@ -133,8 +133,9 @@ function validNavigationPhrase(text: string, language: VoiceLanguage): boolean {
     ],
     EnglishUk: [
       "Navigation started.", "Rerouting.", "Route updated.", "Approaching your destination.",
-      "You have arrived.", "In half a mile, ", "In 500 feet, ", "Continue", "Keep ", "Turn ",
-      "Make ", "Merge", "Take ", "Enter ",
+      "You have arrived.", "In half a mile, ", "In 500 feet, ", "In 800 meters, ",
+      "In 150 meters, ", "In 200 yards, ", "Continue", "Keep ", "Turn ", "Make ", "Merge",
+      "Take ", "Enter ",
     ],
     Spanish: [
       "Navegación iniciada.", "Recalculando ruta.", "Ruta actualizada.", "Se acerca a su destino.",
