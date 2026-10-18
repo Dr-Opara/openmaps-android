@@ -10,7 +10,10 @@ $cases = @(
   @{ Language = "EnglishUk"; Text = "In half a mile, keep left onto Oxford Street." },
   @{ Language = "Spanish"; Text = "En media milla, gire a la derecha en Gran Via." },
   @{ Language = "French"; Text = "Dans un demi-mile, tournez a droite sur Avenue des Champs-Elysees." },
-  @{ Language = "NigerianPidgin"; Text = "For about half mile, turn right enter Airport Road." }
+  @{ Language = "Arabic"; Text = "بعد 800 متر، انعطف يمينًا إلى شارع المطار." },
+  @{ Language = "Hebrew"; Text = "בעוד 800 מטר, פנו ימינה אל דרך נמיר." },
+  @{ Language = "NigerianPidgin"; Text = "For about half mile, turn right enter Airport Road." },
+  @{ Language = "EnglishUs"; Text = "In 800 meters, turn right onto Airport Road." }
 )
 
 $rows = New-Object System.Collections.Generic.List[object]
