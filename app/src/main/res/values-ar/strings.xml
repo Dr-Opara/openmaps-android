@@ -280,4 +280,12 @@
     <string name="settings_version">الإصدار</string>
     <string name="community_still_there">ما زال موجودًا</string>
     <string name="community_not_there">لم يعد موجودًا</string>
+
+    <string name="share_trip_title">رحلة OpenMaps</string>
+    <string name="share_destination_title">وجهة OpenMaps</string>
+    <string name="route_traffic_delay_format">+%1$d د بسبب الازدحام</string>
+    <string name="route_other_routes">مسارات أخرى</string>
+    <string name="route_alternate_fallback">مسار بديل</string>
+    <string name="route_use_action">استخدام</string>
+    <string name="lane_use_lane">استخدم هذا المسار</string>
 </resources>
