@@ -49,6 +49,7 @@ import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.navigation.RouteProgress
+import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.reporting.DriverReportType
@@ -619,6 +620,7 @@ fun ActiveMapNavigationPanel(
                 value = ArrivalTimeFormatter.format(
                     progress.remainingDurationSeconds,
                     System.currentTimeMillis(),
+                    locale = LocalAppLocale.current,
                 ),
                 label = stringResource(R.string.live_stat_arrival),
                 modifier = Modifier.weight(1f),
@@ -869,8 +871,8 @@ private fun NavigationState.progressOrNull(): RouteProgress? = when (this) {
  */
 @Composable
 private fun formatNavigationDistance(meters: Double): String =
-    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current, LocalAppLocale.current)
 
 @Composable
 private fun formatNavigationDuration(seconds: Double): String =
-    NavigationUnits.formatDuration(seconds)
+    NavigationUnits.formatDuration(seconds, LocalAppLocale.current)
