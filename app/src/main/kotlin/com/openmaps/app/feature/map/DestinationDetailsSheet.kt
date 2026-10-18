@@ -48,6 +48,7 @@ import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
@@ -345,7 +346,11 @@ private fun DestinationTripSummary(durationSeconds: Double, distanceMeters: Doub
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(
-                text = ArrivalTimeFormatter.format(durationSeconds, System.currentTimeMillis()),
+                text = ArrivalTimeFormatter.format(
+                    durationSeconds,
+                    System.currentTimeMillis(),
+                    locale = LocalAppLocale.current,
+                ),
                 style = MaterialTheme.typography.titleMedium,
                 color = OpenMapsColors.TextPrimary,
             )
@@ -463,11 +468,11 @@ private fun parkingLine(place: Place): String {
 
 @Composable
 private fun formatTripDistance(meters: Double): String =
-    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current, LocalAppLocale.current)
 
 @Composable
 private fun formatTripDuration(seconds: Double): String =
-    NavigationUnits.formatDuration(seconds)
+    NavigationUnits.formatDuration(seconds, LocalAppLocale.current)
 
 @Composable
 private fun approximateDistanceLabel(destination: SearchResult, currentLocation: UserLocation?): String? {
@@ -476,7 +481,7 @@ private fun approximateDistanceLabel(destination: SearchResult, currentLocation:
         Coordinate(location.latitude, location.longitude),
         Coordinate(destination.latitude, destination.longitude),
     )
-    val formatted = NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
+    val formatted = NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current, LocalAppLocale.current)
     return stringResource(R.string.distance_away_format, formatted)
 }
 
