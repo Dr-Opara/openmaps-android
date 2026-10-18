@@ -55,10 +55,11 @@ object NavigationUnits {
         val hours = totalMinutes / 60
         val minutes = totalMinutes % 60
         val number = NumberFormat.getIntegerInstance(locale)
+        val (hourUnit, minuteUnit) = durationUnits(locale)
         return if (hours > 0) {
-            "${number.format(hours)} h ${number.format(minutes)} min"
+            "${number.format(hours)} $hourUnit ${number.format(minutes)} $minuteUnit"
         } else {
-            "${number.format(minutes)} min"
+            "${number.format(minutes)} $minuteUnit"
         }
     }
 
@@ -109,6 +110,13 @@ object NavigationUnits {
         }
         return formatSpeed(converted, resolved, locale)
     }
+
+    private fun durationUnits(locale: Locale): Pair<String, String> =
+        when (locale.language.lowercase(Locale.ROOT)) {
+            "ar" -> "س" to "د"
+            "he" -> "ש׳" to "דק׳"
+            else -> "h" to "min"
+        }
 
     private fun formatMetricDistance(meters: Double, locale: Locale): String {
         val number = NumberFormat.getNumberInstance(locale)
