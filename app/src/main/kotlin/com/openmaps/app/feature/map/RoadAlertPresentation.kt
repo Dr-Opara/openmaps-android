@@ -2,9 +2,11 @@ package com.openmaps.app.feature.map
 
 import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.localization.NavigationUnits
+import com.openmaps.app.core.roadintelligence.RoadEventType
 import com.openmaps.app.core.roadintelligence.RouteAlert
 import com.openmaps.app.core.roadintelligence.SpeedUnit
 import com.openmaps.app.core.roadintelligence.TrafficCongestionLevel
+import com.openmaps.app.core.roadintelligence.WeatherConditionType
 import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -22,9 +24,9 @@ object RoadAlertPresentation {
         measurementSystem: MeasurementSystem = MeasurementSystem.Auto,
         locale: Locale = Locale.getDefault(),
     ): String = when (alert) {
-        is RouteAlert.Hazard -> alert.event.title
-        is RouteAlert.Informational -> alert.event.title
-        is RouteAlert.Weather -> alert.condition.description
+        is RouteAlert.Hazard -> eventTitle(alert.event.type, alert.event.title, alert.event.metadata, locale)
+        is RouteAlert.Informational -> eventTitle(alert.event.type, alert.event.title, alert.event.metadata, locale)
+        is RouteAlert.Weather -> weatherLabel(alert.condition.type, alert.condition.description, locale)
         is RouteAlert.Lane -> copy(locale).laneGuidance
         is RouteAlert.SpeedLimit ->
             "${copy(locale).speedLimit} ${formatSpeedValue(alert.info.value, alert.info.unit, measurementSystem, locale)}"
@@ -77,6 +79,111 @@ object RoadAlertPresentation {
         preference = measurementSystem,
         locale = locale,
     )
+
+    private fun eventTitle(
+        type: RoadEventType,
+        providerTitle: String,
+        metadata: Map<String, String>,
+        locale: Locale,
+    ): String {
+        if (metadata["source"] != "community") return providerTitle
+        val language = locale.language.lowercase(Locale.ROOT)
+        return when (language) {
+            "es" -> when (type) {
+                RoadEventType.Congestion -> "Tráfico informado más adelante"
+                RoadEventType.Crash -> "Accidente informado más adelante"
+                RoadEventType.Construction -> "Obras informadas más adelante"
+                RoadEventType.Closure -> "Cierre de carril informado más adelante"
+                RoadEventType.Debris -> "Objeto informado en la vía"
+                RoadEventType.Flooding -> "Inundación informada más adelante"
+                else -> providerTitle
+            }
+            "fr" -> when (type) {
+                RoadEventType.Congestion -> "Trafic signalé plus loin"
+                RoadEventType.Crash -> "Accident signalé plus loin"
+                RoadEventType.Construction -> "Travaux signalés plus loin"
+                RoadEventType.Closure -> "Fermeture de voie signalée plus loin"
+                RoadEventType.Debris -> "Objet signalé sur la route"
+                RoadEventType.Flooding -> "Inondation signalée plus loin"
+                else -> providerTitle
+            }
+            "ar" -> when (type) {
+                RoadEventType.Congestion -> "ازدحام مُبلّغ عنه أمامك"
+                RoadEventType.Crash -> "حادث مُبلّغ عنه أمامك"
+                RoadEventType.Construction -> "أعمال طريق مُبلّغ عنها أمامك"
+                RoadEventType.Closure -> "إغلاق مسار مُبلّغ عنه أمامك"
+                RoadEventType.Debris -> "جسم مُبلّغ عنه على الطريق"
+                RoadEventType.Flooding -> "فيضان مُبلّغ عنه أمامك"
+                else -> providerTitle
+            }
+            "he" -> when (type) {
+                RoadEventType.Congestion -> "דווח על עומס בהמשך"
+                RoadEventType.Crash -> "דווח על תאונה בהמשך"
+                RoadEventType.Construction -> "דווח על עבודות בדרך בהמשך"
+                RoadEventType.Closure -> "דווח על נתיב סגור בהמשך"
+                RoadEventType.Debris -> "דווח על חפץ בכביש"
+                RoadEventType.Flooding -> "דווח על הצפה בהמשך"
+                else -> providerTitle
+            }
+            else -> providerTitle
+        }
+    }
+
+    private fun weatherLabel(type: WeatherConditionType, providerDescription: String, locale: Locale): String {
+        val language = locale.language.lowercase(Locale.ROOT)
+        if (language !in setOf("es", "fr", "ar", "he")) return providerDescription
+        return when (language) {
+            "es" -> when (type) {
+                WeatherConditionType.Clear -> "Despejado"
+                WeatherConditionType.Rain -> "Lluvia"
+                WeatherConditionType.HeavyRain -> "Lluvia intensa"
+                WeatherConditionType.Snow -> "Nieve"
+                WeatherConditionType.Ice -> "Hielo"
+                WeatherConditionType.Fog -> "Niebla"
+                WeatherConditionType.HighWind -> "Viento fuerte"
+                WeatherConditionType.Storm -> "Tormenta"
+                WeatherConditionType.ReducedVisibility -> "Visibilidad reducida"
+                WeatherConditionType.Unknown -> providerDescription
+            }
+            "fr" -> when (type) {
+                WeatherConditionType.Clear -> "Temps dégagé"
+                WeatherConditionType.Rain -> "Pluie"
+                WeatherConditionType.HeavyRain -> "Forte pluie"
+                WeatherConditionType.Snow -> "Neige"
+                WeatherConditionType.Ice -> "Verglas"
+                WeatherConditionType.Fog -> "Brouillard"
+                WeatherConditionType.HighWind -> "Vent fort"
+                WeatherConditionType.Storm -> "Orage"
+                WeatherConditionType.ReducedVisibility -> "Visibilité réduite"
+                WeatherConditionType.Unknown -> providerDescription
+            }
+            "ar" -> when (type) {
+                WeatherConditionType.Clear -> "طقس صافٍ"
+                WeatherConditionType.Rain -> "أمطار"
+                WeatherConditionType.HeavyRain -> "أمطار غزيرة"
+                WeatherConditionType.Snow -> "ثلوج"
+                WeatherConditionType.Ice -> "جليد"
+                WeatherConditionType.Fog -> "ضباب"
+                WeatherConditionType.HighWind -> "رياح قوية"
+                WeatherConditionType.Storm -> "عاصفة"
+                WeatherConditionType.ReducedVisibility -> "رؤية منخفضة"
+                WeatherConditionType.Unknown -> providerDescription
+            }
+            "he" -> when (type) {
+                WeatherConditionType.Clear -> "בהיר"
+                WeatherConditionType.Rain -> "גשם"
+                WeatherConditionType.HeavyRain -> "גשם כבד"
+                WeatherConditionType.Snow -> "שלג"
+                WeatherConditionType.Ice -> "קרח"
+                WeatherConditionType.Fog -> "ערפל"
+                WeatherConditionType.HighWind -> "רוח חזקה"
+                WeatherConditionType.Storm -> "סערה"
+                WeatherConditionType.ReducedVisibility -> "ראות מוגבלת"
+                WeatherConditionType.Unknown -> providerDescription
+            }
+            else -> providerDescription
+        }
+    }
 
     private fun trafficLevel(level: TrafficCongestionLevel, locale: Locale): String {
         val language = locale.language.lowercase(Locale.ROOT)
