@@ -51,6 +51,12 @@ class NavigationUnitsTest {
     }
 
     @Test
+    fun arabicDuration_usesLocalizedDigitsAndUnits() {
+        val value = NavigationUnits.formatDuration(3900.0, Locale.forLanguageTag("ar"))
+        assertEquals("١ س ٥ د", value)
+    }
+
+    @Test
     fun duration_usesLocaleNumberFormatting() {
         assertEquals("1 h 5 min", NavigationUnits.formatDuration(3900.0, Locale.US))
     }
