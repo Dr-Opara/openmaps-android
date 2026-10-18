@@ -470,7 +470,7 @@ function normalizeLocaleTag(value: unknown): string | null {
 
 function normalizeText(value: string | null | undefined): string {
   return (value ?? "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
 }
 
 function metersBetween(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }): number {
