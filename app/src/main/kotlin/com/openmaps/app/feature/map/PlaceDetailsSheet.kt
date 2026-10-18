@@ -52,6 +52,7 @@ import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.designsystem.surfaceCard
+import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
@@ -680,7 +681,7 @@ private fun placeMetadataLine(place: Place): String? {
 
 @Composable
 private fun formatPlaceDistance(meters: Double): String =
-    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current, LocalAppLocale.current)
 
 /**
  * Screen-reader/UI label for a category. Hardcoded rather than `stringResource`, matching the
