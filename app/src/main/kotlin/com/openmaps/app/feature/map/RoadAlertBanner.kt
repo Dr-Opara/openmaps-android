@@ -127,7 +127,7 @@ fun LaneGuidanceStrip(
             .padding(horizontal = 10.dp, vertical = 7.dp),
     ) {
         Text(
-            text = "USE LANE",
+            text = stringResource(R.string.lane_use_lane),
             style = MaterialTheme.typography.labelSmall,
             color = labelColor,
         )
