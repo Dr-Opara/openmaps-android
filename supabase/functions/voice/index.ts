@@ -1,6 +1,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-type VoiceLanguage = "EnglishUs" | "EnglishUk" | "Spanish" | "French" | "NigerianPidgin";
+type VoiceLanguage =
+  | "EnglishUs"
+  | "EnglishUk"
+  | "Spanish"
+  | "French"
+  | "Arabic"
+  | "Hebrew"
+  | "NigerianPidgin";
 
 type VoiceRequest = {
   text?: string;
@@ -12,6 +19,8 @@ const LANGUAGES = new Set<VoiceLanguage>([
   "EnglishUk",
   "Spanish",
   "French",
+  "Arabic",
+  "Hebrew",
   "NigerianPidgin",
 ]);
 
@@ -118,8 +127,9 @@ function validNavigationPhrase(text: string, language: VoiceLanguage): boolean {
   const allowedPrefixes: Record<VoiceLanguage, string[]> = {
     EnglishUs: [
       "Navigation started.", "Rerouting.", "Route updated.", "Approaching your destination.",
-      "You have arrived.", "In half a mile, ", "In 500 feet, ", "Continue", "Keep ", "Turn ",
-      "Make ", "Merge", "Take ", "Enter ",
+      "You have arrived.", "In half a mile, ", "In 500 feet, ", "In 800 meters, ",
+      "In 150 meters, ", "In 200 yards, ", "Continue", "Keep ", "Turn ", "Make ", "Merge",
+      "Take ", "Enter ",
     ],
     EnglishUk: [
       "Navigation started.", "Rerouting.", "Route updated.", "Approaching your destination.",
@@ -128,19 +138,34 @@ function validNavigationPhrase(text: string, language: VoiceLanguage): boolean {
     ],
     Spanish: [
       "Navegación iniciada.", "Recalculando ruta.", "Ruta actualizada.", "Se acerca a su destino.",
-      "Ha llegado a su destino.", "En media milla, ", "En 500 pies, ", "Continúe", "Manténgase",
-      "Gire ", "Haga ", "Incorpórese", "Tome ", "Entre ",
+      "Ha llegado a su destino.", "En media milla, ", "En 500 pies, ", "En 800 metros, ",
+      "En 150 metros, ", "En 200 yardas, ", "Continúe", "Manténgase", "Gire ", "Haga ",
+      "Incorpórese", "Tome ", "Entre ",
     ],
     French: [
       "Navigation commencée.", "Recalcul de l'itinéraire.", "Itinéraire mis à jour.",
       "Vous approchez de votre destination.", "Vous êtes arrivé à destination.",
-      "Dans un demi-mile, ", "Dans 500 pieds, ", "Continuez", "Restez ", "Tournez ",
-      "Faites ", "Rejoignez ", "Prenez ", "Entrez ",
+      "Dans un demi-mile, ", "Dans 500 pieds, ", "Dans 800 mètres, ", "Dans 150 mètres, ",
+      "Dans 200 yards, ", "Continuez", "Restez ", "Tournez ", "Faites ", "Rejoignez ",
+      "Prenez ", "Entrez ",
+    ],
+    Arabic: [
+      "بدأت الملاحة.", "جارٍ إعادة التوجيه.", "تم تحديث المسار.", "أنت تقترب من وجهتك.",
+      "لقد وصلت إلى وجهتك.", "بعد 800 متر، ", "بعد 150 متر، ", "بعد نصف ميل، ",
+      "بعد 200 ياردة، ", "بعد 500 قدم، ", "استمر", "الزم ", "انعطف ", "قم ",
+      "اندمج ", "اسلك ", "ادخل ",
+    ],
+    Hebrew: [
+      "הניווט התחיל.", "מחשב מסלול מחדש.", "המסלול עודכן.", "אתם מתקרבים ליעד.",
+      "הגעתם ליעד.", "בעוד 800 מטר, ", "בעוד 150 מטר, ", "בעוד חצי מייל, ",
+      "בעוד 200 יארד, ", "בעוד 500 רגל, ", "המשיכו", "היצמדו ", "פנו ", "בצעו ",
+      "השתלבו ", "צאו ", "היכנסו ",
     ],
     NigerianPidgin: [
       "Navigation don start.", "I dey find new road.", "New road don ready.",
       "You dey near your destination.", "You don reach your destination.", "For about half mile, ",
-      "For about 500 feet, ", "Continue", "Stay ", "Turn ", "Make ", "Merge ", "Take ", "Enter ",
+      "For about 500 feet, ", "For about 800 meters, ", "For about 150 meters, ",
+      "For about 200 yards, ", "Continue", "Stay ", "Turn ", "Make ", "Merge ", "Take ", "Enter ",
     ],
   };
 
@@ -153,6 +178,8 @@ function instructionsFor(language: VoiceLanguage): string {
     EnglishUk: "British English",
     Spanish: "natural Spanish",
     French: "natural French",
+    Arabic: "natural Modern Standard Arabic",
+    Hebrew: "natural Hebrew",
     NigerianPidgin: "natural Nigerian Pidgin with a Nigerian English accent",
   }[language];
 
