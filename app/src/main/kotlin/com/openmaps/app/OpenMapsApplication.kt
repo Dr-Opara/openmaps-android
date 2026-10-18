@@ -110,9 +110,11 @@ class AppContainer(application: Application) {
             BackendRoutingRepository(
                 endpointUrl = BuildConfig.ROUTING_GATEWAY_URL,
                 publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+                localeTagProvider = localizationPrefs::currentLocaleTag,
             ),
             ValhallaRoutingRepository(
                 userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; routing fallback)",
+                localeTagProvider = localizationPrefs::currentLocaleTag,
             ),
         ),
     )
@@ -135,6 +137,7 @@ class AppContainer(application: Application) {
             BackendPlaceRepository(
                 endpointUrl = BuildConfig.PLACES_GATEWAY_URL,
                 publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+                localeTagProvider = localizationPrefs::currentLocaleTag,
             ),
             OverpassPlaceRepository(
                 userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; places fallback)",
