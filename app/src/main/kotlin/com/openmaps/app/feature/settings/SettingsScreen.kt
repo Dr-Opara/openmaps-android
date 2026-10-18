@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -38,7 +39,6 @@ import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.voice.VoiceLanguage
 import com.openmaps.app.map.MapStyleSource
-import java.util.Locale
 
 @Composable
 fun SettingsScreen(
@@ -54,6 +54,8 @@ fun SettingsScreen(
     onMeasurementSystemChanged: (MeasurementSystem) -> Unit = {},
     onOpenLanguageSettings: () -> Unit = {},
 ) {
+    val appLocale = LocalConfiguration.current.locales[0]
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -116,7 +118,7 @@ fun SettingsScreen(
             SectionHeader(stringResource(R.string.settings_section_navigation))
             SettingsRow(
                 title = stringResource(R.string.settings_app_language),
-                value = Locale.getDefault().getDisplayName(Locale.getDefault()),
+                value = appLocale.getDisplayName(appLocale),
             )
             ActionRow(stringResource(R.string.settings_change_app_language), onOpenLanguageSettings)
 
