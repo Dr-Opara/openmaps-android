@@ -280,4 +280,12 @@
     <string name="settings_version">Versión</string>
     <string name="community_still_there">Sigue ahí</string>
     <string name="community_not_there">Ya no está</string>
+
+    <string name="share_trip_title">Viaje de OpenMaps</string>
+    <string name="share_destination_title">Destino de OpenMaps</string>
+    <string name="route_traffic_delay_format">+%1$d min por tráfico</string>
+    <string name="route_other_routes">Otras rutas</string>
+    <string name="route_alternate_fallback">Ruta alternativa</string>
+    <string name="route_use_action">Usar</string>
+    <string name="lane_use_lane">USA ESTE CARRIL</string>
 </resources>
