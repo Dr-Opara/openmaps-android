@@ -155,6 +155,7 @@ class AppContainer(application: Application) {
             HereTrafficRoadIntelligenceRepository(
                 endpointUrl = BuildConfig.TRAFFIC_INCIDENTS_GATEWAY_URL,
                 publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+                localeTagProvider = localizationPrefs::currentLocaleTag,
             ),
             DefaultRoadIntelligenceRepository(
                 userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; fallback)",
