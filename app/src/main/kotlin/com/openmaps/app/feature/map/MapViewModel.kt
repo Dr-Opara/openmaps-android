@@ -80,7 +80,6 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.Locale
 import kotlin.math.max
 
 /**
@@ -2075,7 +2074,7 @@ class MapViewModel(
             repository.reverse(
                 location.latitude,
                 location.longitude,
-                Locale.getDefault().toLanguageTag(),
+                localizationPrefs?.currentLocaleTag(),
             )
                 .onSuccess { resolved ->
                     if (resolved != null) {
