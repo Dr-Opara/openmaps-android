@@ -845,7 +845,7 @@ private fun RoutePreviewSummary(
                 ?.takeIf { routeState.route.isTrafficAware && it >= 60.0 }
                 ?.let { delay ->
                     Text(
-                        text = "+${(delay / 60.0).roundToInt()} min traffic",
+                        text = stringResource(R.string.route_traffic_delay_format, (delay / 60.0).roundToInt()),
                         style = MaterialTheme.typography.bodySmall,
                         color = OpenMapsColors.TextSecondary,
                         modifier = Modifier.padding(top = 8.dp),
@@ -855,7 +855,7 @@ private fun RoutePreviewSummary(
             if (routeState.route.alternatives.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "Other routes",
+                    text = stringResource(R.string.route_other_routes),
                     style = MaterialTheme.typography.labelLarge,
                     color = OpenMapsColors.TextPrimary,
                 )
@@ -872,7 +872,7 @@ private fun RoutePreviewSummary(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    text = alternative.label ?: "Alternate route",
+                                    text = alternative.label ?: stringResource(R.string.route_alternate_fallback),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = OpenMapsColors.TextPrimary,
                                     maxLines = 1,
@@ -885,7 +885,7 @@ private fun RoutePreviewSummary(
                                 )
                             }
                             Text(
-                                text = "Use",
+                                text = stringResource(R.string.route_use_action),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = OpenMapsColors.ElectricBlueFilled,
                             )
