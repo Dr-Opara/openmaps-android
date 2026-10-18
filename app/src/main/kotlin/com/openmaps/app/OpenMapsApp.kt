@@ -167,7 +167,7 @@ private fun AppShell(container: AppContainer) {
                 MapUiEvent.OpenAppSettings -> context.openAppSettings()
                 MapUiEvent.OpenLocationSettings -> context.startSafely(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
                 is MapUiEvent.ShareTripUrl -> context.shareText(
-                    title = "OpenMaps trip",
+                    title = context.getString(R.string.share_trip_title),
                     text = event.url,
                 )
                 // Purely informational: the old route is still active and usable, so there is
@@ -208,9 +208,9 @@ private fun AppShell(container: AppContainer) {
             recentDestinations = searchState.recentSearches,
             onShareDestination = { destination ->
                 context.shareText(
-                    title = destination.name.ifBlank { "OpenMaps destination" },
+                    title = destination.name.ifBlank { context.getString(R.string.share_destination_title) },
                     text = buildString {
-                        append(destination.name.ifBlank { "OpenMaps destination" })
+                        append(destination.name.ifBlank { context.getString(R.string.share_destination_title) })
                         destination.subtitle.takeIf { it.isNotBlank() }?.let {
                             append("\n")
                             append(it)
