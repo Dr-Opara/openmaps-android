@@ -438,7 +438,7 @@ private fun LiveRoadAlertHud(
     val measurementSystem = LocalMeasurementSystem.current
     val locale = LocalAppLocale.current
     val distance = RoadAlertPresentation.distanceAheadLabel(topAlert, measurementSystem, locale)
-    val delay = RoadAlertPresentation.delayLabel(topAlert)
+    val delay = RoadAlertPresentation.delayLabel(topAlert, locale)
     val detail = listOfNotNull(distance, delay).joinToString(" · ")
     Column(modifier = modifier) {
         LiveCompactPill(
