@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.roadintelligence.LaneDirection
+import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.roadintelligence.LaneGuidance
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceState
@@ -37,6 +38,7 @@ fun RoadAlertBanner(
     val topAlert = roadState.activeAlerts.firstOrNull { it !is RouteAlert.SpeedLimit }
     val speedLimitAlert = roadState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull()
     val measurementSystem = LocalMeasurementSystem.current
+    val locale = LocalAppLocale.current
     val currentSpeed = roadState.currentSpeedMetersPerSecond
     if (topAlert == null && speedLimitAlert == null) return
 
@@ -53,12 +55,12 @@ fun RoadAlertBanner(
             } else {
                 Column {
                     Chip(background = OpenMapsColors.Warning) {
-                        val distance = RoadAlertPresentation.distanceAheadLabel(alert, measurementSystem)
+                        val distance = RoadAlertPresentation.distanceAheadLabel(alert, measurementSystem, locale)
                         Text(
                             text = if (distance != null) {
-                                "${RoadAlertPresentation.headline(alert, measurementSystem)} $distance"
+                                "${RoadAlertPresentation.headline(alert, measurementSystem, locale)} $distance"
                             } else {
-                                RoadAlertPresentation.headline(alert, measurementSystem)
+                                RoadAlertPresentation.headline(alert, measurementSystem, locale)
                             },
                             style = MaterialTheme.typography.labelMedium,
                             color = OpenMapsColors.Navy900,
@@ -82,10 +84,10 @@ fun RoadAlertBanner(
         speedLimitAlert?.let { alert ->
             Chip(background = OpenMapsColors.Navy800) {
                 val text = if (currentSpeed != null) {
-                    "${RoadAlertPresentation.formatCurrentSpeed(currentSpeed, alert.info.unit, measurementSystem)} / " +
-                        RoadAlertPresentation.headline(alert, measurementSystem)
+                    "${RoadAlertPresentation.formatCurrentSpeed(currentSpeed, alert.info.unit, measurementSystem, locale)} / " +
+                        RoadAlertPresentation.headline(alert, measurementSystem, locale)
                 } else {
-                    RoadAlertPresentation.headline(alert, measurementSystem)
+                    RoadAlertPresentation.headline(alert, measurementSystem, locale)
                 }
                 Text(
                     text = text,
