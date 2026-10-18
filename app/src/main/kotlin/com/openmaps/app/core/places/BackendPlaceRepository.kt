@@ -23,6 +23,7 @@ import java.util.Locale
 class BackendPlaceRepository(
     private val endpointUrl: String,
     private val publishableKey: String,
+    private val localeTagProvider: () -> String = { Locale.getDefault().toLanguageTag() },
 ) : PlaceRepository {
 
     override suspend fun nearbyPlaces(
@@ -97,7 +98,7 @@ class BackendPlaceRepository(
                 "categories",
                 JSONArray().apply { categories.forEach { put(it.name) } },
             )
-            .put("localeTag", Locale.getDefault().toLanguageTag())
+            .put("localeTag", localeTagProvider())
             .toString()
 
         try {
