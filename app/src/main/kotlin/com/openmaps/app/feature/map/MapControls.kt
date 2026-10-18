@@ -60,6 +60,7 @@ import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
@@ -801,7 +802,7 @@ private fun homeAngularDifference(a: Double, b: Double): Double {
 
 @Composable
 private fun homeDistanceLabel(meters: Double): String =
-    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current, LocalAppLocale.current)
 
 private const val HOME_AHEAD_HALF_ANGLE_DEGREES = 55.0
 
@@ -834,6 +835,7 @@ private fun RoutePreviewSummary(
                     value = ArrivalTimeFormatter.format(
                         routeState.route.durationSeconds,
                         System.currentTimeMillis(),
+                        locale = LocalAppLocale.current,
                     ),
                     label = stringResource(R.string.route_preview_arrival),
                     modifier = Modifier.weight(1f),
@@ -971,7 +973,11 @@ private fun RouteSummaryLine(routeState: RouteState) {
             RouteStatusText(
                 text = stringResource(
                     R.string.route_arrive_format,
-                    ArrivalTimeFormatter.format(routeState.route.durationSeconds, System.currentTimeMillis()),
+                    ArrivalTimeFormatter.format(
+                        routeState.route.durationSeconds,
+                        System.currentTimeMillis(),
+                        locale = LocalAppLocale.current,
+                    ),
                 ),
                 color = OpenMapsColors.TextSecondary,
             )
@@ -1017,7 +1023,7 @@ private fun formatDistance(meters: Double): String =
 
 @Composable
 private fun formatDuration(seconds: Double): String =
-    NavigationUnits.formatDuration(seconds)
+    NavigationUnits.formatDuration(seconds, LocalAppLocale.current)
 
 /** One card for every location situation; copy and primary action depend on [prompt]. */
 @Composable
