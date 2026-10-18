@@ -41,6 +41,7 @@ import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
@@ -462,7 +463,7 @@ private fun angularDifferenceDegrees(a: Double, b: Double): Double {
 
 @Composable
 private fun formatNearbyDistance(meters: Double): String =
-    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current, LocalAppLocale.current)
 private const val AHEAD_HALF_ANGLE_DEGREES = 55.0
 private const val MAX_AHEAD_PLACES = 4
 private val SUGGESTED_STOP_CATEGORIES = setOf(
