@@ -77,6 +77,7 @@ val defaultPlacesGatewayUrl = "$backendBaseUrl/places"
 val defaultTripShareGatewayUrl = "$backendBaseUrl/trip-share"
 val defaultCommunityReportsGatewayUrl = "$backendBaseUrl/community-reports"
 val defaultVoiceGatewayUrl = "$backendBaseUrl/voice"
+val defaultReliabilityGatewayUrl = "$backendBaseUrl/reliability"
 val defaultBackendPublishableKey =
     "sb_publishable_gF9KreSTfMY24vhsaVd_bQ_WVGEqRYH"
 
@@ -125,6 +126,11 @@ val voiceGatewayUrl = providers.gradleProperty("OPENMAPS_VOICE_GATEWAY_URL")
     .orElse(localProperties.getProperty("OPENMAPS_VOICE_GATEWAY_URL") ?: defaultVoiceGatewayUrl)
     .getOrElse(defaultVoiceGatewayUrl)
 
+val reliabilityGatewayUrl = providers.gradleProperty("OPENMAPS_RELIABILITY_GATEWAY_URL")
+    .orElse(providers.environmentVariable("OPENMAPS_RELIABILITY_GATEWAY_URL"))
+    .orElse(localProperties.getProperty("OPENMAPS_RELIABILITY_GATEWAY_URL") ?: defaultReliabilityGatewayUrl)
+    .getOrElse(defaultReliabilityGatewayUrl)
+
 val legacyGeocodingPublishableKey = providers.gradleProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY")
     .orElse(providers.environmentVariable("OPENMAPS_GEOCODING_PUBLISHABLE_KEY"))
     .orElse(localProperties.getProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY") ?: defaultBackendPublishableKey)
@@ -159,6 +165,7 @@ android {
         buildConfigField("String", "TRIP_SHARE_GATEWAY_URL", "\"$tripShareGatewayUrl\"")
         buildConfigField("String", "COMMUNITY_REPORTS_GATEWAY_URL", "\"$communityReportsGatewayUrl\"")
         buildConfigField("String", "VOICE_GATEWAY_URL", "\"$voiceGatewayUrl\"")
+        buildConfigField("String", "RELIABILITY_GATEWAY_URL", "\"$reliabilityGatewayUrl\"")
         buildConfigField("String", "GEOCODING_PUBLISHABLE_KEY", "\"$backendPublishableKey\"")
 
         // Feeds the `com.google.android.ar.API_KEY` meta-data in AndroidManifest.xml.
