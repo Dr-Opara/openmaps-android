@@ -233,17 +233,23 @@ Deno.serve(async (req: Request) => {
 
     let response: Response | null = null;
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      response = await fetch("https://api.openai.com/v1/audio/speech", {
-        method: "POST",
-        headers: {
-          "authorization": "Bearer " + apiKey,
-          "content-type": "application/json",
-        },
-        body: speechBody,
-        // Multilingual neural speech can legitimately exceed 5s; keep a bounded timeout without
-        // turning normal provider latency into a false service outage.
-        signal: AbortSignal.timeout(12000),
-      });
+      try {
+        response = await fetch("https://api.openai.com/v1/audio/speech", {
+          method: "POST",
+          headers: {
+            "authorization": "Bearer " + apiKey,
+            "content-type": "application/json",
+          },
+          body: speechBody,
+          // A provider attempt that hangs should not consume the entire navigation request.
+          signal: AbortSignal.timeout(6500),
+        });
+      } catch (error) {
+        if (attempt === 1) throw error;
+        console.warn("voice_provider_retry", { language, reason: "timeout_or_network", attempt: attempt + 1 });
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        continue;
+      }
 
       if (response.ok) break;
       const retryable = response.status === 429 || response.status >= 500;
