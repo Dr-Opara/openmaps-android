@@ -30,6 +30,7 @@ import com.openmaps.app.core.roadintelligence.DefaultRoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.HereTrafficRoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.routing.BackendRoutingRepository
+import com.openmaps.app.core.routing.CachedRoutingRepository
 import com.openmaps.app.core.routing.CompositeRoutingRepository
 import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.core.sharing.BackendTripShareRepository
@@ -130,17 +131,20 @@ class AppContainer(application: Application) {
      * HERE traffic-aware routing is activated server-side when HERE_API_KEY is configured. Until
      * then, the backend fails closed and this composite transparently falls back to Valhalla.
      */
-    val routingRepository: RoutingRepository = CompositeRoutingRepository(
-        providers = listOf(
-            BackendRoutingRepository(
-                endpointUrl = BuildConfig.ROUTING_GATEWAY_URL,
-                publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
-                clientId = backendClientId,
-                localeTagProvider = localizationPrefs::currentLocaleTag,
-            ),
-            ValhallaRoutingRepository(
-                userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; routing fallback)",
-                localeTagProvider = localizationPrefs::currentLocaleTag,
+    val routingRepository: RoutingRepository = CachedRoutingRepository(
+        context = application,
+        upstream = CompositeRoutingRepository(
+            providers = listOf(
+                BackendRoutingRepository(
+                    endpointUrl = BuildConfig.ROUTING_GATEWAY_URL,
+                    publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                    clientId = backendClientId,
+                    localeTagProvider = localizationPrefs::currentLocaleTag,
+                ),
+                ValhallaRoutingRepository(
+                    userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; routing fallback)",
+                    localeTagProvider = localizationPrefs::currentLocaleTag,
+                ),
             ),
         ),
     )
