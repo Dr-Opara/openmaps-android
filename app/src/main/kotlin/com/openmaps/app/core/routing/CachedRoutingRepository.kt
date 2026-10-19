@@ -13,12 +13,21 @@ import kotlin.math.*
  * and destination still match within conservative distance gates and the entry is fresh.
  */
 class CachedRoutingRepository(
-    context: Context,
+    private val store: RouteCacheStore,
     private val upstream: RoutingRepository,
     private val maxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS,
+    private val nowMillis: () -> Long = System::currentTimeMillis,
 ) : RoutingRepository {
 
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    constructor(
+        context: Context,
+        upstream: RoutingRepository,
+        maxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS,
+    ) : this(
+        store = SharedPreferencesRouteCacheStore(context),
+        upstream = upstream,
+        maxAgeMillis = maxAgeMillis,
+    )
 
     override suspend fun route(origin: Coordinate, destination: Coordinate): Result<RouteResult> {
         val live = upstream.route(origin, destination)
@@ -40,16 +49,16 @@ class CachedRoutingRepository(
 
     private fun save(origin: Coordinate, destination: Coordinate, route: RouteResult) {
         val json = JSONObject()
-            .put("savedAt", System.currentTimeMillis())
+            .put("savedAt", nowMillis())
             .put("origin", origin.toJson())
             .put("destination", destination.toJson())
             .put("route", route.toCacheJson())
             .toString()
-        prefs.edit().putString(KEY_ROUTE, json).apply()
+        store.put(json)
     }
 
     private fun load(origin: Coordinate, destination: Coordinate): RouteResult? {
-        val raw = prefs.getString(KEY_ROUTE, null) ?: return null
+        val raw = store.get() ?: return null
         return runCatching {
             val root = JSONObject(raw)
             val savedAt = root.getLong("savedAt")
@@ -154,10 +163,34 @@ class CachedRoutingRepository(
     }
 
     private companion object {
-        const val PREFS_NAME = "openmaps_route_cache"
-        const val KEY_ROUTE = "last_route"
         const val DEFAULT_MAX_AGE_MILLIS = 6 * 60 * 60 * 1000L
         const val ORIGIN_MATCH_METERS = 2_000.0
         const val DESTINATION_MATCH_METERS = 300.0
+    }
+}
+
+
+interface RouteCacheStore {
+    fun get(): String?
+    fun put(value: String)
+    fun clear()
+}
+
+class SharedPreferencesRouteCacheStore(context: Context) : RouteCacheStore {
+    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    override fun get(): String? = prefs.getString(KEY_ROUTE, null)
+
+    override fun put(value: String) {
+        prefs.edit().putString(KEY_ROUTE, value).apply()
+    }
+
+    override fun clear() {
+        prefs.edit().remove(KEY_ROUTE).apply()
+    }
+
+    private companion object {
+        const val PREFS_NAME = "openmaps_route_cache"
+        const val KEY_ROUTE = "last_route"
     }
 }
