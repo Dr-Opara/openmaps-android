@@ -1,6 +1,9 @@
 package com.openmaps.app.core.navigation
 
 import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.ManeuverType
@@ -9,6 +12,11 @@ import com.openmaps.app.core.routing.RouteManeuver
 import com.openmaps.app.core.routing.RouteResult
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 data class NavigationRecoverySnapshot(
     val route: RouteResult,
@@ -28,7 +36,7 @@ object NoopNavigationRecoveryStore : NavigationRecoveryStore {
     override fun clear() = Unit
 }
 
-class SharedPreferencesNavigationRecoveryStore(
+class EncryptedNavigationRecoveryStore(
     context: Context,
     private val maxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS,
 ) : NavigationRecoveryStore {
@@ -36,9 +44,15 @@ class SharedPreferencesNavigationRecoveryStore(
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     override fun load(nowMillis: Long): NavigationRecoverySnapshot? {
-        val raw = prefs.getString(KEY_ACTIVE_NAVIGATION, null) ?: return null
+        val encoded = prefs.getString(KEY_ACTIVE_NAVIGATION, null) ?: return null
         return runCatching {
-            val root = JSONObject(raw)
+            val packed = Base64.decode(encoded, Base64.NO_WRAP)
+            if (packed.size <= IV_BYTES) error("invalid encrypted navigation recovery record")
+            val iv = packed.copyOfRange(0, IV_BYTES)
+            val ciphertext = packed.copyOfRange(IV_BYTES, packed.size)
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(TAG_BITS, iv))
+            val root = JSONObject(String(cipher.doFinal(ciphertext), Charsets.UTF_8))
             val savedAt = root.getLong("savedAt")
             if (nowMillis - savedAt !in 0..maxAgeMillis) {
                 clear()
@@ -56,11 +70,21 @@ class SharedPreferencesNavigationRecoveryStore(
     }
 
     override fun save(route: RouteResult, destination: SearchResult, nowMillis: Long) {
-        val root = JSONObject()
+        val plaintext = JSONObject()
             .put("savedAt", nowMillis)
             .put("route", route.toJson())
             .put("destination", destination.toJson())
-        prefs.edit().putString(KEY_ACTIVE_NAVIGATION, root.toString()).apply()
+            .toString()
+            .toByteArray(Charsets.UTF_8)
+
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+        val encrypted = cipher.doFinal(plaintext)
+        val packed = cipher.iv + encrypted
+        prefs.edit().putString(
+            KEY_ACTIVE_NAVIGATION,
+            Base64.encodeToString(packed, Base64.NO_WRAP),
+        ).apply()
     }
 
     override fun clear() {
@@ -165,9 +189,32 @@ class SharedPreferencesNavigationRecoveryStore(
         )
     }
 
+    private fun secretKey(): SecretKey {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build(),
+        )
+        return generator.generateKey()
+    }
+
     private companion object {
         const val PREFS_NAME = "openmaps_navigation_recovery"
         const val KEY_ACTIVE_NAVIGATION = "active_navigation"
         const val DEFAULT_MAX_AGE_MILLIS = 6 * 60 * 60 * 1000L
+        const val KEY_ALIAS = "openmaps_navigation_recovery_v1"
+        const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        const val TRANSFORMATION = "AES/GCM/NoPadding"
+        const val IV_BYTES = 12
+        const val TAG_BITS = 128
     }
 }
