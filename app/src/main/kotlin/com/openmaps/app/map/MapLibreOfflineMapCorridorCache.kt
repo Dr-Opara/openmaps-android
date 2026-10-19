@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import com.openmaps.app.core.routing.RouteResult
 import org.json.JSONObject
+import org.maplibre.android.MapLibre
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.offline.OfflineManager
 import org.maplibre.android.offline.OfflineRegion
@@ -46,6 +47,7 @@ class MapLibreOfflineMapCorridorCache(
         val plan = OfflineCorridorPolicy.plan(route) ?: return
 
         mainHandler.post {
+            MapLibre.getInstance(appContext)
             val generation = ++requestGeneration
             val manager = OfflineManager.getInstance(appContext)
             manager.setMaximumAmbientCacheSize(maxBytes, null)
@@ -60,6 +62,7 @@ class MapLibreOfflineMapCorridorCache(
     override fun clear() {
         if (!enabled) return
         mainHandler.post {
+            MapLibre.getInstance(appContext)
             requestGeneration++
             deleteOwnedRegions(OfflineManager.getInstance(appContext), onComplete = {})
         }
