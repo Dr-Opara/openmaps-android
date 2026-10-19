@@ -25,6 +25,7 @@ fun mapViewModelFactory(container: AppContainer): ViewModelProvider.Factory = vi
             reliabilityReporter = container.reliabilityReporter,
             navigationForegroundController = container.navigationForegroundController,
             navigationRecoveryStore = container.navigationRecoveryStore,
+            offlineMapCorridorCache = container.offlineMapCorridorCache,
         )
     }
 }

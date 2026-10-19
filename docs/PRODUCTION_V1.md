@@ -538,3 +538,37 @@ Implemented on `feature/regional-capability-matrix-v1`:
 
 Public beta is intentionally reported as BLOCKED while any global blocker remains. The matrix is a
 release-control artifact, not a marketing coverage claim.
+
+
+## Production map provider activation: Stadia Maps
+
+Approved production provider: **Stadia Maps Starter**, rendered with the existing MapLibre Native
+engine. OpenFreeMap remains a development-only fallback when no production key is configured.
+
+Implemented on `feature/stadia-production-maps-v1`:
+
+- `STADIA_MAPS_API_KEY` activates the approved Stadia vector style automatically.
+- Production provider verification is enforced by Gradle task
+  `verifyProductionMapConfiguration`.
+- MapLibre continues to own rendering while OpenMaps keeps its runtime Browse Day, Browse Night,
+  Navigation Day and Navigation Night cartography.
+- Production attribution is set to Stadia Maps / OpenMapTiles / OpenStreetMap.
+- Active routes automatically create one MapLibre offline region using the same authenticated
+  Stadia style URL.
+- A new route, alternative or reroute replaces the previous OpenMaps-owned offline region.
+- Route-corridor padding is conservative and maximum zoom decreases as route distance grows.
+- Downloads stop at **90 MiB total resources**, leaving headroom below the provider's documented
+  **100 MB/device** mobile tile-caching ceiling.
+- Completed/ended trips delete the OpenMaps active-route region.
+- Rapid reroutes use a generation guard so stale asynchronous region creation cannot leave duplicate
+  downloads.
+- `production-stadia-map-live-acceptance.ps1` validates the authenticated style and TileJSON
+  endpoints once the production API key is available.
+
+Remaining external activation gate:
+
+- A Stadia Maps property/API key must be created under the approved subscription and supplied through
+  `STADIA_MAPS_API_KEY`. The credential is intentionally not committed to source control.
+- After the key is configured, run both `verifyProductionMapConfiguration` and
+  `scripts/production-stadia-map-live-acceptance.ps1` before promoting map/offline-map capability
+  from BLOCKED in the regional matrix.

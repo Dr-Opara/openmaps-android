@@ -54,19 +54,19 @@ A capability must not be promoted to VERIFIED from documentation or provider mar
 - LaneLock: never becomes globally VERIFIED. It is road-segment/evidence dependent by design.
 - AR/VPS: remains BLOCKED until production ARCore provisioning and physical-device regional
   validation occur.
-- Map/offline-map: remain BLOCKED while the default OpenFreeMap surface is development-only and no
-  production tile/offline contract has been accepted.
+- Map/offline-map: Stadia Maps is the approved production provider and the MapLibre route-corridor
+  cache is implemented under the provider's mobile caching limit. They remain BLOCKED until the
+  production Stadia API key is activated and live acceptance succeeds.
 - Voice/localization: Tokyo is not marked verified because Japanese app/navigation voice support is
   not implemented. Sydney uses English fallback without a dedicated en-AU voice/terminology profile.
 
 ## Current public-beta blockers
 
-1. Select and activate the production map/tile provider.
-2. Implement/certify offline map-corridor behavior against that provider's license/cache contract.
-3. Provision ARCore Geospatial production credentials and validate actual VPS/Geospatial behavior.
+1. Activate the approved Stadia Maps Starter production property/API key and run live map acceptance.
+2. Provision ARCore Geospatial production credentials and validate actual VPS/Geospatial behavior.
+3. Provide production Android release-signing credentials/keystore and verify the signed AAB/APK.
 4. Complete the physical Android field matrix in `ANDROID_FIELD_VALIDATION.md`.
-5. Resolve any red CI/acceptance gate introduced by Phases 10–13.
-6. Produce and sign the release AAB/APK with production signing credentials.
+5. Resolve any red CI/acceptance gate introduced by the final provider/credential activation.
 
 The matrix is intentionally conservative: an unavailable regional enhancement must degrade to normal
 Map navigation rather than being implied or fabricated.

@@ -14,6 +14,7 @@ $models = Get-Content "app/src/main/kotlin/com/openmaps/app/core/routing/Routing
 $app = Get-Content "app/src/main/kotlin/com/openmaps/app/OpenMapsApplication.kt" -Raw
 $vm = Get-Content "app/src/main/kotlin/com/openmaps/app/feature/map/MapViewModel.kt" -Raw
 $screen = Get-Content "app/src/main/kotlin/com/openmaps/app/feature/map/MapScreen.kt" -Raw
+$offlineMap = Get-Content "app/src/main/kotlin/com/openmaps/app/map/MapLibreOfflineMapCorridorCache.kt" -Raw
 
 Add-Result "Route cache wired" ($app.Contains("CachedRoutingRepository")) "routing wrapper"
 Add-Result "Route cache encrypted" ($cache.Contains("AndroidKeyStore") -and $cache.Contains("AES/GCM/NoPadding")) "Keystore AES-GCM"
@@ -25,6 +26,8 @@ Add-Result "Cached route explicitly marked" ($models.Contains("isOfflineCached")
 Add-Result "Cached route disclosed" ($screen.Contains("DegradedRouteBanner")) "persistent degraded notice"
 Add-Result "Connectivity recovery" ($vm.Contains("fun onConnectivityChanged") -and $vm.Contains("requestReroute") -and $vm.Contains("requestRoute")) "live refresh on validated network return"
 Add-Result "Offline voice fallback retained" ((Get-Content "app/src/main/kotlin/com/openmaps/app/OpenMapsApplication.kt" -Raw).Contains("AndroidTextToSpeechEngine")) "Android TTS fallback"
+Add-Result "Offline map corridor implemented" ($offlineMap.Contains("OfflineTilePyramidRegionDefinition") -and $vm.Contains("offlineMapCorridorCache.prefetch")) "MapLibre active-route offline region"
+Add-Result "Offline map storage bounded" ($offlineMap.Contains("completedResourceSize >= maxBytes")) "download stops at configured ceiling"
 
 $rows | Format-Table -AutoSize
 Write-Host ""
@@ -34,5 +37,5 @@ if ($failures.Count -gt 0) {
   exit 1
 }
 Write-Host "OFFLINE / DEGRADED ACCEPTANCE: PASSED" -ForegroundColor Green
-Write-Host "NOTE: deterministic offline map-corridor prefetch remains provider-dependent and cannot be certified while the production map provider is unresolved." -ForegroundColor Yellow
+Write-Host "NOTE: route-corridor caching is implemented. Live production certification still requires Stadia credential activation and authenticated provider acceptance." -ForegroundColor Yellow
 exit 0

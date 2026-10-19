@@ -12,5 +12,10 @@ class BuildConfigMapStyleProvider : MapStyleProvider {
         url = BuildConfig.MAP_STYLE_URL,
         name = BuildConfig.MAP_STYLE_NAME,
         isDevelopmentOnly = BuildConfig.MAP_STYLE_DEV_ONLY,
+        attribution = if (BuildConfig.MAP_STYLE_PROVIDER == "stadia") {
+            "© Stadia Maps © OpenMapTiles © OpenStreetMap contributors"
+        } else {
+            MapStyleSource.OSM_ATTRIBUTION
+        },
     )
 }

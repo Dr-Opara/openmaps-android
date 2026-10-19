@@ -30,7 +30,7 @@ Rebuilt from scratch in a remote environment (the original Phase 0 code was not 
 - Collapsed bottom panel with no fabricated route data
 - Documentation (this folder)
 
-Phase 1 build/test/lint validated locally (`gradlew assembleDebug testDebugUnitTest lint`) and manually confirmed on a Pixel 8 API 35 emulator. Open: a decision on the production tile source.
+Phase 1 build/test/lint validated locally (`gradlew assembleDebug testDebugUnitTest lint`) and manually confirmed on a Pixel 8 API 35 emulator. Production tile source is now **Stadia Maps**; OpenFreeMap remains the development fallback until the production API key is activated.
 
 ## Phase 2: Destination search + geocoding, Done (needs device check beyond the emulator)
 

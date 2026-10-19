@@ -76,6 +76,8 @@ import com.openmaps.app.core.voice.VoiceLanguage
 import com.openmaps.app.feature.live.LiveReadiness
 import com.openmaps.app.map.CameraState
 import com.openmaps.app.map.MapCommand
+import com.openmaps.app.map.OfflineMapCorridorCache
+import com.openmaps.app.map.NoopOfflineMapCorridorCache
 import com.openmaps.app.map.MapError
 import com.openmaps.app.map.MapEvent
 import com.openmaps.app.map.MapMode
@@ -124,6 +126,7 @@ class MapViewModel(
     private val reliabilityReporter: ReliabilityReporter = NoopReliabilityReporter,
     private val navigationForegroundController: NavigationForegroundController = NoopNavigationForegroundController,
     private val navigationRecoveryStore: NavigationRecoveryStore = NoopNavigationRecoveryStore,
+    private val offlineMapCorridorCache: OfflineMapCorridorCache = NoopOfflineMapCorridorCache,
     private val fixTimeoutMillis: Long = DEFAULT_FIX_TIMEOUT_MILLIS,
 ) : ViewModel() {
 
@@ -670,6 +673,7 @@ class MapViewModel(
                     )
                 }
                 route.bounds?.let { bounds -> commandChannel.trySend(MapCommand.FitBounds(bounds)) }
+                offlineMapCorridorCache.prefetch(route)
                 fetchPlacesAlongRoute(route)
                 fetchRoadEventsAlongRoute(route)
             }.onFailure { cause ->
@@ -719,6 +723,7 @@ class MapViewModel(
             )
         }
         selected.bounds?.let { commandChannel.trySend(MapCommand.FitBounds(it)) }
+        offlineMapCorridorCache.prefetch(selected)
         fetchPlacesAlongRoute(selected)
         fetchRoadEventsAlongRoute(selected)
     }
@@ -1670,6 +1675,7 @@ class MapViewModel(
         navigationForegroundController.stop()
         navigationRecoveryStore.clear()
         recoveryPending = false
+        offlineMapCorridorCache.clear()
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
@@ -1732,6 +1738,7 @@ class MapViewModel(
         }
         navigationRecoveryStore.clear()
         recoveryPending = false
+        offlineMapCorridorCache.clear()
         syncLocationCollection()
         _routeProgressView.value = null
         recomputeVisiblePlaces()
@@ -1950,6 +1957,7 @@ class MapViewModel(
         navigationForegroundController.stop()
         navigationRecoveryStore.clear()
         recoveryPending = false
+        offlineMapCorridorCache.clear()
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
@@ -2035,6 +2043,7 @@ class MapViewModel(
                         followCameraWith(it)
                     }
                     // The old route's corridor places/hazards are stale now; fetch against the new one.
+                    offlineMapCorridorCache.prefetch(route)
                     fetchPlacesAlongRoute(route)
                     // The old route's matched distances are meaningless against new geometry, and a
                     // fresh trip must not inherit the old one's confirm/exit streaks.

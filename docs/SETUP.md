@@ -51,6 +51,41 @@ openmaps.style.devOnly=false
 - The map style, sprites, glyphs and tiles must be reachable over HTTPS; cleartext traffic is disabled.
 - To move to PMTiles or self-hosted tiles, see "Migrating to PMTiles" in [ARCHITECTURE.md](ARCHITECTURE.md#migrating-to-pmtiles--self-hosted-tiles).
 
+## Stadia Maps production provisioning
+
+OpenMaps uses **MapLibre** as the renderer and **Stadia Maps** as the approved production vector-tile provider.
+The public OpenFreeMap style remains only as a development fallback when no Stadia key is configured.
+
+Create a Stadia Maps property/API key, then provide it outside source control:
+
+```properties
+STADIA_MAPS_API_KEY=<your Stadia Maps API key>
+```
+
+Supported locations are a Gradle property, the `STADIA_MAPS_API_KEY` environment variable, or the
+git-ignored root `local.properties` file. The default production style ID is `alidade_smooth`;
+override with `-Popenmaps.stadia.style=<style-id>` if needed.
+
+Before creating a production release, run:
+
+```powershell
+.\gradlew.bat verifyProductionMapConfiguration
+```
+
+The task fails if the Stadia key is absent, the map is still marked development-only, or the approved
+Stadia style host is not active.
+
+### Offline route corridor
+
+When Stadia is active, OpenMaps automatically keeps one MapLibre offline region around the selected
+route. A new route/reroute replaces the old region. The app uses a **90 MiB total-resource stop
+threshold**, intentionally below Stadia's 100 MB/device mobile tile-caching ceiling. Short trips use
+more detailed zoom levels; long routes reduce max zoom to keep the corridor bounded. The offline
+region is deleted when the trip is ended/cleared.
+
+This is degraded-navigation support, not a promise that an arbitrary state/country has been
+downloaded. MapLibre continues to observe provider cache headers and the app revalidates when online.
+
 ## Location
 
 - Permissions declared: `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `CAMERA`, `INTERNET`, `ACCESS_NETWORK_STATE`. No background location.
