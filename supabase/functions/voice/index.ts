@@ -236,7 +236,9 @@ Deno.serve(async (req: Request) => {
         response_format: "wav",
         speed: 1.04,
       }),
-      // Multilingual neural speech can legitimately exceed 5s; keep a bounded timeout without\n      // turning normal provider latency into a false service outage.\n      signal: AbortSignal.timeout(12000),
+      // Multilingual neural speech can legitimately exceed 5s; keep a bounded timeout without
+      // turning normal provider latency into a false service outage.
+      signal: AbortSignal.timeout(12000),
     });
 
     if (!response.ok) {
