@@ -288,4 +288,5 @@
     <string name="route_alternate_fallback">Itinéraire alternatif</string>
     <string name="route_use_action">Utiliser</string>
     <string name="lane_use_lane">PRENDRE CETTE VOIE</string>
+    <string name="route_degraded_cached">Utilisation d’un itinéraire enregistré. Le trafic en direct, les fermetures et les mises à jour de l’heure d’arrivée peuvent être indisponibles jusqu’au retour de la connexion.</string>
 </resources>
