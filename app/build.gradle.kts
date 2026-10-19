@@ -53,31 +53,31 @@ val arcoreApiKey = providers.gradleProperty("ARCORE_API_KEY")
     .getOrElse("")
 
 // ---------------------------------------------------------------------------
-// OpenMaps production geocoding gateway.
+// OpenMaps production backend gateway.
 //
+// One base URL identifies the OpenMaps service layer. Individual endpoint overrides remain for
+// operational migration/rollback, but Android no longer needs nine unrelated backend origins.
 // The Supabase publishable key is intentionally safe for public/mobile clients. Provider secrets
 // never ship in the APK; they stay behind the Edge Function. CI/local builds can override either
 // value with -P, environment variables, or local.properties.
 // ---------------------------------------------------------------------------
-val defaultGeocodingGatewayUrl =
-    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/geocode"
-val defaultReverseGeocodingGatewayUrl =
-    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/reverse-geocode"
-val defaultRoutingGatewayUrl =
-    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/route"
-val defaultTrafficIncidentsGatewayUrl =
-    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/traffic-incidents"
-val defaultLaneGuidanceGatewayUrl =
-    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/lane-guidance"
-val defaultPlacesGatewayUrl =
-    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/places"
-val defaultTripShareGatewayUrl =
-    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/trip-share"
-val defaultCommunityReportsGatewayUrl =
-    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/community-reports"
-val defaultVoiceGatewayUrl =
-    "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1/voice"
-val defaultGeocodingPublishableKey =
+val defaultBackendBaseUrl = "https://upcfmhcfuagloqlcmezr.supabase.co/functions/v1"
+val backendBaseUrl = providers.gradleProperty("OPENMAPS_BACKEND_BASE_URL")
+    .orElse(providers.environmentVariable("OPENMAPS_BACKEND_BASE_URL"))
+    .orElse(localProperties.getProperty("OPENMAPS_BACKEND_BASE_URL") ?: defaultBackendBaseUrl)
+    .getOrElse(defaultBackendBaseUrl)
+    .trimEnd('/')
+
+val defaultGeocodingGatewayUrl = "$backendBaseUrl/geocode"
+val defaultReverseGeocodingGatewayUrl = "$backendBaseUrl/reverse-geocode"
+val defaultRoutingGatewayUrl = "$backendBaseUrl/route"
+val defaultTrafficIncidentsGatewayUrl = "$backendBaseUrl/traffic-incidents"
+val defaultLaneGuidanceGatewayUrl = "$backendBaseUrl/lane-guidance"
+val defaultPlacesGatewayUrl = "$backendBaseUrl/places"
+val defaultTripShareGatewayUrl = "$backendBaseUrl/trip-share"
+val defaultCommunityReportsGatewayUrl = "$backendBaseUrl/community-reports"
+val defaultVoiceGatewayUrl = "$backendBaseUrl/voice"
+val defaultBackendPublishableKey =
     "sb_publishable_gF9KreSTfMY24vhsaVd_bQ_WVGEqRYH"
 
 val geocodingGatewayUrl = providers.gradleProperty("OPENMAPS_GEOCODING_GATEWAY_URL")
@@ -125,10 +125,14 @@ val voiceGatewayUrl = providers.gradleProperty("OPENMAPS_VOICE_GATEWAY_URL")
     .orElse(localProperties.getProperty("OPENMAPS_VOICE_GATEWAY_URL") ?: defaultVoiceGatewayUrl)
     .getOrElse(defaultVoiceGatewayUrl)
 
-val geocodingPublishableKey = providers.gradleProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY")
+val legacyGeocodingPublishableKey = providers.gradleProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY")
     .orElse(providers.environmentVariable("OPENMAPS_GEOCODING_PUBLISHABLE_KEY"))
-    .orElse(localProperties.getProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY") ?: defaultGeocodingPublishableKey)
-    .getOrElse(defaultGeocodingPublishableKey)
+    .orElse(localProperties.getProperty("OPENMAPS_GEOCODING_PUBLISHABLE_KEY") ?: defaultBackendPublishableKey)
+    .getOrElse(defaultBackendPublishableKey)
+val backendPublishableKey = providers.gradleProperty("OPENMAPS_BACKEND_PUBLISHABLE_KEY")
+    .orElse(providers.environmentVariable("OPENMAPS_BACKEND_PUBLISHABLE_KEY"))
+    .orElse(localProperties.getProperty("OPENMAPS_BACKEND_PUBLISHABLE_KEY") ?: legacyGeocodingPublishableKey)
+    .getOrElse(legacyGeocodingPublishableKey)
 
 android {
     namespace = "com.openmaps.app"
@@ -142,6 +146,8 @@ android {
         versionName = "0.1.0-phase1"
 
         buildConfigField("String", "MAP_STYLE_URL", "\"$styleUrl\"")
+        buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
+        buildConfigField("String", "BACKEND_PUBLISHABLE_KEY", "\"$backendPublishableKey\"")
         buildConfigField("String", "MAP_STYLE_NAME", "\"$styleName\"")
         buildConfigField("boolean", "MAP_STYLE_DEV_ONLY", styleDevOnly.toString())
         buildConfigField("String", "GEOCODING_GATEWAY_URL", "\"$geocodingGatewayUrl\"")
@@ -153,7 +159,7 @@ android {
         buildConfigField("String", "TRIP_SHARE_GATEWAY_URL", "\"$tripShareGatewayUrl\"")
         buildConfigField("String", "COMMUNITY_REPORTS_GATEWAY_URL", "\"$communityReportsGatewayUrl\"")
         buildConfigField("String", "VOICE_GATEWAY_URL", "\"$voiceGatewayUrl\"")
-        buildConfigField("String", "GEOCODING_PUBLISHABLE_KEY", "\"$geocodingPublishableKey\"")
+        buildConfigField("String", "GEOCODING_PUBLISHABLE_KEY", "\"$backendPublishableKey\"")
 
         // Feeds the `com.google.android.ar.API_KEY` meta-data in AndroidManifest.xml.
         manifestPlaceholders["ARCORE_API_KEY"] = arcoreApiKey
