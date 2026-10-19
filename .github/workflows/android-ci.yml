@@ -29,6 +29,9 @@ jobs:
       - name: Assemble debug
         run: ./gradlew assembleDebug
 
+      - name: Compile release bundle
+        run: ./gradlew bundleRelease
+
       - name: Unit tests
         run: ./gradlew testDebugUnitTest
 
@@ -54,6 +57,11 @@ jobs:
         if: ${{ hashFiles('scripts/production-android-release-hardening-acceptance.ps1') != '' }}
         shell: pwsh
         run: ./scripts/production-android-release-hardening-acceptance.ps1
+
+      - name: Release artifact structural acceptance
+        if: ${{ hashFiles('scripts/production-release-artifact-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-release-artifact-acceptance.ps1
 
       - name: Regional capability matrix acceptance
         if: ${{ hashFiles('scripts/production-regional-capability-acceptance.ps1') != '' }}

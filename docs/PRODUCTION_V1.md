@@ -599,3 +599,30 @@ External production gate:
 - Supply it as `ARCORE_API_KEY`, run `verifyProductionArCoreConfiguration`, install on an
   ARCore-capable physical device, and verify outdoors that Earth is authorized and reaches tracking.
 - AR/VPS remains BLOCKED in the regional capability matrix until that physical test is completed.
+
+
+## Production release artifact hardening
+
+Implemented on `feature/release-artifact-hardening-v1`:
+
+- Release metadata is no longer hard-coded to `0.1.0-phase1`; the beta baseline is
+  `0.9.0-beta.1` / versionCode `9001` and both values can be supplied externally.
+- Pull-request CI now compiles `bundleRelease`, exercising R8/minification and resource shrinking in
+  addition to the debug build.
+- `production-release-artifact-acceptance.ps1` verifies that the generated AAB exists, is non-empty,
+  contains `BundleConfig.pb` and the base Android manifest, and that production signing/version
+  contracts remain present.
+- `verifyProductionReleaseConfiguration` combines version, Stadia Maps, ARCore Geospatial and
+  signing prerequisites into one final release gate.
+- `verify-signed-release.ps1` verifies a final AAB with `jarsigner` or an APK with
+  `apksigner`, rejects unsigned artifacts, and prints the SHA-256 digest for release records.
+- The release keystore, alias and passwords remain external and are never emitted to BuildConfig,
+  Android resources, the manifest or source control.
+
+External release gate:
+
+- Provision the production keystore/signing passwords and the already-defined production provider
+  credentials, run all production verification tasks, build the signed AAB, verify its signature and
+  record its SHA-256 digest.
+- Public beta remains BLOCKED until that signed artifact is installed and exercised through the
+  physical Android field-validation matrix.

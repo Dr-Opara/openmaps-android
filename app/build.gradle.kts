@@ -14,6 +14,18 @@ val localProperties = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 
+val openMapsVersionName = providers.gradleProperty("OPENMAPS_VERSION_NAME")
+    .orElse(providers.environmentVariable("OPENMAPS_VERSION_NAME"))
+    .orElse(localProperties.getProperty("OPENMAPS_VERSION_NAME") ?: "0.9.0-beta.1")
+    .getOrElse("0.9.0-beta.1")
+    .trim()
+val openMapsVersionCode = providers.gradleProperty("OPENMAPS_VERSION_CODE")
+    .orElse(providers.environmentVariable("OPENMAPS_VERSION_CODE"))
+    .orElse(localProperties.getProperty("OPENMAPS_VERSION_CODE") ?: "9001")
+    .getOrElse("9001")
+    .trim()
+    .toInt()
+
 // ---------------------------------------------------------------------------
 // Map style configuration (see docs/ARCHITECTURE.md "Map style configuration").
 // Resolution order: -P / ~/.gradle/gradle.properties  ->  defaults below.
@@ -213,8 +225,8 @@ android {
         applicationId = "com.openmaps.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-phase1"
+        versionCode = openMapsVersionCode
+        versionName = openMapsVersionName
 
         buildConfigField("String", "MAP_STYLE_URL", "\"$styleUrl\"")
         buildConfigField("String", "MAP_STYLE_PROVIDER", "\"${if (usingStadiaMaps) "stadia" else "development"}\"")
@@ -307,6 +319,30 @@ tasks.register("verifyProductionArCoreConfiguration") {
         }
         check(arcoreApiKey.length >= 20) {
             "ARCORE_API_KEY is present but does not look like a complete Google API key."
+        }
+    }
+}
+
+tasks.register("verifyProductionReleaseConfiguration") {
+    group = "verification"
+    description = "Fails unless all production release prerequisites are configured."
+    doLast {
+        check(openMapsVersionCode > 0) { "OPENMAPS_VERSION_CODE must be a positive integer." }
+        check(openMapsVersionName.isNotBlank()) { "OPENMAPS_VERSION_NAME must not be blank." }
+        check(!openMapsVersionName.contains("phase", ignoreCase = true) &&
+            !openMapsVersionName.contains("snapshot", ignoreCase = true) &&
+            !openMapsVersionName.contains("dev", ignoreCase = true)
+        ) {
+            "Production version name must not contain phase/dev/snapshot markers: $openMapsVersionName"
+        }
+        check(usingStadiaMaps && stadiaMapsApiKey.isNotBlank() && !styleDevOnly) {
+            "Production Stadia Maps configuration is incomplete."
+        }
+        check(arcoreProductionConfigured && arcoreApiKey.length >= 20) {
+            "Production ARCore Geospatial configuration is incomplete."
+        }
+        check(releaseSigningConfigured) {
+            "Production release signing configuration is incomplete."
         }
     }
 }
