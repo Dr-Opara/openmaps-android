@@ -72,6 +72,8 @@ data class RouteResult(
     val isTrafficAware: Boolean = false,
     /** Selectable provider-returned alternatives, already normalized and fully navigable. */
     val alternatives: List<RouteAlternative> = emptyList(),
+    /** True only when this route was restored from the local degraded-operation cache. */
+    val isOfflineCached: Boolean = false,
 )
 
 /**
