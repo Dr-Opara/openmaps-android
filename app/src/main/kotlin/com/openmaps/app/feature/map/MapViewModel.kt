@@ -1957,6 +1957,7 @@ class MapViewModel(
         navigationForegroundController.stop()
         navigationRecoveryStore.clear()
         recoveryPending = false
+        offlineMapCorridorCache.clear()
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
