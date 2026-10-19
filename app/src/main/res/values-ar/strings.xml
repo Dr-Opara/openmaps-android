@@ -288,4 +288,5 @@
     <string name="route_alternate_fallback">مسار بديل</string>
     <string name="route_use_action">استخدام</string>
     <string name="lane_use_lane">استخدم هذا المسار</string>
+    <string name="route_degraded_cached">يتم استخدام مسار محفوظ. قد لا تتوفر حركة المرور المباشرة والإغلاقات وتحديثات وقت الوصول حتى عودة الاتصال.</string>
 </resources>
