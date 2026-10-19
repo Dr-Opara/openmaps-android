@@ -19,8 +19,8 @@ import java.util.Locale
 class BackendRoutingRepository(
     private val endpointUrl: String,
     private val publishableKey: String,
-    private val clientId: String? = null,
     private val localeTagProvider: () -> String = { Locale.getDefault().toLanguageTag() },
+    private val clientId: String? = null,
 ) : RoutingRepository {
 
     override suspend fun route(origin: Coordinate, destination: Coordinate): Result<RouteResult> =
