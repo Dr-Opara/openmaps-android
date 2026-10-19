@@ -42,10 +42,11 @@ val styleUrl = when {
     stadiaStyleUrl.isNotBlank() -> stadiaStyleUrl
     else -> defaultStyleUrl
 }
-val defaultStyleName = if (stadiaStyleUrl.isNotBlank()) "Stadia Maps" else "OpenFreeMap Liberty"
+val usingStadiaMaps = styleUrl.startsWith("https://tiles.stadiamaps.com/styles/")
+val defaultStyleName = if (usingStadiaMaps) "Stadia Maps" else "OpenFreeMap Liberty"
 val styleName = providers.gradleProperty("openmaps.style.name").orElse(defaultStyleName).get()
 val styleDevOnly = providers.gradleProperty("openmaps.style.devOnly")
-    .orElse(if (stadiaStyleUrl.isNotBlank()) "false" else "true")
+    .orElse(if (usingStadiaMaps) "false" else "true")
     .get()
     .toBoolean()
 
@@ -215,8 +216,8 @@ android {
         versionName = "0.1.0-phase1"
 
         buildConfigField("String", "MAP_STYLE_URL", "\"$styleUrl\"")
-        buildConfigField("String", "MAP_STYLE_PROVIDER", "\"${if (stadiaStyleUrl.isNotBlank()) "stadia" else "development"}\"")
-        buildConfigField("boolean", "OFFLINE_MAP_CACHE_ENABLED", (!styleDevOnly && stadiaStyleUrl.isNotBlank()).toString())
+        buildConfigField("String", "MAP_STYLE_PROVIDER", "\"${if (usingStadiaMaps) "stadia" else "development"}\"")
+        buildConfigField("boolean", "OFFLINE_MAP_CACHE_ENABLED", (!styleDevOnly && usingStadiaMaps).toString())
         buildConfigField("long", "OFFLINE_MAP_CACHE_LIMIT_BYTES", "94371840L")
         buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
         buildConfigField("String", "BACKEND_PUBLISHABLE_KEY", "\"$backendPublishableKey\"")
@@ -288,7 +289,7 @@ tasks.register("verifyProductionMapConfiguration") {
         check(!styleDevOnly) {
             "Production map style is still marked development-only."
         }
-        check(styleUrl.startsWith("https://tiles.stadiamaps.com/styles/")) {
+        check(usingStadiaMaps) {
             "Production map style must use the approved Stadia Maps tile host."
         }
     }
