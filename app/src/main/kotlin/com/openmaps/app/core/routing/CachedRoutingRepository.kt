@@ -62,7 +62,7 @@ class CachedRoutingRepository(
         return runCatching {
             val root = JSONObject(raw)
             val savedAt = root.getLong("savedAt")
-            if (System.currentTimeMillis() - savedAt > maxAgeMillis) return null
+            if (nowMillis() - savedAt > maxAgeMillis) return null
 
             val savedOrigin = root.getJSONObject("origin").toCoordinate()
             val savedDestination = root.getJSONObject("destination").toCoordinate()
