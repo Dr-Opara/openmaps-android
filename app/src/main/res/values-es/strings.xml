@@ -289,4 +289,8 @@
     <string name="route_use_action">Usar</string>
     <string name="lane_use_lane">USA ESTE CARRIL</string>
     <string name="route_degraded_cached">Usando una ruta guardada. El tráfico en vivo, los cierres y las actualizaciones de hora estimada pueden no estar disponibles hasta que vuelva la conexión.</string>
+    <string name="navigation_service_channel">Navegación activa</string>
+    <string name="navigation_service_channel_description">Mantiene la ubicación y la navegación activas mientras la pantalla está bloqueada o OpenMaps está en segundo plano.</string>
+    <string name="navigation_service_title">Navegación de OpenMaps</string>
+    <string name="navigation_service_body">La navegación está activa</string>
 </resources>
