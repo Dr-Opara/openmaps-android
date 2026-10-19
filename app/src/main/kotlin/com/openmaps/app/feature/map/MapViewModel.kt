@@ -591,6 +591,23 @@ class MapViewModel(
     // region Routing
 
     /**
+     * Called from the process-wide connectivity monitor. A validated network recovery refreshes
+     * only a cached degraded route; normal live routes are left untouched.
+     */
+    fun onConnectivityChanged(isOnline: Boolean) {
+        if (!isOnline) return
+        val state = _uiState.value
+        val cached = (state.routeState as? RouteState.Ready)?.route?.isOfflineCached == true
+        if (!cached) return
+
+        if (state.isNavigating) {
+            state.currentLocation?.let(::requestReroute)
+        } else {
+            requestRoute()
+        }
+    }
+
+    /**
      * Fetches a route from the current location to [MapUiState.selectedDestination]. Cancels
      * any in-flight request first, so a destination change (or a second call for any other
      * reason) always replaces the pending route rather than racing it — only the latest call's
