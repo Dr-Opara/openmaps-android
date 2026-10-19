@@ -319,3 +319,57 @@ Release validation:
 - Android assemble, unit tests, lint and all production acceptance suites must pass before merge.
 - Physical-device QA must switch the app through LTR and RTL languages and validate truncation, mirroring, Map/Live overlays, voice search and system app-language return behavior.
 - Real driving QA should validate automatic unit selection in at least a US, UK and metric locale configuration.
+
+
+## Production implementation Phase 8: Backend Service Layer
+
+This implementation phase completes the cross-cutting backend work described as **Production
+workstream 9** above. It does not replace the separate Production Map Platform & Cartography
+workstream; that remains its own launch requirement.
+
+Implemented on `feature/production-backend-gateway-v1`:
+
+- Android now has one `OPENMAPS_BACKEND_BASE_URL` / `BACKEND_BASE_URL` configuration for the
+  OpenMaps service layer. Endpoint-specific overrides remain available for rollback/migration, but
+  the default topology is one backend origin with versioned service paths.
+- One Supabase publishable key is named and treated as the OpenMaps **backend** client key rather than
+  a geocoding-specific credential. The legacy geocoding property remains only as a configuration
+  compatibility fallback.
+- HERE, Mapbox, OpenAI and Supabase service-role credentials remain server-side. The Android app
+  receives no commercial provider secret.
+- A stable random anonymous install identifier is shared by all Android backend repositories. Edge
+  functions hash that identifier before rate-limit accounting; the raw identifier is not persisted
+  in the rate-limit tables. Network address is only the compatibility fallback for older clients.
+- Reverse geocoding now uses the same database-backed abuse control as the other navigation
+  services instead of being the one unmetered public endpoint.
+- Existing per-service caching, provider failover, telemetry and cost controls remain in the
+  provider-specific functions. Phase 8 deliberately does **not** add a thin Edge Function that
+  calls other Edge Functions, avoiding an extra network hop and another failure surface.
+- A `platform` control-plane endpoint exposes the OpenMaps backend API version, coarse service
+  readiness and capability contract without exposing credentials or internal provider responses.
+  Responses include `x-openmaps-api-version` and `x-openmaps-request-id` for operational
+  correlation.
+- `scripts/production-backend-gateway-acceptance.ps1` verifies authentication, control-plane
+  contract/versioning, required capabilities, request correlation, unified Android configuration
+  and the absence of server-only provider credential names from Android source/build configuration.
+- GitHub Actions runs the backend gateway acceptance gate before the existing feature-specific
+  production acceptance suites.
+
+Security/operations verification:
+
+- Runtime/cache/telemetry tables remain RLS-protected from anonymous/authenticated Data API access.
+- The two public-schema `SECURITY DEFINER` rate-limit functions grant execute only to
+  `service_role`/owner, not to anonymous or authenticated clients.
+- Supabase security advisors show no high/critical finding for this backend work; current
+  `rls_enabled_no_policy` notices describe intentionally service-role-only tables.
+- Provider functions fail open only when the rate-limit accounting infrastructure itself is
+  unavailable; provider/API failures continue to use the existing explicit Android fallbacks.
+
+Phase 8 release gates:
+
+- Android `assembleDebug`, unit tests and lint pass.
+- Production backend gateway acceptance passes against the deployed `platform` endpoint.
+- Worldwide localization, Community Reports, Trip Sharing, Places and Human-quality Voice
+  acceptance suites remain green.
+- The changed Edge Functions are deployed from the same Git commit being validated by CI.
+- No Phase 8 merge occurs while any production acceptance gate is red.
