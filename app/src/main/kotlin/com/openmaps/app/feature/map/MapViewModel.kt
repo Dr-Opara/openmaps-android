@@ -347,7 +347,7 @@ class MapViewModel(
         syncLocationCollection()
     }
 
-    /** GPS/network listeners run only while the app is visible (battery and privacy). */
+    /** GPS/network listeners run while visible, or while a user-started foreground trip is active. */
     fun onAppVisibilityChanged(visible: Boolean) {
         isAppVisible = visible
         syncLocationCollection()
