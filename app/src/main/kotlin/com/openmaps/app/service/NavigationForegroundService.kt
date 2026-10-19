@@ -28,7 +28,7 @@ class NavigationForegroundService : Service() {
             .setContentText(getString(R.string.navigation_service_body))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
-            .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOnlyAlertOnce(true)
             .build()
 
