@@ -50,6 +50,11 @@ jobs:
         shell: pwsh
         run: ./scripts/production-offline-degraded-acceptance.ps1
 
+      - name: Android release hardening acceptance
+        if: ${{ hashFiles('scripts/production-android-release-hardening-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-android-release-hardening-acceptance.ps1
+
       - name: Privacy security acceptance
         if: ${{ hashFiles('scripts/production-privacy-security-acceptance.ps1') != '' }}
         shell: pwsh

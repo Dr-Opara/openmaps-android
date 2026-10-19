@@ -238,6 +238,52 @@ class MapViewModelTest {
     }
 
     @Test
+    fun backgrounding_duringActiveNavigation_keepsLocationUpdates_untilTripStops() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+
+        viewModel.onAppVisibilityChanged(false)
+        assertEquals("active navigation must keep location subscribed in background", 1, repository.subscribers)
+
+        viewModel.stopNavigation()
+        assertEquals("background location must stop when navigation ends", 0, repository.subscribers)
+    }
+
+    @Test
+    fun processRecovery_resumesSavedNavigationAfterFreshFix() = runTest(dispatcher) {
+        val route = navigableRoute().copy(isOfflineCached = true)
+        val destination = place("dest", 0.009, 0.0)
+        val store = object : com.openmaps.app.core.navigation.NavigationRecoveryStore {
+            override fun load(nowMillis: Long) =
+                com.openmaps.app.core.navigation.NavigationRecoverySnapshot(route, destination, nowMillis)
+            override fun save(route: RouteResult, destination: SearchResult, nowMillis: Long) = Unit
+            override fun clear() = Unit
+        }
+        val recovered = MapViewModel(
+            locationRepository = repository,
+            routingRepository = routingRepository,
+            placesRepository = placesRepository,
+            roadIntelligenceRepository = roadIntelligenceRepository,
+            roadClassRepository = roadClassRepository,
+            voiceGuidanceEngine = voiceEngine,
+            navigationRecoveryStore = store,
+            fixTimeoutMillis = TIMEOUT,
+        )
+
+        recovered.onAppVisibilityChanged(true)
+        recovered.onPermissionStateChanged(LocationPermissionState.Granted(precise = true))
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.003)))
+
+        assertTrue(recovered.uiState.value.navigationState is NavigationState.Active)
+        assertEquals(destination, recovered.uiState.value.selectedDestination)
+        assertTrue((recovered.uiState.value.routeState as RouteState.Ready).route.isOfflineCached)
+        assertEquals(MapMode.Map, recovered.uiState.value.selectedMapMode)
+    }
+
+    @Test
     fun mapFailure_showsUnavailable_andRetryClearsItAndAsksEngineToReload() = runTest(dispatcher) {
         val commands = collectCommands()
         viewModel.onMapEvent(MapEvent.StyleFailed("offline"))

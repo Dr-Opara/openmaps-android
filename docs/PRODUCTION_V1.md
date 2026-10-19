@@ -479,3 +479,34 @@ Provider-dependent release gate:
   development OpenFreeMap source. Offline-region/prefetch behavior must be implemented and certified
   against the selected production tile provider's SDK/URL scheme, cache limits, redistribution terms
   and offline licensing. The route/navigation recovery work above does not claim offline-map coverage.
+
+
+## Production implementation Phase 13: Android Release Hardening
+
+Implemented on `feature/android-release-hardening-v1`:
+
+- Active user-started navigation now owns a real Android location foreground service.
+- The manifest declares `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION` and
+  `android:foregroundServiceType="location"`, matching current Android foreground-service rules
+  for navigation/location sharing.
+- The service is started from the visible Start action, publishes an ongoing navigation notification
+  and links the notification back to OpenMaps.
+- Location collection continues while the app is backgrounded or screen-locked **only** during an
+  Active/OffRoute/Rerouting navigation state; ordinary browsing still stops GPS at `ON_STOP`.
+- Ending, stopping or arriving stops the foreground service and background location collection.
+- Active route/destination state is persisted locally with a six-hour recovery TTL. On process
+  recreation, OpenMaps waits for a fresh location fix, restores in conventional Map mode and resumes
+  route progress rather than automatically reopening camera/AR.
+- Recovery snapshots are deleted when the trip ends and Android backups are disabled.
+- Live Trip Sharing's private owner capability can survive process recreation without plaintext
+  storage: it is encrypted with a non-exportable Android Keystore AES-256/GCM key and cleared on
+  stop/arrival/expiry.
+- Unit tests cover active-navigation background location and process-recovery resumption.
+- CI includes an automated Android Release Hardening acceptance gate.
+- `docs/ANDROID_FIELD_VALIDATION.md` is the mandatory physical-device/road acceptance matrix.
+
+Not claimable by automation:
+
+- Actual screen-lock, background, memory-pressure process recreation, 60+ minute trip, Bluetooth,
+  thermal/battery, real LaneLock, tunnel/GPS-drift and AR road-alignment behavior require a physical
+  Android phone and real-road execution. Those rows remain NOT RUN until executed.
