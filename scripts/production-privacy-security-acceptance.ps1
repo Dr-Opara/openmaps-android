@@ -39,6 +39,22 @@ foreach ($name in $forbidden) {
 $secretDetail = if ($secretWiring.Count -eq 0) { "none" } else { $secretWiring -join ", " }
 Add-Result "No server secrets in Android" ($secretWiring.Count -eq 0) $secretDetail
 
+$signingNames = @(
+  "OPENMAPS_RELEASE_STORE_FILE",
+  "OPENMAPS_RELEASE_STORE_PASSWORD",
+  "OPENMAPS_RELEASE_KEY_ALIAS",
+  "OPENMAPS_RELEASE_KEY_PASSWORD"
+)
+$signingContractOk = $true
+foreach ($name in $signingNames) {
+  if (-not $build.Contains($name)) { $signingContractOk = $false }
+}
+Add-Result "Release signing is externalized" $signingContractOk ($signingNames -join ", ")
+Add-Result "Release signing verification task exists" ($build.Contains('tasks.register("verifyReleaseSigningConfiguration")')) "explicit pre-release gate"
+Add-Result "Signing secrets not in BuildConfig" (
+  -not $build.Contains('buildConfigField("String", "OPENMAPS_RELEASE_')
+) "signing values never emitted into APK config"
+
 $rows | Format-Table -AutoSize
 Write-Host ""
 if ($failures.Count -gt 0) {
