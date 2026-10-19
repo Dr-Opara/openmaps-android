@@ -61,6 +61,8 @@ import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.routing.RoutingException
 import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.core.sharing.TripShareRepository
+import com.openmaps.app.core.sharing.TripShareRecoveryStore
+import com.openmaps.app.core.sharing.NoopTripShareRecoveryStore
 import com.openmaps.app.core.sharing.TripShareRequest
 import com.openmaps.app.core.sharing.TripShareSession
 import com.openmaps.app.core.sharing.TripShareUpdate
@@ -111,6 +113,7 @@ class MapViewModel(
     private val reverseGeocodingRepository: ReverseGeocodingRepository? = null,
     private val driverReportRepository: DriverReportRepository = UnavailableDriverReportRepository(),
     private val tripShareRepository: TripShareRepository = UnavailableTripShareRepository(),
+    private val tripShareRecoveryStore: TripShareRecoveryStore = NoopTripShareRecoveryStore,
     /** Delta-spec section 14. Defaults to a no-op so every existing test keeps working with no
      * voice at all; the real TTS engine is supplied by [AppContainer]. */
     private val voiceGuidanceEngine: VoiceGuidanceEngine = NoopVoiceGuidanceEngine(),
@@ -293,7 +296,7 @@ class MapViewModel(
 
     // endregion
 
-    private var activeTripShareSession: TripShareSession? = null
+    private var activeTripShareSession: TripShareSession? = tripShareRecoveryStore.load()
     private var tripShareUpdateJob: Job? = null
     private var lastTripShareUpdateMillis: Long = 0L
 
@@ -1554,6 +1557,7 @@ class MapViewModel(
                 ),
             ).onSuccess { session ->
                 activeTripShareSession = session
+                tripShareRecoveryStore.save(session)
                 lastTripShareUpdateMillis = System.currentTimeMillis()
                 _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Success) }
                 eventChannel.send(MapUiEvent.ShareTripUrl(session.url))
@@ -1573,8 +1577,12 @@ class MapViewModel(
     }
 
     private fun stopTripSharingIfNeeded() {
-        val session = activeTripShareSession ?: return
+        val session = activeTripShareSession ?: run {
+            tripShareRecoveryStore.clear()
+            return
+        }
         activeTripShareSession = null
+        tripShareRecoveryStore.clear()
         tripShareUpdateJob?.cancel()
         tripShareUpdateJob = null
         lastTripShareUpdateMillis = 0L
@@ -1586,6 +1594,7 @@ class MapViewModel(
         val session = activeTripShareSession ?: return
         if (System.currentTimeMillis() >= session.expiresAtMillis) {
             activeTripShareSession = null
+            tripShareRecoveryStore.clear()
             tripShareUpdateJob?.cancel()
             tripShareUpdateJob = null
             _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Idle) }
@@ -1609,6 +1618,7 @@ class MapViewModel(
                     error is com.openmaps.app.core.sharing.TripShareException.Closed
                 ) {
                     activeTripShareSession = null
+                    tripShareRecoveryStore.clear()
                     _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Idle) }
                 }
             }
@@ -1616,8 +1626,12 @@ class MapViewModel(
     }
 
     private fun completeTripSharingOnArrival(location: UserLocation, progress: RouteProgress) {
-        val session = activeTripShareSession ?: return
+        val session = activeTripShareSession ?: run {
+            tripShareRecoveryStore.clear()
+            return
+        }
         activeTripShareSession = null
+        tripShareRecoveryStore.clear()
         tripShareUpdateJob?.cancel()
         lastTripShareUpdateMillis = 0L
         tripShareUpdateJob = viewModelScope.launch {
