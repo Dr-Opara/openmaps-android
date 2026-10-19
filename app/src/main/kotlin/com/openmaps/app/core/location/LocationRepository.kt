@@ -20,7 +20,8 @@ sealed interface LocationUpdate {
  * Phase 0 location layer. Implementations must:
  *  - start listening only while the returned flow is collected, and stop on cancel;
  *  - never throw for missing permission/provider; report [LocationUpdate.Failure] instead.
- * The caller (MapViewModel) only collects while permission is granted and the app is visible.
+ * The caller (MapViewModel) collects while permission is granted and either the app is visible or
+ * a user-started foreground navigation session is actively running.
  */
 interface LocationRepository {
     fun updates(): Flow<LocationUpdate>
