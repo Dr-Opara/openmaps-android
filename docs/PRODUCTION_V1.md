@@ -373,3 +373,55 @@ Phase 8 release gates:
   acceptance suites remain green.
 - The changed Edge Functions are deployed from the same Git commit being validated by CI.
 - No Phase 8 merge occurs while any production acceptance gate is red.
+
+
+## Production implementation Phase 9: Reliability & Observability
+
+Implemented on `feature/reliability-observability-v1`:
+
+- Added a provider-neutral `ReliabilityReporter` seam so navigation/Live code never depends on a
+  specific analytics SDK.
+- Added first-party `BackendReliabilityReporter` delivery through the OpenMaps backend instead of
+  adding a third-party crash/analytics SDK dependency.
+- Android now reports coarse operational outcomes for app launch, route request/success/failure,
+  navigation start/failure/end/arrival, off-route confirmation, reroute trigger/success/failure,
+  AR availability/readiness/fallback, and camera failure.
+- Reliability events intentionally exclude coordinates, addresses, destination/search text,
+  account identifiers and other trip content. The backend rejects sensitive metadata keys and stores
+  only a SHA-256 hash of the anonymous per-install identifier already introduced in Phase 8.
+- Added `AndroidCrashRecorder`: a fatal crash writes a minimal local envelope synchronously, then
+  uploads it on the next launch. The envelope contains exception type, a SHA-256 stack fingerprint
+  and a bounded set of class/method/line frames. Exception messages are not retained.
+- Crash upload is best-effort and isolated from navigation. A telemetry outage never blocks routing,
+  camera, AR, voice or application startup.
+- Added the `reliability` Edge Function with publishable-key validation, database-backed per-install
+  rate limiting and server-side metadata sanitization.
+- Added `mobile_reliability_events` with RLS enabled and direct anon/authenticated access revoked.
+- Added `mobile_reliability_health_24h` for launch/crash rate, route success, navigation starts,
+  reroute success, arrival, AR readiness/fallback and camera failures.
+- Added service-role-only `operations_health_24h`, composing the existing Search, Routing, Traffic,
+  Places, Trip Sharing, Community Reports and Voice health views with mobile reliability health.
+- The public `platform` control-plane endpoint advertises only that reliability telemetry is
+  available; operational metrics themselves are not exposed to mobile clients.
+- Added `scripts/production-reliability-acceptance.ps1` and made it a required Android CI gate.
+
+Privacy and security properties:
+
+- No raw install identifier is stored in `mobile_reliability_events`; only SHA-256 client hashes are
+  persisted.
+- No GPS coordinate, route geometry, search text, destination text, address, email, phone number or
+  user name belongs in the reliability schema.
+- Fatal exception messages are deliberately excluded because they may contain provider payloads,
+  user-entered text or other data not appropriate for telemetry.
+- The reliability table and operational health views are unavailable to anonymous/authenticated Data
+  API roles.
+- Supabase security advisors report no high/critical finding from this work. The
+  `rls_enabled_no_policy` INFO notice is intentional for service-role-only operational tables.
+
+Phase 9 release gates:
+
+- Android `assembleDebug`, unit tests and lint pass.
+- Reliability/Observability production acceptance passes against the deployed Edge Function.
+- All prior production acceptance suites remain green.
+- Deployed `reliability` and `platform` functions exactly match the PR source.
+- No merge occurs while any production acceptance gate is red.
