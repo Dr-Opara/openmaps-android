@@ -20,6 +20,7 @@ import java.net.URL
 class BackendTripShareRepository(
     private val endpointUrl: String,
     private val publishableKey: String,
+    private val clientId: String? = null,
 ) : TripShareRepository {
 
     override suspend fun createSession(request: TripShareRequest): Result<TripShareSession> =
@@ -99,6 +100,9 @@ class BackendTripShareRepository(
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         connection.setRequestProperty("apikey", publishableKey)
+        clientId?.takeIf { it.isNotBlank() }?.let {
+            connection.setRequestProperty("x-openmaps-client-id", it)
+        }
 
         try {
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
