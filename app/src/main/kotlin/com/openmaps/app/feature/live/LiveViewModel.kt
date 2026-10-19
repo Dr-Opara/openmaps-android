@@ -10,6 +10,11 @@ import com.openmaps.app.camera.RearCameraState
 import com.openmaps.app.core.camera.CameraPermissionState
 import com.openmaps.app.core.places.LivePlaceProjector
 import com.openmaps.app.core.places.Place
+import com.openmaps.app.core.reliability.NoopReliabilityReporter
+import com.openmaps.app.core.reliability.ReliabilityEvent
+import com.openmaps.app.core.reliability.ReliabilityEventName
+import com.openmaps.app.core.reliability.ReliabilityOutcome
+import com.openmaps.app.core.reliability.ReliabilityReporter
 import com.openmaps.app.core.spatial.NoopSpatialLocalization
 import com.openmaps.app.core.spatial.SpatialAvailability
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
@@ -45,6 +50,7 @@ class LiveViewModel(
      * all; the real ARCore engine is supplied by [AppContainer] once support is confirmed.
      */
     private val spatialEngine: SpatialLocalizationEngine = NoopSpatialLocalization(),
+    private val reliabilityReporter: ReliabilityReporter = NoopReliabilityReporter,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LiveUiState())
@@ -70,6 +76,7 @@ class LiveViewModel(
     private val initialAvailability: SpatialAvailability = spatialEngine.probeAvailability()
 
     private val _previewProvider = MutableStateFlow(chooseInitialProvider(initialAvailability))
+    private var arReadyReported = false
     val previewProvider: StateFlow<PreviewProvider> = _previewProvider.asStateFlow()
 
     /** True when the AR engine owns the camera and renders the preview itself. */
@@ -87,6 +94,17 @@ class LiveViewModel(
         }
 
     init {
+        reliabilityReporter.record(
+            ReliabilityEvent(
+                name = ReliabilityEventName.ArAvailability,
+                outcome = if (initialAvailability == SpatialAvailability.Supported) {
+                    ReliabilityOutcome.Success
+                } else {
+                    ReliabilityOutcome.Degraded
+                },
+                reason = initialAvailability::class.java.simpleName,
+            ),
+        )
         // `Checking` means ArCoreApk's own availability check had not settled on this very first
         // probe (`ArCoreApk.Availability.UNKNOWN_*`) — Google's own guidance is to re-query rather
         // than treat it as permanent. Collapsing it into "use CameraX forever" (the previous
@@ -136,6 +154,15 @@ class LiveViewModel(
     fun onCameraEvent(event: CameraEngineEvent) {
         val state = (event as? CameraEngineEvent.StateChanged)?.state ?: return
         _uiState.update { it.copy(cameraState = state) }
+        if (state is RearCameraState.Unavailable) {
+            reliabilityReporter.record(
+                ReliabilityEvent(
+                    name = ReliabilityEventName.CameraFailure,
+                    outcome = ReliabilityOutcome.Degraded,
+                    reason = state.failure.name,
+                ),
+            )
+        }
     }
 
     /**
@@ -165,12 +192,25 @@ class LiveViewModel(
     fun startSpatialLocalization(lifecycleOwner: LifecycleOwner) {
         if (!canStartCamera) return
         lastSpatialFailure = null
+        arReadyReported = false
         spatialEngine.start(lifecycleOwner)
         // Watch for AR dying mid-session and hand the camera back to the CameraX fallback. Without
         // this, a session that fails *after* a successful probe leaves Live with no camera at all.
         if (spatialFallbackJob == null && _previewProvider.value == PreviewProvider.Spatial) {
             spatialFallbackJob = viewModelScope.launch {
                 spatialEngine.state.collect { state ->
+                    if (!arReadyReported &&
+                        state is SpatialLocalizationState.Tracking &&
+                        state.pose?.isAnchorable == true
+                    ) {
+                        arReadyReported = true
+                        reliabilityReporter.record(
+                            ReliabilityEvent(
+                                name = ReliabilityEventName.ArReady,
+                                outcome = ReliabilityOutcome.Success,
+                            ),
+                        )
+                    }
                     if (state is SpatialLocalizationState.Failed ||
                         state is SpatialLocalizationState.Unsupported ||
                         state is SpatialLocalizationState.NotInstalled
@@ -182,6 +222,18 @@ class LiveViewModel(
                         // here, before `stop()` runs, for the debug overlay to show instead of a bare
                         // post-fallback "Idle".
                         lastSpatialFailure = state
+                        reliabilityReporter.record(
+                            ReliabilityEvent(
+                                name = ReliabilityEventName.ArFallback,
+                                outcome = ReliabilityOutcome.Degraded,
+                                reason = when (state) {
+                                    is SpatialLocalizationState.Failed -> state.reason.name
+                                    is SpatialLocalizationState.Unsupported -> "unsupported"
+                                    is SpatialLocalizationState.NotInstalled -> "not_installed"
+                                    else -> "unknown"
+                                },
+                            ),
+                        )
                         spatialEngine.stop()
                         _previewProvider.value = PreviewProvider.CameraX
                     }
