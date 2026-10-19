@@ -163,6 +163,10 @@ fun MapScreen(
             state.liveFallbackMessage?.let { message ->
                 LiveFallbackBanner(message = message, onDismiss = viewModel::onLiveFallbackMessageDismissed)
             }
+            val cachedRoute = (state.routeState as? RouteState.Ready)?.route?.isOfflineCached == true
+            if (cachedRoute) {
+                DegradedRouteBanner()
+            }
         }
 
         // Bottom: controls, then the location card, then the collapsed panel.
