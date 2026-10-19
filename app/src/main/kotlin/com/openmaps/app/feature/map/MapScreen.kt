@@ -1,5 +1,6 @@
 package com.openmaps.app.feature.map
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openmaps.app.core.designsystem.OpenMapsWordmark
+import com.openmaps.app.map.CartographyMode
 import com.openmaps.app.map.MapEngine
 import com.openmaps.app.map.MapLibreHost
 import com.openmaps.app.map.MapLibreMapEngine
@@ -55,6 +57,17 @@ fun MapScreen(
     // known camera, so a rotation/recreation restores the view the user left.
     val engine: MapEngine = remember(viewModel, styleProvider) {
         MapLibreMapEngine(styleProvider = styleProvider, initialCamera = viewModel.uiState.value.cameraState)
+    }
+    val useNightMap = isSystemInDarkTheme()
+    LaunchedEffect(engine, state.isNavigating, useNightMap) {
+        engine.setCartographyMode(
+            when {
+                state.isNavigating && useNightMap -> CartographyMode.NavigationNight
+                state.isNavigating -> CartographyMode.NavigationDay
+                useNightMap -> CartographyMode.BrowseNight
+                else -> CartographyMode.BrowseDay
+            },
+        )
     }
     val userLocationFlow = remember(viewModel) {
         viewModel.uiState.map { it.currentLocation }.distinctUntilChanged()
