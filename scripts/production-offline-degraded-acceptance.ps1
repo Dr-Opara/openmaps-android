@@ -16,6 +16,7 @@ $vm = Get-Content "app/src/main/kotlin/com/openmaps/app/feature/map/MapViewModel
 $screen = Get-Content "app/src/main/kotlin/com/openmaps/app/feature/map/MapScreen.kt" -Raw
 
 Add-Result "Route cache wired" ($app.Contains("CachedRoutingRepository")) "routing wrapper"
+Add-Result "Route cache encrypted" ($cache.Contains("AndroidKeyStore") -and $cache.Contains("AES/GCM/NoPadding")) "Keystore AES-GCM"
 Add-Result "Cache age bounded" ($cache.Contains("DEFAULT_MAX_AGE_MILLIS = 6 * 60 * 60 * 1000L")) "6-hour max age"
 Add-Result "Origin gate" ($cache.Contains("ORIGIN_MATCH_METERS")) "origin proximity match"
 Add-Result "Destination gate" ($cache.Contains("DESTINATION_MATCH_METERS")) "destination proximity match"
