@@ -92,6 +92,9 @@
     <string name="live_safety_body">Do not interact with OpenMaps while driving unless it is safe and lawful. Follow traffic signs, road conditions, and applicable laws. OpenMaps guidance may be delayed, incomplete, or inaccurate. Camera guidance does not replace your responsibility to drive safely.</string>
     <string name="live_safety_use_map">Use Map Navigation</string>
     <string name="live_safety_confirm">I Understand — Start Live</string>
+    <string name="live_arcore_disclosure">This application runs on Google Play Services for AR (ARCore), which is provided by Google and governed by the Google Privacy Policy.</string>
+    <string name="live_geospatial_disclosure">To power this session, Google will process sensor data (e.g., camera and location).</string>
+    <string name="live_geospatial_learn_more">Learn more about ARCore privacy</string>
 
     <!-- Search -->
     <string name="search_title">Search destinations</string>
@@ -127,7 +130,6 @@
     <string name="route_error_server">Something went wrong on our end. Try again.</string>
     <string name="route_error_malformed">We couldn\'t read that response. Try again.</string>
     <string name="route_error_no_route">No route found to this destination.</string>
-    <string name="route_degraded_cached">Using a saved route. Live traffic, closures and ETA updates may be unavailable until connectivity returns.</string>
     <string name="route_origin_your_location">Your location</string>
     <string name="route_destination_placeholder">Choose a destination</string>
     <string name="route_mode_driving">Driving</string>
@@ -308,6 +310,11 @@
     <string name="settings_map_style">Map style</string>
     <string name="settings_map_dev_only">Development only</string>
     <string name="settings_section_about">About</string>
+    <string name="settings_section_privacy">Privacy &amp; data</string>
+    <string name="settings_privacy_location">Navigation location is processed for routing and Live guidance. OpenMaps does not retain normal navigation location history as an account timeline.</string>
+    <string name="settings_privacy_trip_share">Live Trip Sharing stores the active shared location only while the session is active. Completed or expired sessions are deleted after the short retention window.</string>
+    <string name="settings_privacy_telemetry">Operational telemetry is privacy-minimized and retained for up to 30 days. Crash reports exclude exception messages, coordinates, destinations, addresses and search text.</string>
+    <string name="settings_privacy_arcore">Live AR uses Google Play Services for AR (ARCore). When Geospatial is active, Google processes sensor data such as camera and location data.</string>
     <string name="settings_version">Version</string>
     <string name="community_still_there">Still there</string>
     <string name="community_not_there">Not there</string>

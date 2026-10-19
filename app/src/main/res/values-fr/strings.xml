@@ -288,5 +288,13 @@
     <string name="route_alternate_fallback">Itinéraire alternatif</string>
     <string name="route_use_action">Utiliser</string>
     <string name="lane_use_lane">PRENDRE CETTE VOIE</string>
-    <string name="route_degraded_cached">Utilisation d’un itinéraire enregistré. Le trafic en direct, les fermetures et les mises à jour de l’heure d’arrivée peuvent être indisponibles jusqu’au retour de la connexion.</string>
+
+    <string name="live_arcore_disclosure">Cette application fonctionne avec les Services Google Play pour la RA (ARCore), fournis par Google et régis par les Règles de confidentialité de Google.</string>
+    <string name="live_geospatial_disclosure">Pour assurer cette session, Google traitera des données de capteurs (par exemple la caméra et la position).</string>
+    <string name="live_geospatial_learn_more">En savoir plus sur la confidentialité ARCore</string>
+    <string name="settings_section_privacy">Confidentialité et données</string>
+    <string name="settings_privacy_location">La position de navigation est traitée pour le calcul d’itinéraire et le guidage Live. OpenMaps ne conserve pas l’historique normal de navigation sous forme de chronologie de compte.</string>
+    <string name="settings_privacy_trip_share">Le partage de trajet en direct conserve la position partagée active uniquement pendant la session. Les sessions terminées ou expirées sont supprimées après une courte durée de conservation.</string>
+    <string name="settings_privacy_telemetry">La télémétrie opérationnelle est limitée au minimum et conservée jusqu’à 30 jours. Les rapports de plantage excluent les messages d’exception, coordonnées, destinations, adresses et texte de recherche.</string>
+    <string name="settings_privacy_arcore">Live AR utilise les Services Google Play pour la RA (ARCore). Lorsque Geospatial est actif, Google traite des données de capteurs telles que la caméra et la position.</string>
 </resources>

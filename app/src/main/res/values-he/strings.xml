@@ -288,5 +288,13 @@
     <string name="route_alternate_fallback">מסלול חלופי</string>
     <string name="route_use_action">שימוש</string>
     <string name="lane_use_lane">השתמשו בנתיב הזה</string>
-    <string name="route_degraded_cached">נעשה שימוש במסלול שמור. ייתכן שתנועת זמן אמת, חסימות ועדכוני זמן הגעה לא יהיו זמינים עד שהחיבור יחזור.</string>
+
+    <string name="live_arcore_disclosure">האפליקציה פועלת באמצעות Google Play Services for AR ‏(ARCore), המסופקים על ידי Google וכפופים למדיניות הפרטיות של Google.</string>
+    <string name="live_geospatial_disclosure">כדי להפעיל את ההפעלה הזו, Google תעבד נתוני חיישנים (למשל מצלמה ומיקום).</string>
+    <string name="live_geospatial_learn_more">מידע נוסף על פרטיות ARCore</string>
+    <string name="settings_section_privacy">פרטיות ונתונים</string>
+    <string name="settings_privacy_location">מיקום הניווט מעובד לצורך מסלולים והנחיית Live. OpenMaps אינו שומר היסטוריית מיקום רגילה של ניווט כציר זמן של החשבון.</string>
+    <string name="settings_privacy_trip_share">שיתוף נסיעה חי שומר את המיקום המשותף הפעיל רק בזמן שההפעלה פעילה. הפעלות שהסתיימו או פגו נמחקות לאחר חלון שמירה קצר.</string>
+    <string name="settings_privacy_telemetry">טלמטריית התפעול מצומצמת ונשמרת עד 30 יום. דוחות קריסה אינם כוללים הודעות חריגה, קואורדינטות, יעדים, כתובות או טקסט חיפוש.</string>
+    <string name="settings_privacy_arcore">Live AR משתמש ב-Google Play Services for AR ‏(ARCore). כאשר Geospatial פעיל, Google מעבדת נתוני חיישנים כגון מצלמה ומיקום.</string>
 </resources>

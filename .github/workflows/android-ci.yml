@@ -45,10 +45,15 @@ jobs:
         shell: pwsh
         run: ./scripts/production-reliability-acceptance.ps1
 
-      - name: Offline degraded-operation acceptance
-        if: ${{ hashFiles('scripts/production-offline-degraded-acceptance.ps1') != '' }}
+      - name: Privacy security acceptance
+        if: ${{ hashFiles('scripts/production-privacy-security-acceptance.ps1') != '' }}
         shell: pwsh
-        run: ./scripts/production-offline-degraded-acceptance.ps1
+        run: ./scripts/production-privacy-security-acceptance.ps1
+
+      - name: Map platform cartography acceptance
+        if: ${{ hashFiles('scripts/production-map-platform-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-map-platform-acceptance.ps1
 
       - name: Worldwide localization acceptance
         if: ${{ hashFiles('scripts/production-localization-acceptance.ps1') != '' }}
