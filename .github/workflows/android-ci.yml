@@ -45,6 +45,11 @@ jobs:
         shell: pwsh
         run: ./scripts/production-reliability-acceptance.ps1
 
+      - name: Map platform cartography acceptance
+        if: ${{ hashFiles('scripts/production-map-platform-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-map-platform-acceptance.ps1
+
       - name: Worldwide localization acceptance
         if: ${{ hashFiles('scripts/production-localization-acceptance.ps1') != '' }}
         shell: pwsh

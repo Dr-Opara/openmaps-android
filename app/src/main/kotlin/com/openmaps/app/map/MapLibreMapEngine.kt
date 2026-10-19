@@ -35,8 +35,11 @@ import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.BackgroundLayer
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -84,6 +87,7 @@ class MapLibreMapEngine(
     private var routeProgress: RouteProgressView? = null
     private var places: List<Place> = emptyList()
     private var roadEvents: List<RoadEvent> = emptyList()
+    private var cartographyMode: CartographyMode = CartographyMode.BrowseDay
     private var bottomInsetPx = 0
     private var density = 1f
     private var lastReportedBearing = Double.NaN
@@ -175,8 +179,9 @@ class MapLibreMapEngine(
             is MapStyleSource.Url -> builder.fromUri(source.url)
             is MapStyleSource.InlineJson -> builder.fromJson(source.json)
         }
-        readyMap.setStyle(builder) {
+        readyMap.setStyle(builder) { style ->
             styleLoaded = true
+            applyCartography(style)
             _events.tryEmit(MapEvent.StyleLoaded)
             syncUserLocation()
             syncDestination()
@@ -391,8 +396,9 @@ class MapLibreMapEngine(
     private fun ensureRouteTraveledLayer(style: Style) {
         if (style.getLayer(ROUTE_TRAVELED_LAYER_ID) != null) return
         style.addSource(GeoJsonSource(ROUTE_TRAVELED_SOURCE_ID))
+        val palette = OpenMapsCartography.palette(cartographyMode)
         val layer = LineLayer(ROUTE_TRAVELED_LAYER_ID, ROUTE_TRAVELED_SOURCE_ID).withProperties(
-            PropertyFactory.lineColor(ROUTE_TRAVELED_COLOR),
+            PropertyFactory.lineColor(palette.traveledRoute),
             PropertyFactory.lineWidth(ROUTE_LINE_WIDTH),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
@@ -403,18 +409,28 @@ class MapLibreMapEngine(
 
     private fun ensureRouteLayer(style: Style) {
         if (style.getLayer(ROUTE_LAYER_ID) != null) return
-        style.addSource(GeoJsonSource(ROUTE_SOURCE_ID))
+        val palette = OpenMapsCartography.palette(cartographyMode)
+        if (style.getSource(ROUTE_SOURCE_ID) == null) {
+            style.addSource(GeoJsonSource(ROUTE_SOURCE_ID))
+        }
+        val casing = LineLayer(ROUTE_CASING_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
+            PropertyFactory.lineColor(palette.routeCasing),
+            PropertyFactory.lineWidth(ROUTE_CASING_WIDTH),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        )
         val layer = LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
-            PropertyFactory.lineColor(ACCENT_BLUE),
+            PropertyFactory.lineColor(palette.route),
             PropertyFactory.lineWidth(ROUTE_LINE_WIDTH),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
         )
         if (style.getLayer(DESTINATION_LAYER_ID) != null) {
-            style.addLayerBelow(layer, DESTINATION_LAYER_ID)
+            style.addLayerBelow(casing, DESTINATION_LAYER_ID)
         } else {
-            style.addLayer(layer)
+            style.addLayer(casing)
         }
+        style.addLayerAbove(layer, ROUTE_CASING_LAYER_ID)
     }
 
     override fun setPlaces(places: List<Place>) {
@@ -459,8 +475,10 @@ class MapLibreMapEngine(
     private fun ensurePlacesLayer(style: Style) {
         if (style.getLayer(PLACES_LAYER_ID) != null) return
         style.addSource(GeoJsonSource(PLACES_SOURCE_ID))
+        val palette = OpenMapsCartography.palette(cartographyMode)
         val layer = CircleLayer(PLACES_LAYER_ID, PLACES_SOURCE_ID).withProperties(
             PropertyFactory.circleRadius(PLACE_MARKER_RADIUS),
+            PropertyFactory.circleOpacity(palette.poiOpacity),
             PropertyFactory.circleColor(placeCategoryColorExpression()),
             PropertyFactory.circleStrokeColor(Color.WHITE),
             PropertyFactory.circleStrokeWidth(PLACE_MARKER_STROKE_WIDTH),
@@ -496,6 +514,70 @@ class MapLibreMapEngine(
     override fun setRoadEvents(events: List<RoadEvent>) {
         this.roadEvents = events
         syncRoadEvents()
+    }
+
+    override fun setCartographyMode(mode: CartographyMode) {
+        if (cartographyMode == mode) return
+        cartographyMode = mode
+        val style = map?.style ?: return
+        if (!styleLoaded) return
+        applyCartography(style)
+    }
+
+    private fun applyCartography(style: Style) {
+        val palette = OpenMapsCartography.palette(cartographyMode)
+        style.layers.forEach { layer ->
+            val id = layer.id.lowercase()
+            when (layer) {
+                is BackgroundLayer -> layer.setProperties(
+                    PropertyFactory.backgroundColor(palette.background),
+                )
+                is FillLayer -> when {
+                    id.contains("water") -> layer.setProperties(PropertyFactory.fillColor(palette.water))
+                    id.contains("park") || id.contains("landcover") || id.contains("green") ->
+                        layer.setProperties(PropertyFactory.fillColor(palette.park))
+                    id.contains("building") -> layer.setProperties(PropertyFactory.fillColor(palette.building))
+                    id.contains("land") || id.contains("background") ->
+                        layer.setProperties(PropertyFactory.fillColor(palette.land))
+                }
+                is LineLayer -> when {
+                    id.contains("motorway") || id.contains("trunk") ->
+                        layer.setProperties(PropertyFactory.lineColor(palette.motorway))
+                    id.contains("primary") || id.contains("secondary") || id.contains("tertiary") ->
+                        layer.setProperties(PropertyFactory.lineColor(palette.majorRoad))
+                    id.contains("road") || id.contains("street") || id.contains("path") ->
+                        layer.setProperties(PropertyFactory.lineColor(palette.minorRoad))
+                }
+                is SymbolLayer -> {
+                    if (id.contains("label") || id.contains("place") || id.contains("road") || id.contains("street")) {
+                        layer.setProperties(
+                            PropertyFactory.textColor(palette.label),
+                            PropertyFactory.textHaloColor(palette.labelHalo),
+                            PropertyFactory.textOpacity(palette.baseLabelOpacity),
+                        )
+                    }
+                    if (id.contains("poi") || id.contains("amenity") || id.contains("shop")) {
+                        layer.setProperties(
+                            PropertyFactory.iconOpacity(palette.poiOpacity),
+                            PropertyFactory.textOpacity(palette.poiOpacity),
+                        )
+                    }
+                }
+            }
+        }
+
+        style.getLayerAs<LineLayer>(ROUTE_CASING_LAYER_ID)?.setProperties(
+            PropertyFactory.lineColor(palette.routeCasing),
+        )
+        style.getLayerAs<LineLayer>(ROUTE_LAYER_ID)?.setProperties(
+            PropertyFactory.lineColor(palette.route),
+        )
+        style.getLayerAs<LineLayer>(ROUTE_TRAVELED_LAYER_ID)?.setProperties(
+            PropertyFactory.lineColor(palette.traveledRoute),
+        )
+        style.getLayerAs<CircleLayer>(PLACES_LAYER_ID)?.setProperties(
+            PropertyFactory.circleOpacity(palette.poiOpacity),
+        )
     }
 
     /**
@@ -652,8 +734,10 @@ class MapLibreMapEngine(
         const val DESTINATION_MARKER_RADIUS = 9f
         const val DESTINATION_MARKER_STROKE_WIDTH = 3f
         const val ROUTE_SOURCE_ID = "openmaps-route-source"
+        const val ROUTE_CASING_LAYER_ID = "openmaps-route-casing-layer"
         const val ROUTE_LAYER_ID = "openmaps-route-layer"
         const val ROUTE_LINE_WIDTH = 9f
+        const val ROUTE_CASING_WIDTH = 13f
         const val ROUTE_TRAVELED_SOURCE_ID = "openmaps-route-traveled-source"
         const val ROUTE_TRAVELED_LAYER_ID = "openmaps-route-traveled-layer"
 
