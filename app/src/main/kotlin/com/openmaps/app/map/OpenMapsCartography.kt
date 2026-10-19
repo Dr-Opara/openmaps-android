@@ -1,7 +1,5 @@
 package com.openmaps.app.map
 
-import android.graphics.Color
-
 /**
  * Provider-neutral OpenMaps cartography modes.
  *
@@ -36,60 +34,60 @@ data class CartographyPalette(
 
 object OpenMapsCartography {
     val BrowseDay = CartographyPalette(
-        background = Color.parseColor("#EEF3F8"),
-        land = Color.parseColor("#F7F9FC"),
-        water = Color.parseColor("#B7D9F2"),
-        park = Color.parseColor("#DCEBD8"),
-        building = Color.parseColor("#E4E8EE"),
-        minorRoad = Color.parseColor("#FFFFFF"),
-        majorRoad = Color.parseColor("#F7F9FC"),
-        motorway = Color.parseColor("#E8EDF5"),
-        roadCasing = Color.parseColor("#CCD4DF"),
-        label = Color.parseColor("#26354D"),
-        labelHalo = Color.parseColor("#FFFFFF"),
-        route = Color.parseColor("#2F7BFF"),
-        routeCasing = Color.parseColor("#FFFFFF"),
-        traveledRoute = Color.parseColor("#A7B0BF"),
+        background = 0xFFEEF3F8.toInt(),
+        land = 0xFFF7F9FC.toInt(),
+        water = 0xFFB7D9F2.toInt(),
+        park = 0xFFDCEBD8.toInt(),
+        building = 0xFFE4E8EE.toInt(),
+        minorRoad = 0xFFFFFFFF.toInt(),
+        majorRoad = 0xFFF7F9FC.toInt(),
+        motorway = 0xFFE8EDF5.toInt(),
+        roadCasing = 0xFFCCD4DF.toInt(),
+        label = 0xFF26354D.toInt(),
+        labelHalo = 0xFFFFFFFF.toInt(),
+        route = 0xFF2F7BFF.toInt(),
+        routeCasing = 0xFFFFFFFF.toInt(),
+        traveledRoute = 0xFFA7B0BF.toInt(),
         poiOpacity = 0.85f,
         baseLabelOpacity = 1.0f,
     )
 
     val BrowseNight = CartographyPalette(
-        background = Color.parseColor("#070D1B"),
-        land = Color.parseColor("#0A1224"),
-        water = Color.parseColor("#0B263A"),
-        park = Color.parseColor("#10271F"),
-        building = Color.parseColor("#172238"),
-        minorRoad = Color.parseColor("#1B2943"),
-        majorRoad = Color.parseColor("#263652"),
-        motorway = Color.parseColor("#334A6D"),
-        roadCasing = Color.parseColor("#07101E"),
-        label = Color.parseColor("#D9E4F4"),
-        labelHalo = Color.parseColor("#0A1224"),
-        route = Color.parseColor("#5A91FF"),
-        routeCasing = Color.parseColor("#DCE8FF"),
-        traveledRoute = Color.parseColor("#56647A"),
+        background = 0xFF070D1B.toInt(),
+        land = 0xFF0A1224.toInt(),
+        water = 0xFF0B263A.toInt(),
+        park = 0xFF10271F.toInt(),
+        building = 0xFF172238.toInt(),
+        minorRoad = 0xFF1B2943.toInt(),
+        majorRoad = 0xFF263652.toInt(),
+        motorway = 0xFF334A6D.toInt(),
+        roadCasing = 0xFF07101E.toInt(),
+        label = 0xFFD9E4F4.toInt(),
+        labelHalo = 0xFF0A1224.toInt(),
+        route = 0xFF5A91FF.toInt(),
+        routeCasing = 0xFFDCE8FF.toInt(),
+        traveledRoute = 0xFF56647A.toInt(),
         poiOpacity = 0.72f,
         baseLabelOpacity = 0.9f,
     )
 
     val NavigationDay = BrowseDay.copy(
-        background = Color.parseColor("#F2F5F9"),
-        land = Color.parseColor("#F8FAFC"),
-        minorRoad = Color.parseColor("#F7F8FA"),
-        majorRoad = Color.parseColor("#FFFFFF"),
-        motorway = Color.parseColor("#EDF2F8"),
-        route = Color.parseColor("#2468E0"),
-        routeCasing = Color.parseColor("#FFFFFF"),
-        traveledRoute = Color.parseColor("#B2BAC7"),
+        background = 0xFFF2F5F9.toInt(),
+        land = 0xFFF8FAFC.toInt(),
+        minorRoad = 0xFFF7F8FA.toInt(),
+        majorRoad = 0xFFFFFFFF.toInt(),
+        motorway = 0xFFEDF2F8.toInt(),
+        route = 0xFF2468E0.toInt(),
+        routeCasing = 0xFFFFFFFF.toInt(),
+        traveledRoute = 0xFFB2BAC7.toInt(),
         poiOpacity = 0.42f,
         baseLabelOpacity = 0.78f,
     )
 
     val NavigationNight = BrowseNight.copy(
-        route = Color.parseColor("#6A9CFF"),
-        routeCasing = Color.parseColor("#E7EEFF"),
-        traveledRoute = Color.parseColor("#4C596D"),
+        route = 0xFF6A9CFF.toInt(),
+        routeCasing = 0xFFE7EEFF.toInt(),
+        traveledRoute = 0xFF4C596D.toInt(),
         poiOpacity = 0.35f,
         baseLabelOpacity = 0.72f,
     )
