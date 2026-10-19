@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedFrom": {
     "productionBranch": "production/platform-v1",
-    "baselineCommit": "808fd74b176c15ad13aa5d464e7126a27ac339ca"
+    "baselineCommit": "ddd37b7e456a7adb5478767202a80a533638e14d"
   },
   "statusDefinitions": {
     "verified": "Production acceptance has directly exercised this capability in the region.",
@@ -39,7 +39,7 @@
         "communityReports": {"status": "supported", "evidence": "production community-report backend"},
         "voice": {"status": "verified", "evidence": "EnglishUs neural voice production acceptance"},
         "localization": {"status": "verified", "evidence": "English US"},
-        "liveAr": {"status": "blocked", "evidence": "ARCore Geospatial production provisioning + physical validation required"},
+        "liveAr": {"status": "blocked", "evidence": "ARCore production credential plumbing/privacy are implemented; restricted production key activation + physical Earth tracking validation remain"},
         "mapPlatform": {"status": "blocked", "evidence": "Stadia Maps production integration is implemented; production API-key activation/live validation remains"},
         "offlineRoute": {"status": "supported", "evidence": "Phase 12 cached-route implementation merged"},
         "offlineMap": {"status": "blocked", "evidence": "MapLibre active-route corridor cache is implemented under Stadia 100 MB/device terms; production API-key activation/live validation remains"}
@@ -64,7 +64,7 @@
         "communityReports": {"status": "supported", "evidence": "production community-report backend"},
         "voice": {"status": "verified", "evidence": "EnglishUk neural voice acceptance"},
         "localization": {"status": "verified", "evidence": "English UK terminology and units"},
-        "liveAr": {"status": "blocked", "evidence": "ARCore Geospatial production provisioning + physical validation required"},
+        "liveAr": {"status": "blocked", "evidence": "ARCore production credential plumbing/privacy are implemented; restricted production key activation + physical Earth tracking validation remain"},
         "mapPlatform": {"status": "blocked", "evidence": "Stadia Maps production integration is implemented; production API-key activation/live validation remains"},
         "offlineRoute": {"status": "supported", "evidence": "Phase 12 cached-route implementation merged"},
         "offlineMap": {"status": "blocked", "evidence": "MapLibre active-route corridor cache is implemented under Stadia 100 MB/device terms; production API-key activation/live validation remains"}
@@ -89,7 +89,7 @@
         "communityReports": {"status": "supported", "evidence": "production community-report backend"},
         "voice": {"status": "verified", "evidence": "French neural voice acceptance"},
         "localization": {"status": "verified", "evidence": "French localization"},
-        "liveAr": {"status": "blocked", "evidence": "ARCore Geospatial production provisioning + physical validation required"},
+        "liveAr": {"status": "blocked", "evidence": "ARCore production credential plumbing/privacy are implemented; restricted production key activation + physical Earth tracking validation remain"},
         "mapPlatform": {"status": "blocked", "evidence": "Stadia Maps production integration is implemented; production API-key activation/live validation remains"},
         "offlineRoute": {"status": "supported", "evidence": "Phase 12 cached-route implementation merged"},
         "offlineMap": {"status": "blocked", "evidence": "MapLibre active-route corridor cache is implemented under Stadia 100 MB/device terms; production API-key activation/live validation remains"}
@@ -114,7 +114,7 @@
         "communityReports": {"status": "supported", "evidence": "production community-report backend"},
         "voice": {"status": "verified", "evidence": "NigerianPidgin + English neural voice acceptance"},
         "localization": {"status": "fallback", "evidence": "English UI; Nigerian Pidgin voice available"},
-        "liveAr": {"status": "blocked", "evidence": "ARCore Geospatial/VPS availability and production provisioning require validation"},
+        "liveAr": {"status": "blocked", "evidence": "ARCore production credential plumbing/privacy are implemented; regional VPS availability + restricted key activation + physical validation remain"},
         "mapPlatform": {"status": "blocked", "evidence": "Stadia Maps production integration is implemented; production API-key activation/live validation remains"},
         "offlineRoute": {"status": "supported", "evidence": "Phase 12 cached-route implementation merged"},
         "offlineMap": {"status": "blocked", "evidence": "MapLibre active-route corridor cache is implemented under Stadia 100 MB/device terms; production API-key activation/live validation remains"}
@@ -139,7 +139,7 @@
         "communityReports": {"status": "supported", "evidence": "production community-report backend"},
         "voice": {"status": "fallback", "evidence": "Japanese navigation voice not implemented; Android/system language fallback only"},
         "localization": {"status": "fallback", "evidence": "Japanese app localization not implemented"},
-        "liveAr": {"status": "blocked", "evidence": "ARCore Geospatial/VPS + physical validation required"},
+        "liveAr": {"status": "blocked", "evidence": "ARCore production credential plumbing/privacy are implemented; regional VPS availability + restricted key activation + physical validation remain"},
         "mapPlatform": {"status": "blocked", "evidence": "Stadia Maps production integration is implemented; production API-key activation/live validation remains"},
         "offlineRoute": {"status": "supported", "evidence": "Phase 12 cached-route implementation merged"},
         "offlineMap": {"status": "blocked", "evidence": "MapLibre active-route corridor cache is implemented under Stadia 100 MB/device terms; production API-key activation/live validation remains"}
@@ -164,7 +164,7 @@
         "communityReports": {"status": "supported", "evidence": "production community-report backend"},
         "voice": {"status": "fallback", "evidence": "English voice available; no Australian-specific voice profile"},
         "localization": {"status": "fallback", "evidence": "English fallback; no dedicated en-AU terminology profile"},
-        "liveAr": {"status": "blocked", "evidence": "ARCore Geospatial/VPS + physical validation required"},
+        "liveAr": {"status": "blocked", "evidence": "ARCore production credential plumbing/privacy are implemented; regional VPS availability + restricted key activation + physical validation remain"},
         "mapPlatform": {"status": "blocked", "evidence": "Stadia Maps production integration is implemented; production API-key activation/live validation remains"},
         "offlineRoute": {"status": "supported", "evidence": "Phase 12 cached-route implementation merged"},
         "offlineMap": {"status": "blocked", "evidence": "MapLibre active-route corridor cache is implemented under Stadia 100 MB/device terms; production API-key activation/live validation remains"}
