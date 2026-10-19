@@ -22,6 +22,8 @@ import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.navigation.NavigationSession
 import com.openmaps.app.core.navigation.OffRouteDecision
 import com.openmaps.app.core.navigation.NavigationForegroundController
+import com.openmaps.app.core.navigation.NavigationRecoveryStore
+import com.openmaps.app.core.navigation.NoopNavigationRecoveryStore
 import com.openmaps.app.core.navigation.NoopNavigationForegroundController
 import com.openmaps.app.core.navigation.RouteProgress
 import com.openmaps.app.core.reliability.NoopReliabilityReporter
@@ -118,14 +120,22 @@ class MapViewModel(
     private val localizationPrefs: LocalizationPrefs? = null,
     private val reliabilityReporter: ReliabilityReporter = NoopReliabilityReporter,
     private val navigationForegroundController: NavigationForegroundController = NoopNavigationForegroundController,
+    private val navigationRecoveryStore: NavigationRecoveryStore = NoopNavigationRecoveryStore,
     private val fixTimeoutMillis: Long = DEFAULT_FIX_TIMEOUT_MILLIS,
 ) : ViewModel() {
+
+    private val recoveredNavigation = navigationRecoveryStore.load()
 
     private val _uiState = MutableStateFlow(
         MapUiState(
             voiceEnabled = voiceGuidancePrefs?.isEnabled() ?: true,
             voiceLanguage = voiceGuidancePrefs?.language() ?: VoiceLanguage.EnglishUs,
             measurementSystem = localizationPrefs?.measurementSystem() ?: MeasurementSystem.Auto,
+            selectedDestination = recoveredNavigation?.destination,
+            routeState = recoveredNavigation?.route?.let(RouteState::Ready) ?: RouteState.Idle,
+            navigationState = if (recoveredNavigation != null) NavigationState.Ready else NavigationState.Idle,
+            selectedMapMode = MapMode.Map,
+            selectedNavigationMode = NavigationMode.Map,
         ),
     )
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
@@ -158,6 +168,7 @@ class MapViewModel(
     private var userHasMovedCamera = false
     private var autoPromptEmitted = false
     private var routeRequestStartedAtMillis: Long? = null
+    private var recoveryPending = recoveredNavigation != null
 
     private fun recordReliability(
         name: ReliabilityEventName,
