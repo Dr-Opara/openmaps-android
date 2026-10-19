@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -55,6 +56,7 @@ fun SettingsScreen(
     onOpenLanguageSettings: () -> Unit = {},
 ) {
     val appLocale = LocalConfiguration.current.locales[0]
+    val uriHandler = LocalUriHandler.current
 
     Column(
         modifier = modifier
@@ -190,6 +192,29 @@ fun SettingsScreen(
                         )
                     }
                 }
+            }
+
+            SectionHeader(stringResource(R.string.settings_section_privacy))
+            SettingsRow(
+                title = stringResource(R.string.settings_privacy_location),
+                value = stringResource(R.string.settings_privacy_trip_share),
+            )
+            Text(
+                text = stringResource(R.string.settings_privacy_telemetry),
+                style = MaterialTheme.typography.bodyMedium,
+                color = OpenMapsColors.TextSecondary,
+                modifier = Modifier.padding(vertical = 6.dp),
+            )
+            Text(
+                text = stringResource(R.string.settings_privacy_arcore),
+                style = MaterialTheme.typography.bodyMedium,
+                color = OpenMapsColors.TextSecondary,
+                modifier = Modifier.padding(vertical = 6.dp),
+            )
+            ActionRow(stringResource(R.string.live_geospatial_learn_more)) {
+                uriHandler.openUri(
+                    "https://support.google.com/ar?p=how-google-play-services-for-ar-handles-your-data",
+                )
             }
 
             SectionHeader(stringResource(R.string.settings_section_about))
