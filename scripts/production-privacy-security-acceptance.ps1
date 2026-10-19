@@ -29,14 +29,31 @@ Add-Result "Trip sessions short-retention" ($retention.Contains("trip_share_sess
 Add-Result "Rate limit buckets bounded" ($retention.Contains("interval '2 days'")) "2-day rate bucket retention"
 Add-Result "Daily retention scheduled" ($retention.Contains("openmaps-daily-retention-cleanup") -and $retention.Contains("cron.schedule")) "daily pg_cron job"
 
-$forbidden = @("SUPABASE_SERVICE_ROLE_KEY","HERE_API_KEY","OPENAI_API_KEY","MAPBOX_ACCESS_TOKEN")
-$secretWiring = @()
-foreach ($name in $forbidden) {
-  if ($mainSource.Contains($name) -or $build.Contains("BuildConfig.$name") -or $build.Contains('buildConfigField("String", "' + $name + '"')) {
-    $secretWiring += $name
-  }
-}
-$secretDetail = if ($secretWiring.Count -eq 0) { "none" } else { $secretWiring -join ", " }
+$forbiddenPatterns = @(
+  'buildConfigField("String", "HERE_API_KEY"',
+  'buildConfigField("String", "MAPBOX_ACCESS_TOKEN"',
+  'buildConfigField("String", "OPENAI_API_KEY"',
+  'buildConfigField("String", "SUPABASE_SERVICE_ROLE_KEY"',
+  'BuildConfig.HERE_API_KEY',
+  'BuildConfig.MAPBOX_ACCESS_TOKEN',
+  'BuildConfig.OPENAI_API_KEY',
+  'BuildConfig.SUPABASE_SERVICE_ROLE_KEY',
+  'providers.environmentVariable("HERE_API_KEY")',
+  'providers.environmentVariable("MAPBOX_ACCESS_TOKEN")',
+  'providers.environmentVariable("OPENAI_API_KEY")',
+  'providers.environmentVariable("SUPABASE_SERVICE_ROLE_KEY")',
+  'localProperties.getProperty("HERE_API_KEY")',
+  'localProperties.getProperty("MAPBOX_ACCESS_TOKEN")',
+  'localProperties.getProperty("OPENAI_API_KEY")',
+  'localProperties.getProperty("SUPABASE_SERVICE_ROLE_KEY")',
+  'hereapi.com',
+  'api.mapbox.com',
+  'api.openai.com'
+)
+$secretWiring = @($forbiddenPatterns | Where-Object {
+  $mainSource.Contains($_) -or $build.Contains($_)
+})
+$secretDetail = if ($secretWiring.Count -eq 0) { "no commercial/server secret wiring or direct provider hosts" } else { $secretWiring -join "; " }
 Add-Result "No server secrets in Android" ($secretWiring.Count -eq 0) $secretDetail
 
 $signingNames = @(
