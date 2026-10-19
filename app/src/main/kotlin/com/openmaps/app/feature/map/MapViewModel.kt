@@ -1436,6 +1436,8 @@ class MapViewModel(
             )
         }
         if (seeded != null) {
+            recoveryPending = false
+            state.selectedDestination?.let { navigationRecoveryStore.save(route, it) }
             navigationForegroundController.start()
             syncLocationCollection()
             recordReliability(
@@ -1652,6 +1654,8 @@ class MapViewModel(
             recordReliability(ReliabilityEventName.NavigationEnded, ReliabilityOutcome.Info, reason = "exit_to_home")
         }
         navigationForegroundController.stop()
+        navigationRecoveryStore.clear()
+        recoveryPending = false
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
@@ -1724,6 +1728,58 @@ class MapViewModel(
     }
 
     /**
+     * Rehydrates a process-killed trip from local state only after a fresh device fix exists.
+     * Recovery always returns in conventional Map mode; Live/AR remains opt-in after recreation.
+     */
+    private fun maybeResumeRecoveredNavigation(location: UserLocation) {
+        if (!recoveryPending || !isAppVisible) return
+        val state = _uiState.value
+        val route = (state.routeState as? RouteState.Ready)?.route ?: run {
+            navigationRecoveryStore.clear()
+            recoveryPending = false
+            return
+        }
+        val destination = state.selectedDestination ?: run {
+            navigationRecoveryStore.clear()
+            recoveryPending = false
+            return
+        }
+        if (route.maneuvers.isEmpty()) {
+            navigationRecoveryStore.clear()
+            recoveryPending = false
+            return
+        }
+
+        val restoredSession = NavigationSession(route)
+        val progress = restoredSession.locate(
+            location.toCoordinate(),
+            location.bearingDegrees?.toDouble(),
+        ) ?: return
+
+        session = restoredSession
+        recoveryPending = false
+        navigationForegroundController.start()
+        _uiState.update {
+            it.copy(
+                selectedDestination = destination,
+                selectedMapMode = MapMode.Map,
+                selectedNavigationMode = NavigationMode.Map,
+                navigationState = NavigationState.Active(withOffRouteFlag(progress, false)),
+                navigationFollowSuspended = false,
+            )
+        }
+        publishRouteProgress(progress)
+        followCameraWith(progress)
+        syncLocationCollection()
+        recordReliability(
+            ReliabilityEventName.NavigationStarted,
+            ReliabilityOutcome.Success,
+            reason = "process_recovery",
+            metadata = mapOf("mode" to "map"),
+        )
+    }
+
+    /**
      * Advances the trip from a fresh fix. Called for every location update, so it must be cheap and
      * must never throw: a navigation bug should not be able to take down the map screen.
      */
@@ -1737,6 +1793,8 @@ class MapViewModel(
 
         if (progress.hasArrived) {
             navigationForegroundController.stop()
+            navigationRecoveryStore.clear()
+            recoveryPending = false
             completeTripSharingOnArrival(location, progress)
             session = null
             // Arrival ends the trip: release the AR anchors and remove the arrows.
@@ -1923,6 +1981,7 @@ class MapViewModel(
             routingRepository.route(origin.toCoordinate(), Coordinate(destination.latitude, destination.longitude))
                 .onSuccess { route ->
                     recordReliability(ReliabilityEventName.RerouteSucceeded, ReliabilityOutcome.Success)
+                    navigationRecoveryStore.save(route, destination)
                     rerouteInFlight = false
                     session = NavigationSession(route)
                     laneGuidanceJob?.cancel()
@@ -2106,6 +2165,7 @@ class MapViewModel(
                 }
                 centerOnFirstFix(update.location)
                 maybeReverseGeocodeCurrentLocation(update.location)
+                maybeResumeRecoveredNavigation(update.location)
                 // A route that was only missing an origin can proceed now that one exists.
                 if (_uiState.value.routeState == RouteState.WaitingForLocation) requestRoute()
                 // Navigation advances from every fix, but only once a trip is actually underway.
