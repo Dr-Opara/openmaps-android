@@ -235,7 +235,7 @@ android {
         buildConfigField("String", "VOICE_GATEWAY_URL", "\"$voiceGatewayUrl\"")
         buildConfigField("String", "RELIABILITY_GATEWAY_URL", "\"$reliabilityGatewayUrl\"")
         buildConfigField("String", "GEOCODING_PUBLISHABLE_KEY", "\"$backendPublishableKey\"")
-        buildConfigField("boolean", "ARCORE_GEospatial_CONFIGURED", arcoreProductionConfigured.toString())
+        buildConfigField("boolean", "ARCORE_GEOSPATIAL_CONFIGURED", arcoreProductionConfigured.toString())
 
         // Feeds the `com.google.android.ar.API_KEY` meta-data in AndroidManifest.xml.
         manifestPlaceholders["ARCORE_API_KEY"] = arcoreApiKey
