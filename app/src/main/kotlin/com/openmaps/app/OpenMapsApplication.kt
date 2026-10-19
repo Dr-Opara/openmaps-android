@@ -46,6 +46,8 @@ import com.openmaps.app.core.voice.VoiceGuidanceEngine
 import com.openmaps.app.core.voice.VoiceGuidancePrefs
 import com.openmaps.app.map.BuildConfigMapStyleProvider
 import com.openmaps.app.map.MapStyleProvider
+import com.openmaps.app.map.OfflineMapCorridorCache
+import com.openmaps.app.map.MapLibreOfflineMapCorridorCache
 import com.openmaps.app.voice.AndroidTextToSpeechEngine
 import com.openmaps.app.voice.BackendNeuralVoiceRepository
 import com.openmaps.app.voice.HybridVoiceGuidanceEngine
@@ -95,6 +97,12 @@ class AppContainer(application: Application) {
     )
 
     val mapStyleProvider: MapStyleProvider = BuildConfigMapStyleProvider()
+    val offlineMapCorridorCache: OfflineMapCorridorCache = MapLibreOfflineMapCorridorCache(
+        context = application,
+        styleProvider = mapStyleProvider,
+        enabled = BuildConfig.OFFLINE_MAP_CACHE_ENABLED,
+        maxBytes = BuildConfig.OFFLINE_MAP_CACHE_LIMIT_BYTES,
+    )
     /**
      * Production geocoding path:
      *   OpenMaps backend gateway -> direct worldwide Nominatim fallback.
