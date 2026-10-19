@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Phase 5: rear-camera preview for Live. Requested at runtime, only when Live is opened. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <!-- GPS is preferred but not required: the map is fully usable without a fix. -->
     <uses-feature
@@ -99,6 +101,11 @@
         <meta-data
             android:name="com.google.android.ar.API_KEY"
             android:value="${ARCORE_API_KEY}" />
+
+        <service
+            android:name=".service.NavigationForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 
 </manifest>
