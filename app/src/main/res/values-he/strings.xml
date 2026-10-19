@@ -288,4 +288,5 @@
     <string name="route_alternate_fallback">מסלול חלופי</string>
     <string name="route_use_action">שימוש</string>
     <string name="lane_use_lane">השתמשו בנתיב הזה</string>
+    <string name="route_degraded_cached">נעשה שימוש במסלול שמור. ייתכן שתנועת זמן אמת, חסימות ועדכוני זמן הגעה לא יהיו זמינים עד שהחיבור יחזור.</string>
 </resources>
