@@ -289,4 +289,8 @@
     <string name="route_use_action">שימוש</string>
     <string name="lane_use_lane">השתמשו בנתיב הזה</string>
     <string name="route_degraded_cached">נעשה שימוש במסלול שמור. ייתכן שתנועת זמן אמת, חסימות ועדכוני זמן הגעה לא יהיו זמינים עד שהחיבור יחזור.</string>
+    <string name="navigation_service_channel">ניווט פעיל</string>
+    <string name="navigation_service_channel_description">שומר את המיקום והניווט פעילים כאשר המסך נעול או כאשר OpenMaps פועל ברקע.</string>
+    <string name="navigation_service_title">ניווט OpenMaps</string>
+    <string name="navigation_service_body">הניווט פעיל</string>
 </resources>
