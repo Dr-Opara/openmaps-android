@@ -1150,6 +1150,28 @@ fun LiveFallbackBanner(message: String, onDismiss: () -> Unit, modifier: Modifie
     }
 }
 
+
+/**
+ * Persistent degraded-service notice for a route restored from the local cache. No dismiss action:
+ * the notice disappears only after a live route replaces the cached one.
+ */
+@Composable
+fun DegradedRouteBanner(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .surfaceCard(GlassShapes.Pill)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.route_degraded_cached),
+            style = MaterialTheme.typography.labelMedium,
+            color = OpenMapsColors.Warning,
+        )
+    }
+}
+
 /** Full-screen failure state: "Map unavailable" + retry. Browsing is blocked only by this. */
 @Composable
 fun MapUnavailableOverlay(

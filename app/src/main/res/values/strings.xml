@@ -326,4 +326,5 @@
     <string name="route_alternate_fallback">Alternate route</string>
     <string name="route_use_action">Use</string>
     <string name="lane_use_lane">USE LANE</string>
+    <string name="route_degraded_cached">Using a saved route. Live traffic, closures and ETA updates may be unavailable until connectivity returns.</string>
 </resources>

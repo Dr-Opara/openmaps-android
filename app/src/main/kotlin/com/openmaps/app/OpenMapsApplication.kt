@@ -17,6 +17,8 @@ import com.openmaps.app.core.location.AndroidLocationRepository
 import com.openmaps.app.core.location.LocationPermissionPrefs
 import com.openmaps.app.core.location.LocationRepository
 import com.openmaps.app.core.localization.LocalizationPrefs
+import com.openmaps.app.core.network.AndroidConnectivityMonitor
+import com.openmaps.app.core.network.ConnectivityMonitor
 import com.openmaps.app.core.places.BackendPlaceRepository
 import com.openmaps.app.core.places.CompositePlaceRepository
 import com.openmaps.app.core.places.OverpassPlaceRepository
@@ -30,6 +32,7 @@ import com.openmaps.app.core.roadintelligence.DefaultRoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.HereTrafficRoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.routing.BackendRoutingRepository
+import com.openmaps.app.core.routing.CachedRoutingRepository
 import com.openmaps.app.core.routing.CompositeRoutingRepository
 import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.core.sharing.BackendTripShareRepository
@@ -57,6 +60,7 @@ class AppContainer(application: Application) {
     val locationPermissionPrefs: LocationPermissionPrefs = LocationPermissionPrefs(application)
     val cameraPermissionPrefs: CameraPermissionPrefs = CameraPermissionPrefs(application)
     val localizationPrefs: LocalizationPrefs = LocalizationPrefs(application)
+    val connectivityMonitor: ConnectivityMonitor = AndroidConnectivityMonitor(application)
 
     /**
      * Stable anonymous per-install backend identity. It is sent only to the OpenMaps gateway,
@@ -130,17 +134,20 @@ class AppContainer(application: Application) {
      * HERE traffic-aware routing is activated server-side when HERE_API_KEY is configured. Until
      * then, the backend fails closed and this composite transparently falls back to Valhalla.
      */
-    val routingRepository: RoutingRepository = CompositeRoutingRepository(
-        providers = listOf(
-            BackendRoutingRepository(
-                endpointUrl = BuildConfig.ROUTING_GATEWAY_URL,
-                publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
-                clientId = backendClientId,
-                localeTagProvider = localizationPrefs::currentLocaleTag,
-            ),
-            ValhallaRoutingRepository(
-                userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; routing fallback)",
-                localeTagProvider = localizationPrefs::currentLocaleTag,
+    val routingRepository: RoutingRepository = CachedRoutingRepository(
+        context = application,
+        upstream = CompositeRoutingRepository(
+            providers = listOf(
+                BackendRoutingRepository(
+                    endpointUrl = BuildConfig.ROUTING_GATEWAY_URL,
+                    publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                    clientId = backendClientId,
+                    localeTagProvider = localizationPrefs::currentLocaleTag,
+                ),
+                ValhallaRoutingRepository(
+                    userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; routing fallback)",
+                    localeTagProvider = localizationPrefs::currentLocaleTag,
+                ),
             ),
         ),
     )

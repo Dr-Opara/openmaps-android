@@ -96,6 +96,10 @@ private fun AppShell(container: AppContainer) {
         searchViewModel.onLocationBiasChanged(state.currentLocation)
     }
 
+    LaunchedEffect(container.connectivityMonitor, viewModel) {
+        container.connectivityMonitor.online().collect(viewModel::onConnectivityChanged)
+    }
+
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
     var searchPurpose by rememberSaveable { mutableStateOf(SearchPurpose.NewDestination) }
     // Bumped to ask the search screen to start voice capture as soon as it appears. An incrementing
