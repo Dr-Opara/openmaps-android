@@ -288,4 +288,5 @@
     <string name="route_alternate_fallback">Ruta alternativa</string>
     <string name="route_use_action">Usar</string>
     <string name="lane_use_lane">USA ESTE CARRIL</string>
+    <string name="route_degraded_cached">Usando una ruta guardada. El tráfico en vivo, los cierres y las actualizaciones de hora estimada pueden no estar disponibles hasta que vuelva la conexión.</string>
 </resources>
