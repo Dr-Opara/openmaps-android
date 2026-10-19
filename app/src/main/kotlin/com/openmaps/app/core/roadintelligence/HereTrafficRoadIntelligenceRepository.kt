@@ -21,6 +21,7 @@ import java.util.Locale
 class HereTrafficRoadIntelligenceRepository(
     private val endpointUrl: String,
     private val publishableKey: String,
+    private val clientId: String? = null,
     private val localeTagProvider: () -> String = { Locale.getDefault().toLanguageTag() },
 ) : RoadIntelligenceRepository {
 
@@ -70,6 +71,9 @@ class HereTrafficRoadIntelligenceRepository(
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         connection.setRequestProperty("apikey", publishableKey)
+        clientId?.takeIf { it.isNotBlank() }?.let {
+            connection.setRequestProperty("x-openmaps-client-id", it)
+        }
 
         val body = JSONObject()
             .put(
