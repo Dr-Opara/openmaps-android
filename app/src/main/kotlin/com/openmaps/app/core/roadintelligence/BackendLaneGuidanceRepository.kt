@@ -15,6 +15,7 @@ import java.net.URL
 class BackendLaneGuidanceRepository(
     private val endpointUrl: String,
     private val publishableKey: String,
+    private val clientId: String? = null,
 ) : LaneGuidanceRepository {
 
     override suspend fun guidance(
@@ -48,6 +49,9 @@ class BackendLaneGuidanceRepository(
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         connection.setRequestProperty("apikey", publishableKey)
+        clientId?.takeIf { it.isNotBlank() }?.let {
+            connection.setRequestProperty("x-openmaps-client-id", it)
+        }
 
         val body = JSONObject()
             .put(

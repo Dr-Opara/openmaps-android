@@ -20,6 +20,7 @@ class BackendRoutingRepository(
     private val endpointUrl: String,
     private val publishableKey: String,
     private val localeTagProvider: () -> String = { Locale.getDefault().toLanguageTag() },
+    private val clientId: String? = null,
 ) : RoutingRepository {
 
     override suspend fun route(origin: Coordinate, destination: Coordinate): Result<RouteResult> =
@@ -51,6 +52,9 @@ class BackendRoutingRepository(
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         connection.setRequestProperty("apikey", publishableKey)
+        clientId?.takeIf { it.isNotBlank() }?.let {
+            connection.setRequestProperty("x-openmaps-client-id", it)
+        }
 
         val body = JSONObject()
             .put("origin", origin.toJson())

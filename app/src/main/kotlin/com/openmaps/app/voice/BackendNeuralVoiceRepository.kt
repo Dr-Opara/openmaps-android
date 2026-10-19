@@ -16,6 +16,7 @@ import java.net.URL
 class BackendNeuralVoiceRepository(
     private val endpointUrl: String,
     private val publishableKey: String,
+    private val clientId: String? = null,
 ) : NeuralVoiceRepository {
 
     override suspend fun synthesize(text: String, language: VoiceLanguage): Result<ByteArray> =
@@ -43,6 +44,9 @@ class BackendNeuralVoiceRepository(
         connection.setRequestProperty("Accept", "audio/wav")
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         connection.setRequestProperty("apikey", publishableKey)
+        clientId?.takeIf { it.isNotBlank() }?.let {
+            connection.setRequestProperty("x-openmaps-client-id", it)
+        }
 
         val body = JSONObject()
             .put("text", text)

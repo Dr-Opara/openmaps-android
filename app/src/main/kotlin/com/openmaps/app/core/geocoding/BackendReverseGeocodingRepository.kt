@@ -13,6 +13,7 @@ import java.net.URL
 class BackendReverseGeocodingRepository(
     private val endpointUrl: String,
     private val publishableKey: String,
+    private val clientId: String? = null,
 ) : ReverseGeocodingRepository {
 
     override suspend fun reverse(
@@ -48,6 +49,9 @@ class BackendReverseGeocodingRepository(
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         connection.setRequestProperty("apikey", publishableKey)
+        clientId?.takeIf { it.isNotBlank() }?.let {
+            connection.setRequestProperty("x-openmaps-client-id", it)
+        }
 
         val body = JSONObject()
             .put("latitude", latitude)

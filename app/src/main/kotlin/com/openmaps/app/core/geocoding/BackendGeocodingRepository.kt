@@ -19,6 +19,7 @@ import java.net.URL
 class BackendGeocodingRepository(
     private val endpointUrl: String,
     private val publishableKey: String,
+    private val clientId: String? = null,
 ) : GeocodingRepository {
 
     val isConfigured: Boolean
@@ -55,6 +56,9 @@ class BackendGeocodingRepository(
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         connection.setRequestProperty("apikey", publishableKey)
+        clientId?.takeIf { it.isNotBlank() }?.let {
+            connection.setRequestProperty("x-openmaps-client-id", it)
+        }
 
         val body = JSONObject()
             .put("query", query)

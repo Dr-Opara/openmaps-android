@@ -78,6 +78,14 @@ function clientAddress(req: Request): string {
     || "unknown";
 }
 
+async function clientIdentityHash(req: Request): Promise<string> {
+  const installId = req.headers.get("x-openmaps-client-id")?.trim();
+  if (installId && /^[A-Za-z0-9._:-]{8,128}$/.test(installId)) {
+    return sha256Hex("install|" + installId);
+  }
+  return sha256Hex("network|" + clientAddress(req));
+}
+
 async function rateLimit(req: Request): Promise<boolean> {
   try {
     const now = new Date();
@@ -85,7 +93,7 @@ async function rateLimit(req: Request): Promise<boolean> {
     const response = await adminFetch("/rest/v1/rpc/consume_navigation_rate_limit", {
       method: "POST",
       body: JSON.stringify({
-        p_client_hash: await sha256Hex(clientAddress(req)),
+        p_client_hash: await clientIdentityHash(req),
         p_endpoint: "voice",
         p_bucket_start: now.toISOString(),
         p_limit: 30,
