@@ -1425,6 +1425,8 @@ class MapViewModel(
             )
         }
         if (seeded != null) {
+            navigationForegroundController.start()
+            syncLocationCollection()
             recordReliability(
                 ReliabilityEventName.NavigationStarted,
                 ReliabilityOutcome.Success,
@@ -1638,6 +1640,7 @@ class MapViewModel(
         if (_uiState.value.isNavigating) {
             recordReliability(ReliabilityEventName.NavigationEnded, ReliabilityOutcome.Info, reason = "exit_to_home")
         }
+        navigationForegroundController.stop()
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
@@ -1681,6 +1684,7 @@ class MapViewModel(
         if (_uiState.value.isNavigating) {
             recordReliability(ReliabilityEventName.NavigationEnded, ReliabilityOutcome.Info, reason = "stopped")
         }
+        navigationForegroundController.stop()
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
@@ -1721,6 +1725,7 @@ class MapViewModel(
         publishRouteProgress(progress)
 
         if (progress.hasArrived) {
+            navigationForegroundController.stop()
             completeTripSharingOnArrival(location, progress)
             session = null
             // Arrival ends the trip: release the AR anchors and remove the arrows.
@@ -2026,7 +2031,9 @@ class MapViewModel(
     // region Location pipeline
 
     private fun syncLocationCollection() {
-        if (_uiState.value.locationPermission.isGranted && isAppVisible) {
+        val state = _uiState.value
+        val shouldCollect = state.locationPermission.isGranted && (isAppVisible || state.isNavigating)
+        if (shouldCollect) {
             if (locationJob?.isActive != true) startLocationCollection()
         } else {
             stopLocationCollection()
