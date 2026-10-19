@@ -23,14 +23,10 @@ import java.net.URLEncoder
  *    [speedLimitNear] (the nearest way's `maxspeed` tag).
  *  - **Open-Meteo** (`api.open-meteo.com`, free, no API key, no account) for [weatherNear].
  *
- * **There is no traffic-congestion source at all.** [TrafficCondition]/[RoadEventType.Congestion]
- * exist as provider-neutral models (section 2-4 of the Phase 10 brief) specifically so a real
- * traffic provider (a contracted feed, a state 511 feed, HERE/TomTom traffic) can be plugged in
- * behind this same interface later with zero `MapViewModel`/UI changes — but plugging one in now
- * would mean hardcoding a commercial provider with no key management story, which section 4
- * explicitly warns against ("do not hardcode a production provider deeply"). Per section 18, a
- * missing capability must never be faked as present: this repository simply never returns
- * congestion data, rather than labeling static/absent data as live traffic.
+ * **This fallback repository does not provide live traffic.** Production OpenMaps wraps it in
+ * [CompositeRoadIntelligenceRepository] with [HereTrafficRoadIntelligenceRepository] first, so
+ * live incidents/closures and traffic-aware route timing come from the commercial backend while
+ * this class remains the static OSM/weather fallback. Missing live data is never fabricated.
  *
  * **Do not ship to the public on either of these.** Same category of open production decision as
  * every other provider here — see "Decisions to revisit" in ARCHITECTURE.md.

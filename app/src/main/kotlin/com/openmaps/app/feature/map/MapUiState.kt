@@ -5,6 +5,7 @@ import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.navigation.ArrivalPreviewPlan
+import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.navigation.RouteProgress
 import com.openmaps.app.core.environment.DrivingEnvironment
 import com.openmaps.app.core.environment.EnvironmentNavigationProfile
@@ -28,6 +29,11 @@ import com.openmaps.app.map.MapMode
  */
 data class MapUiState(
     val currentLocation: UserLocation? = null,
+    /**
+     * Reverse-geocoded human-readable location for [currentLocation].
+     * Null is honest: GPS can be available before address resolution succeeds.
+     */
+    val currentLocationPlace: SearchResult? = null,
     val locationPermission: LocationPermissionState = LocationPermissionState.Unknown,
     val locationStatus: LocationStatus = LocationStatus.Idle,
     /** Last settled camera (updated when the camera goes idle). Used to restore the view. */
@@ -109,6 +115,8 @@ data class MapUiState(
     val voiceEnabled: Boolean = true,
     /** Delta-spec section 24: the selected navigation voice language, set from Settings. */
     val voiceLanguage: VoiceLanguage = VoiceLanguage.EnglishUs,
+    /** Phase 7: automatic regional units by default, with an explicit imperial/metric override. */
+    val measurementSystem: MeasurementSystem = MeasurementSystem.Auto,
     /** Community report submission state; unavailable until a real moderated provider is wired. */
     val driverReportStatus: ExternalActionStatus = ExternalActionStatus.Idle,
     /** Temporary live-trip sharing state; unavailable until an expiring-link provider is wired. */

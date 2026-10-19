@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="category_parking">Car park</string>
+    <string name="category_gas">Petrol</string>
+    <string name="nearby_public_parking">Public car park</string>
+    <string name="nearby_gas_station">Petrol station</string>
+    <string name="parking_default_name">Car park</string>
+    <string name="destination_parking_nearby">Parking near destination</string>
+    <string name="destination_parking_found">%1$d parking option(s) found near the destination</string>
+</resources>

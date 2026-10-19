@@ -127,6 +127,62 @@ class NavigationProgressTest {
     }
 
     @Test
+    fun locate_exposesProjectedRoadCoordinateAndHighConfidence() {
+        val rawFix = Coordinate(0.00005, 0.0035)
+        val progress = RouteProgressTracker(straightRoute()).locate(rawFix, headingDegrees = 90.0)!!
+
+        assertNotNull(progress.snappedCoordinate)
+        assertEquals(0.0, progress.snappedCoordinate!!.latitude, 1e-7)
+        assertEquals(0.0035, progress.snappedCoordinate!!.longitude, 1e-6)
+        assertEquals(MapMatchConfidence.High, progress.mapMatchConfidence)
+    }
+
+    @Test
+    fun locate_headingDisambiguatesParallelRoads() {
+        // Route travels east, makes a short connector north, then returns west on a parallel road
+        // about 11 m away. The raw fix is exactly between both roads. Pure distance would prefer
+        // the later (westbound) segment due to forward tie-breaking; an eastward device bearing
+        // must keep the match on the eastbound road.
+        val geometry = listOf(
+            Coordinate(0.0000, 0.0000),
+            Coordinate(0.0000, 0.0040),
+            Coordinate(0.0001, 0.0040),
+            Coordinate(0.0001, 0.0000),
+        )
+        val route = RouteResult(
+            geometry = geometry,
+            distanceMeters = 900.0,
+            durationSeconds = 300.0,
+            maneuvers = listOf(
+                RouteManeuver(
+                    instruction = "Continue",
+                    verbalInstruction = null,
+                    type = ManeuverType.Continue,
+                    streetName = null,
+                    distanceMeters = 900.0,
+                    beginShapeIndex = 0,
+                    endShapeIndex = 3,
+                ),
+            ),
+        )
+        val fix = Coordinate(0.00005, 0.0020)
+
+        val eastbound = RouteProgressTracker(route).locate(fix, headingDegrees = 90.0)!!
+        val westbound = RouteProgressTracker(route).locate(fix, headingDegrees = 270.0)!!
+
+        assertEquals("east heading should snap to outbound segment", 0, eastbound.snappedShapeIndex)
+        assertEquals("west heading should snap to return segment", 2, westbound.snappedShapeIndex)
+    }
+
+    @Test
+    fun locate_farOffRoute_reportsOffRouteMatchConfidence() {
+        val progress = RouteProgressTracker(straightRoute())
+            .locate(Coordinate(0.002, 0.003), headingDegrees = 90.0)!!
+
+        assertEquals(MapMatchConfidence.OffRoute, progress.mapMatchConfidence)
+    }
+
+    @Test
     fun locate_atTheEnd_reportsArrival() {
         val route = straightRoute()
         val progress = RouteProgressTracker(route).locate(Coordinate(0.0, 0.009))!!

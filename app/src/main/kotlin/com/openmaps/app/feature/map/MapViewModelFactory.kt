@@ -14,10 +14,18 @@ fun mapViewModelFactory(container: AppContainer): ViewModelProvider.Factory = vi
             placesRepository = container.placesRepository,
             roadIntelligenceRepository = container.roadIntelligenceRepository,
             roadClassRepository = container.roadClassRepository,
+            laneGuidanceRepository = container.laneGuidanceRepository,
+            reverseGeocodingRepository = container.reverseGeocodingRepository,
             driverReportRepository = container.driverReportRepository,
             tripShareRepository = container.tripShareRepository,
+            tripShareRecoveryStore = container.tripShareRecoveryStore,
             voiceGuidanceEngine = container.voiceGuidanceEngine,
             voiceGuidancePrefs = container.voiceGuidancePrefs,
+            localizationPrefs = container.localizationPrefs,
+            reliabilityReporter = container.reliabilityReporter,
+            navigationForegroundController = container.navigationForegroundController,
+            navigationRecoveryStore = container.navigationRecoveryStore,
+            offlineMapCorridorCache = container.offlineMapCorridorCache,
         )
     }
 }

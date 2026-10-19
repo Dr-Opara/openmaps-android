@@ -11,13 +11,69 @@ data class RouteBounds(
     val east: Double,
 )
 
-/** A provider-neutral route. No Valhalla (or any provider) types leak past this. */
-data class RouteResult(
+/**
+ * One selectable route option returned alongside the primary route.
+ *
+ * Alternatives carry full navigation geometry/maneuvers so selecting one never requires a second
+ * provider request. [label] is provider-backed (for example "via I-10") when available.
+ */
+data class RouteAlternative(
+    val id: String?,
+    val label: String?,
     val geometry: List<Coordinate>,
     val distanceMeters: Double,
     val durationSeconds: Double,
     val bounds: RouteBounds? = null,
     val maneuvers: List<RouteManeuver> = emptyList(),
+    val baseDurationSeconds: Double? = null,
+    val typicalDurationSeconds: Double? = null,
+    val trafficDelaySeconds: Double? = null,
+    val isTrafficAware: Boolean = false,
+) {
+    fun asRouteResult(otherAlternatives: List<RouteAlternative> = emptyList()): RouteResult =
+        RouteResult(
+            id = id,
+            label = label,
+            geometry = geometry,
+            distanceMeters = distanceMeters,
+            durationSeconds = durationSeconds,
+            bounds = bounds,
+            maneuvers = maneuvers,
+            baseDurationSeconds = baseDurationSeconds,
+            typicalDurationSeconds = typicalDurationSeconds,
+            trafficDelaySeconds = trafficDelaySeconds,
+            isTrafficAware = isTrafficAware,
+            alternatives = otherAlternatives,
+        )
+}
+
+/** A provider-neutral route. No HERE/Valhalla types leak past this. */
+data class RouteResult(
+    val geometry: List<Coordinate>,
+    val distanceMeters: Double,
+    /**
+     * Best current ETA duration. For a production traffic-aware provider this includes live and
+     * historical traffic; fallback providers may provide a non-traffic-aware estimate.
+     */
+    val durationSeconds: Double,
+    val bounds: RouteBounds? = null,
+    val maneuvers: List<RouteManeuver> = emptyList(),
+    /** Provider route identifier, useful for diagnostics only. */
+    val id: String? = null,
+    /** Provider-backed differentiating label, e.g. "via I-10". */
+    val label: String? = null,
+    /** Free-flow duration when the provider supplies it. */
+    val baseDurationSeconds: Double? = null,
+    /** Historical "typical for this time" duration when supplied by the provider. */
+    val typicalDurationSeconds: Double? = null,
+    /** Live traffic delay over free-flow, never fabricated when unavailable. */
+    val trafficDelaySeconds: Double? = null,
+    /** True only when the provider explicitly supplied traffic-aware timing. */
+    val isTrafficAware: Boolean = false,
+    /** Selectable provider-returned alternatives, already normalized and fully navigable. */
+    val alternatives: List<RouteAlternative> = emptyList(),
+    /** True only when this route was restored from the local degraded-operation cache. */
+    val isOfflineCached: Boolean = false,
 )
 
 /**

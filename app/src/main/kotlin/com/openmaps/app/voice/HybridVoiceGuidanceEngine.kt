@@ -1,0 +1,272 @@
+package com.openmaps.app.voice
+
+import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.media.MediaPlayer
+import android.util.Log
+import com.openmaps.app.core.localization.MeasurementSystem
+import com.openmaps.app.core.voice.AnnouncementStage
+import com.openmaps.app.core.voice.NeuralVoiceRepository
+import com.openmaps.app.core.voice.VoiceAnnouncementTemplates
+import com.openmaps.app.core.voice.VoiceEvent
+import com.openmaps.app.core.voice.VoiceGuidanceEngine
+import com.openmaps.app.core.voice.VoiceGuidanceState
+import com.openmaps.app.core.voice.VoiceLanguage
+import com.openmaps.app.core.voice.VoicePronunciationNormalizer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
+import java.io.File
+import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * Neural-first navigation voice with a deterministic Android TTS safety fallback.
+ *
+ * Near/immediate turn and reroute prompts never wait on the network: cached neural audio is used
+ * when available, otherwise Android TTS speaks immediately. Earlier-stage prompts can wait briefly for
+ * neural synthesis; a failed/slow request falls back automatically.
+ */
+@Suppress("LogNotTimber")
+class HybridVoiceGuidanceEngine(
+    context: Context,
+    private val neuralRepository: NeuralVoiceRepository,
+    private val fallback: VoiceGuidanceEngine,
+) : VoiceGuidanceEngine {
+
+    override val state: Flow<VoiceGuidanceState> = fallback.state
+
+    private val appContext = context.applicationContext
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val cacheDirectory = File(appContext.cacheDir, "openmaps_neural_voice").apply { mkdirs() }
+    private val navigationAudioAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+        .setAudioAttributes(navigationAudioAttributes)
+        .setOnAudioFocusChangeListener { }
+        .build()
+    private val generation = AtomicLong(0L)
+    private val playerLock = Any()
+
+    @Volatile
+    private var currentPlayer: MediaPlayer? = null
+
+    @Volatile
+    private var enabled: Boolean = true
+
+    @Volatile
+    private var language: VoiceLanguage = VoiceLanguage.EnglishUs
+
+    @Volatile
+    private var measurementSystem: MeasurementSystem = MeasurementSystem.Auto
+
+    init {
+        pruneCache()
+    }
+
+    override fun speak(event: VoiceEvent) {
+        if (!enabled) return
+
+        val token = generation.incrementAndGet()
+        val selectedLanguage = language
+        val selectedMeasurementSystem = measurementSystem
+        val spokenText = spokenText(event, selectedLanguage, selectedMeasurementSystem)
+        val cached = cacheFile(spokenText, selectedLanguage, selectedMeasurementSystem)
+
+        if (cached.isFile && cached.length() > 0) {
+            scope.launch {
+                playCached(cached, token, event)
+                maybePrefetchLaterStages(event, selectedLanguage, selectedMeasurementSystem)
+            }
+            return
+        }
+
+        if (requiresImmediateFallback(event)) {
+            fallback.speak(event)
+            return
+        }
+
+        scope.launch {
+            val result = neuralRepository.synthesize(spokenText, selectedLanguage)
+            if (generation.get() != token || !enabled) return@launch
+
+            result.onSuccess { bytes ->
+                runCatching {
+                    cached.parentFile?.mkdirs()
+                    cached.writeBytes(bytes)
+                    pruneCache()
+                    playCached(cached, token, event)
+                    maybePrefetchLaterStages(event, selectedLanguage, selectedMeasurementSystem)
+                }.onFailure {
+                    Log.w(TAG, "Unable to cache/play neural voice; using Android TTS", it)
+                    if (generation.get() == token && enabled) fallback.speak(event)
+                }
+            }.onFailure {
+                if (generation.get() == token && enabled) fallback.speak(event)
+            }
+        }
+    }
+
+    override fun setEnabled(enabled: Boolean) {
+        this.enabled = enabled
+        fallback.setEnabled(enabled)
+        if (!enabled) stop()
+    }
+
+    override fun setLanguage(language: VoiceLanguage) {
+        this.language = language
+        generation.incrementAndGet()
+        stopNeuralPlayer()
+        fallback.setLanguage(language)
+    }
+
+    override fun setMeasurementSystem(system: MeasurementSystem) {
+        measurementSystem = system
+        generation.incrementAndGet()
+        stopNeuralPlayer()
+        fallback.setMeasurementSystem(system)
+    }
+
+    override fun stop() {
+        generation.incrementAndGet()
+        stopNeuralPlayer()
+        fallback.stop()
+    }
+
+    override fun shutdown() {
+        generation.incrementAndGet()
+        stopNeuralPlayer()
+        scope.cancel()
+        fallback.shutdown()
+    }
+
+    private fun playCached(file: File, token: Long, event: VoiceEvent) {
+        if (generation.get() != token || !enabled) return
+
+        try {
+            fallback.stop()
+            val player = MediaPlayer().apply {
+                setAudioAttributes(navigationAudioAttributes)
+                setDataSource(file.absolutePath)
+                prepare()
+            }
+
+            synchronized(playerLock) {
+                currentPlayer?.runCatching { stop() }
+                currentPlayer?.release()
+                currentPlayer = player
+            }
+
+            player.setOnCompletionListener { completed ->
+                synchronized(playerLock) {
+                    if (currentPlayer === completed) currentPlayer = null
+                }
+                audioManager.abandonAudioFocusRequest(audioFocusRequest)
+                completed.release()
+            }
+            player.setOnErrorListener { failed, _, _ ->
+                synchronized(playerLock) {
+                    if (currentPlayer === failed) currentPlayer = null
+                }
+                audioManager.abandonAudioFocusRequest(audioFocusRequest)
+                failed.release()
+                file.delete()
+                if (generation.get() == token && enabled) fallback.speak(event)
+                true
+            }
+            audioManager.requestAudioFocus(audioFocusRequest)
+            player.start()
+        } catch (t: Throwable) {
+            audioManager.abandonAudioFocusRequest(audioFocusRequest)
+            file.delete()
+            Log.w(TAG, "Neural voice playback failed; using Android TTS", t)
+            if (generation.get() == token && enabled) fallback.speak(event)
+        }
+    }
+
+    private fun maybePrefetchLaterStages(
+        event: VoiceEvent,
+        selectedLanguage: VoiceLanguage,
+        selectedMeasurementSystem: MeasurementSystem,
+    ) {
+        val maneuver = event as? VoiceEvent.Maneuver ?: return
+        if (maneuver.stage != AnnouncementStage.Far) return
+
+        listOf(AnnouncementStage.Near, AnnouncementStage.Immediate).forEach { stage ->
+            val futureEvent = maneuver.copy(stage = stage)
+            val text = spokenText(futureEvent, selectedLanguage, selectedMeasurementSystem)
+            val target = cacheFile(text, selectedLanguage, selectedMeasurementSystem)
+            if (target.isFile && target.length() > 0) return@forEach
+
+            scope.launch {
+                neuralRepository.synthesize(text, selectedLanguage).onSuccess { bytes ->
+                    runCatching {
+                        target.parentFile?.mkdirs()
+                        target.writeBytes(bytes)
+                        pruneCache()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun spokenText(
+        event: VoiceEvent,
+        selectedLanguage: VoiceLanguage,
+        selectedMeasurementSystem: MeasurementSystem,
+    ): String =
+        VoicePronunciationNormalizer.normalize(
+            VoiceAnnouncementTemplates.phraseFor(event, selectedLanguage, selectedMeasurementSystem),
+            selectedLanguage,
+        )
+
+    private fun requiresImmediateFallback(event: VoiceEvent): Boolean =
+        event == VoiceEvent.Rerouting ||
+            (event is VoiceEvent.Maneuver && event.stage != AnnouncementStage.Far)
+
+    private fun cacheFile(
+        text: String,
+        selectedLanguage: VoiceLanguage,
+        selectedMeasurementSystem: MeasurementSystem,
+    ): File {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(
+                (selectedLanguage.name + "\n" + selectedMeasurementSystem.name + "\n" + text)
+                    .toByteArray(Charsets.UTF_8),
+            )
+            .joinToString("") { "%02x".format(it) }
+        return File(cacheDirectory, "$digest.wav")
+    }
+
+    private fun stopNeuralPlayer() {
+        synchronized(playerLock) {
+            currentPlayer?.runCatching { stop() }
+            currentPlayer?.release()
+            currentPlayer = null
+        }
+        audioManager.abandonAudioFocusRequest(audioFocusRequest)
+    }
+
+    private fun pruneCache() {
+        runCatching {
+            cacheDirectory.listFiles()
+                ?.filter { it.isFile }
+                ?.sortedByDescending { it.lastModified() }
+                ?.drop(MAX_CACHE_FILES)
+                ?.forEach { it.delete() }
+        }
+    }
+
+    private companion object {
+        const val TAG = "HybridVoiceGuidance"
+        const val MAX_CACHE_FILES = 160
+    }
+}

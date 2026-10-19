@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -19,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -36,6 +39,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.openmaps.app.core.camera.CameraPermissions
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.location.LocationPermissions
+import com.openmaps.app.core.localization.LocalAppLocale
+import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.feature.live.LiveHud
 import com.openmaps.app.feature.live.LiveReadinessMapper
 import com.openmaps.app.feature.live.LiveScreen
@@ -83,6 +88,18 @@ private fun AppShell(container: AppContainer) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val liveState by liveViewModel.uiState.collectAsStateWithLifecycle()
     val searchState by searchViewModel.uiState.collectAsStateWithLifecycle()
+
+    // Production search: continuously keep the geocoder's ranking bias aligned with the latest
+    // device location. This never restricts worldwide search; it only helps ambiguous/local queries
+    // prefer nearby addresses and POIs.
+    LaunchedEffect(state.currentLocation?.latitude, state.currentLocation?.longitude) {
+        searchViewModel.onLocationBiasChanged(state.currentLocation)
+    }
+
+    LaunchedEffect(container.connectivityMonitor, viewModel) {
+        container.connectivityMonitor.online().collect(viewModel::onConnectivityChanged)
+    }
+
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
     var searchPurpose by rememberSaveable { mutableStateOf(SearchPurpose.NewDestination) }
     // Bumped to ask the search screen to start voice capture as soon as it appears. An incrementing
@@ -154,7 +171,7 @@ private fun AppShell(container: AppContainer) {
                 MapUiEvent.OpenAppSettings -> context.openAppSettings()
                 MapUiEvent.OpenLocationSettings -> context.startSafely(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
                 is MapUiEvent.ShareTripUrl -> context.shareText(
-                    title = "OpenMaps trip",
+                    title = context.getString(R.string.share_trip_title),
                     text = event.url,
                 )
                 // Purely informational: the old route is still active and usable, so there is
@@ -182,17 +199,22 @@ private fun AppShell(container: AppContainer) {
     }
 
     val styleSource = remember(container) { container.mapStyleProvider.resolve() }
+    val appLocale = LocalConfiguration.current.locales[0]
 
-    Box(Modifier.fillMaxSize().background(OpenMapsColors.Navy900)) {
+    CompositionLocalProvider(
+        LocalMeasurementSystem provides state.measurementSystem,
+        LocalAppLocale provides appLocale,
+    ) {
+        Box(Modifier.fillMaxSize().background(OpenMapsColors.Navy900)) {
         MapScreen(
             viewModel = viewModel,
             styleProvider = container.mapStyleProvider,
             recentDestinations = searchState.recentSearches,
             onShareDestination = { destination ->
                 context.shareText(
-                    title = destination.name.ifBlank { "OpenMaps destination" },
+                    title = destination.name.ifBlank { context.getString(R.string.share_destination_title) },
                     text = buildString {
-                        append(destination.name.ifBlank { "OpenMaps destination" })
+                        append(destination.name.ifBlank { context.getString(R.string.share_destination_title) })
                         destination.subtitle.takeIf { it.isNotBlank() }?.let {
                             append("\n")
                             append(it)
@@ -249,6 +271,8 @@ private fun AppShell(container: AppContainer) {
                 driverReportStatus = state.driverReportStatus,
                 tripShareStatus = state.tripShareStatus,
                 onReport = viewModel::onDriverReportRequested,
+                onCommunityReportConfirm = viewModel::onCommunityReportConfirmed,
+                onCommunityReportDismiss = viewModel::onCommunityReportDismissed,
                 onShareTrip = viewModel::onTripShareRequested,
                 onDismissExternalStatus = viewModel::onExternalActionStatusDismissed,
                 onReroute = viewModel::onManualRerouteRequested,
@@ -296,7 +320,11 @@ private fun AppShell(container: AppContainer) {
                 onOpenAppSettings = { context.openAppSettings() },
                 voiceLanguage = state.voiceLanguage,
                 onVoiceLanguageChanged = viewModel::onVoiceLanguageChanged,
+                measurementSystem = state.measurementSystem,
+                onMeasurementSystemChanged = viewModel::onMeasurementSystemChanged,
+                onOpenLanguageSettings = { context.openLanguageSettings() },
             )
+        }
         }
     }
 }
@@ -327,4 +355,14 @@ private fun Context.startSafely(intent: Intent) {
     } catch (e: ActivityNotFoundException) {
         // No handler on this device: nothing sensible to do, and we must not crash.
     }
+}
+
+
+private fun Context.openLanguageSettings() {
+    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Intent(Settings.ACTION_APP_LOCALE_SETTINGS, Uri.fromParts("package", packageName, null))
+    } else {
+        Intent(Settings.ACTION_LOCALE_SETTINGS)
+    }
+    startSafely(intent)
 }

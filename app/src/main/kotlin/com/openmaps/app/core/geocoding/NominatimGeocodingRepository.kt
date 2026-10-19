@@ -24,17 +24,20 @@ import java.net.URLEncoder
  * shipping, move to a self-hosted Nominatim/Photon instance or a contracted provider — the
  * same decision already flagged for the tile source.
  *
- * Results are restricted to the US (`countrycodes=us`), matching OpenMaps' documented
- * United-States-only scope (see ROADMAP.md).
+ * This fallback is worldwide. Current location is used only as an unbounded ranking bias; it never
+ * limits the query to one country or region.
  */
 class NominatimGeocodingRepository(
     private val userAgent: String,
     private val baseUrl: String = "https://nominatim.openstreetmap.org/search",
 ) : GeocodingRepository {
 
-    override suspend fun search(query: String): Result<List<SearchResult>> = withContext(Dispatchers.IO) {
+    override suspend fun search(
+        query: String,
+        context: GeocodingSearchContext,
+    ): Result<List<SearchResult>> = withContext(Dispatchers.IO) {
         try {
-            Result.success(fetch(query))
+            Result.success(fetch(query, context))
         } catch (e: CancellationException) {
             throw e // Never swallow cancellation: the caller relies on it to drop stale searches.
         } catch (e: GeocodingException) {
@@ -48,8 +51,8 @@ class NominatimGeocodingRepository(
         }
     }
 
-    private fun fetch(query: String): List<SearchResult> {
-        val connection = buildUrl(query).openConnection() as HttpURLConnection
+    private fun fetch(query: String, context: GeocodingSearchContext): List<SearchResult> {
+        val connection = buildUrl(query, context).openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connectTimeout = TIMEOUT_MILLIS
         connection.readTimeout = TIMEOUT_MILLIS
@@ -69,13 +72,29 @@ class NominatimGeocodingRepository(
         }
     }
 
-    private fun buildUrl(query: String): URL {
+    private fun buildUrl(query: String, context: GeocodingSearchContext): URL {
         val encoded = URLEncoder.encode(query, "UTF-8")
-        return URL("$baseUrl?q=$encoded&format=jsonv2&addressdetails=1&limit=$RESULT_LIMIT&countrycodes=us")
+        val params = mutableListOf(
+            "q=$encoded",
+            "format=jsonv2",
+            "addressdetails=1",
+            "limit=$RESULT_LIMIT",
+        )
+        val lat = context.latitude
+        val lon = context.longitude
+        if (lat != null && lon != null) {
+            val delta = 0.75
+            params += "viewbox=" + listOf(lon - delta, lat + delta, lon + delta, lat - delta).joinToString(",")
+            params += "bounded=0"
+        }
+        context.localeTag?.takeIf { it.isNotBlank() }?.let {
+            params += "accept-language=" + URLEncoder.encode(it, "UTF-8")
+        }
+        return URL("$baseUrl?" + params.joinToString("&"))
     }
 
     private companion object {
         const val TIMEOUT_MILLIS = 8_000
-        const val RESULT_LIMIT = 10
+        const val RESULT_LIMIT = 20
     }
 }

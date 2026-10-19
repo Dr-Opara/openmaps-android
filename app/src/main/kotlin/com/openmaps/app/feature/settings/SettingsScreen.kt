@@ -27,6 +27,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -35,6 +37,7 @@ import com.openmaps.app.BuildConfig
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.location.LocationPermissionState
+import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.voice.VoiceLanguage
 import com.openmaps.app.map.MapStyleSource
 
@@ -48,7 +51,13 @@ fun SettingsScreen(
     /** Delta-spec section 24. Defaulted so every other existing caller/preview keeps compiling. */
     voiceLanguage: VoiceLanguage = VoiceLanguage.EnglishUs,
     onVoiceLanguageChanged: (VoiceLanguage) -> Unit = {},
+    measurementSystem: MeasurementSystem = MeasurementSystem.Auto,
+    onMeasurementSystemChanged: (MeasurementSystem) -> Unit = {},
+    onOpenLanguageSettings: () -> Unit = {},
 ) {
+    val appLocale = LocalConfiguration.current.locales[0]
+    val uriHandler = LocalUriHandler.current
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -109,11 +118,55 @@ fun SettingsScreen(
             )
 
             SectionHeader(stringResource(R.string.settings_section_navigation))
+            SettingsRow(
+                title = stringResource(R.string.settings_app_language),
+                value = appLocale.getDisplayName(appLocale),
+            )
+            ActionRow(stringResource(R.string.settings_change_app_language), onOpenLanguageSettings)
+
+            Text(
+                text = stringResource(R.string.settings_units),
+                style = MaterialTheme.typography.bodyLarge,
+                color = OpenMapsColors.TextPrimary,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+            )
+            MeasurementSystem.entries.forEach { system ->
+                val isSelected = system == measurementSystem
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clickable(role = Role.RadioButton) { onMeasurementSystemChanged(system) }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(system.labelRes()),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isSelected) OpenMapsColors.ElectricBlue else OpenMapsColors.TextSecondary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (isSelected) {
+                        Text(
+                            text = stringResource(R.string.settings_voice_language_selected),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = OpenMapsColors.ElectricBlue,
+                        )
+                    }
+                }
+            }
+
             Text(
                 text = stringResource(R.string.settings_voice_language),
                 style = MaterialTheme.typography.bodyLarge,
                 color = OpenMapsColors.TextPrimary,
                 modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+            )
+            Text(
+                text = stringResource(R.string.settings_voice_ai_disclosure),
+                style = MaterialTheme.typography.bodySmall,
+                color = OpenMapsColors.TextSecondary,
+                modifier = Modifier.padding(bottom = 6.dp),
             )
             VoiceLanguage.entries.forEach { language ->
                 val isSelected = language == voiceLanguage
@@ -141,6 +194,29 @@ fun SettingsScreen(
                 }
             }
 
+            SectionHeader(stringResource(R.string.settings_section_privacy))
+            SettingsRow(
+                title = stringResource(R.string.settings_privacy_location),
+                value = stringResource(R.string.settings_privacy_trip_share),
+            )
+            Text(
+                text = stringResource(R.string.settings_privacy_telemetry),
+                style = MaterialTheme.typography.bodyMedium,
+                color = OpenMapsColors.TextSecondary,
+                modifier = Modifier.padding(vertical = 6.dp),
+            )
+            Text(
+                text = stringResource(R.string.settings_privacy_arcore),
+                style = MaterialTheme.typography.bodyMedium,
+                color = OpenMapsColors.TextSecondary,
+                modifier = Modifier.padding(vertical = 6.dp),
+            )
+            ActionRow(stringResource(R.string.live_geospatial_learn_more)) {
+                uriHandler.openUri(
+                    "https://support.google.com/ar?p=how-google-play-services-for-ar-handles-your-data",
+                )
+            }
+
             SectionHeader(stringResource(R.string.settings_section_about))
             SettingsRow(title = stringResource(R.string.app_name), value = stringResource(R.string.tagline))
             HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
@@ -156,6 +232,8 @@ private fun VoiceLanguage.labelRes(): Int = when (this) {
     VoiceLanguage.EnglishUk -> R.string.settings_voice_language_en_gb
     VoiceLanguage.Spanish -> R.string.settings_voice_language_es
     VoiceLanguage.French -> R.string.settings_voice_language_fr
+    VoiceLanguage.Arabic -> R.string.settings_voice_language_ar
+    VoiceLanguage.Hebrew -> R.string.settings_voice_language_he
     VoiceLanguage.NigerianPidgin -> R.string.settings_voice_language_pidgin
 }
 
@@ -198,4 +276,11 @@ private fun ActionRow(text: String, onClick: () -> Unit) {
             .clickable(role = Role.Button, onClick = onClick)
             .padding(vertical = 14.dp),
     )
+}
+
+
+private fun MeasurementSystem.labelRes(): Int = when (this) {
+    MeasurementSystem.Auto -> R.string.settings_units_auto
+    MeasurementSystem.Imperial -> R.string.settings_units_imperial
+    MeasurementSystem.Metric -> R.string.settings_units_metric
 }

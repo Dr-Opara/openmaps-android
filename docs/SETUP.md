@@ -51,6 +51,41 @@ openmaps.style.devOnly=false
 - The map style, sprites, glyphs and tiles must be reachable over HTTPS; cleartext traffic is disabled.
 - To move to PMTiles or self-hosted tiles, see "Migrating to PMTiles" in [ARCHITECTURE.md](ARCHITECTURE.md#migrating-to-pmtiles--self-hosted-tiles).
 
+## Stadia Maps production provisioning
+
+OpenMaps uses **MapLibre** as the renderer and **Stadia Maps** as the approved production vector-tile provider.
+The public OpenFreeMap style remains only as a development fallback when no Stadia key is configured.
+
+Create a Stadia Maps property/API key, then provide it outside source control:
+
+```properties
+STADIA_MAPS_API_KEY=<your Stadia Maps API key>
+```
+
+Supported locations are a Gradle property, the `STADIA_MAPS_API_KEY` environment variable, or the
+git-ignored root `local.properties` file. The default production style ID is `alidade_smooth`;
+override with `-Popenmaps.stadia.style=<style-id>` if needed.
+
+Before creating a production release, run:
+
+```powershell
+.\gradlew.bat verifyProductionMapConfiguration
+```
+
+The task fails if the Stadia key is absent, the map is still marked development-only, or the approved
+Stadia style host is not active.
+
+### Offline route corridor
+
+When Stadia is active, OpenMaps automatically keeps one MapLibre offline region around the selected
+route. A new route/reroute replaces the old region. The app uses a **90 MiB total-resource stop
+threshold**, intentionally below Stadia's 100 MB/device mobile tile-caching ceiling. Short trips use
+more detailed zoom levels; long routes reduce max zoom to keep the corridor bounded. The offline
+region is deleted when the trip is ended/cleared.
+
+This is degraded-navigation support, not a promise that an arbitrary state/country has been
+downloaded. MapLibre continues to observe provider cache headers and the app revalidates when online.
+
 ## Location
 
 - Permissions declared: `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `CAMERA`, `INTERNET`, `ACCESS_NETWORK_STATE`. No background location.
@@ -134,6 +169,22 @@ meta-data that ARCore reads, and `app/build.gradle.kts` injects its value.
 > A **release** build signed by your own key needs a **second** API key restricted to the release
 > certificate, because the package+fingerprint pair must match the key actually signing the APK.
 
+### Production credential gate
+
+Before a release candidate is built, verify that the production ARCore key is present:
+
+```powershell
+.\gradlew.bat verifyProductionArCoreConfiguration
+```
+
+The key may come from a Gradle property, the `ARCORE_API_KEY` environment variable, or the
+git-ignored root `local.properties`. The task deliberately does **not** print the key.
+
+This check proves credential injection only. Final authorization is a physical-device gate: install
+the build signed with the certificate used in the Google Cloud Android-app restriction, open Live
+outdoors, and confirm the diagnostics no longer report `ERROR_NOT_AUTHORIZED` and that Earth
+reaches tracking.
+
 ### Google Cloud steps
 
 1. Open the [project selector](https://console.cloud.google.com/projectselector) and create a project
@@ -163,13 +214,15 @@ meta-data that ARCore reads, and `app/build.gradle.kts` injects its value.
    (Substitute your SDK path.) Then outdoors, the Live overlay should stop reading
    `AR: Earth unavailable (not authorized)`.
 
-### Two things this will still not fix
+### What remains after the key is configured
 
-- **ARCore privacy notice.** Google requires that apps using the Geospatial API *"present the user
-  with a prompt to acknowledge and allow the use of data from their device."* OpenMaps does not yet
-  show one. It does not affect functional testing, but it is a release blocker and is still open.
-- **Coverage.** Geospatial needs VPS coverage or a good open-sky GPS fix. VPS is not available
-  everywhere, and `Earth.trackingState` can stay non-`TRACKING` for reasons unrelated to authorization.
+- **Privacy acknowledgement is implemented.** OpenMaps shows the ARCore/Geospatial camera + location
+  disclosure at Live activation and keeps the same information accessible in Settings.
+- **Coverage still varies.** Geospatial needs VPS coverage or a good open-sky GPS fix. VPS is not
+  available everywhere, and `Earth.trackingState` can stay non-`TRACKING` for reasons unrelated
+  to authorization.
+- **Physical validation remains mandatory.** A successful Gradle credential check proves only that
+  the key is present. A real ARCore-capable phone must still reach an authorized Earth state outdoors.
 
 ## AR route anchors and arrows (Phases 7/8)
 
@@ -207,20 +260,23 @@ cover the arrow window`). Arrows will still draw via the per-frame geographic pr
 they will slide and jitter with the GPS fix — that is degraded mode, not working road anchoring, and it
 should not be reported as a success.
 
-## Road intelligence (Phase 10)
+## Road intelligence (Phase 10 + production traffic)
 
-- No API keys needed: hazards and speed limits use the same public Overpass API instance Places
-  already calls; weather uses Open-Meteo (`api.open-meteo.com`), also free and keyless.
-- All three are additive — if the emulator/device has no network, or Overpass/Open-Meteo are
-  unreachable, navigation continues unaffected and the relevant chip/marker simply never appears.
-  There is no error banner for a road-intelligence failure by design; check `adb logcat` for
-  `Mbgl-HttpRequest`/`java.io.IOException` only if you need to confirm a request actually failed
-  versus "nothing to show" (no construction tag, no notable weather, no tagged `maxspeed` nearby).
-- To see a hazard marker render, pick a route through an area with an OSM `highway=construction` or
-  `hazard=*` tag (check [openstreetmap.org](https://www.openstreetmap.org) for one near your test
-  route first — this is real crowd-sourced tagging, not guaranteed to exist everywhere).
-- There is no live-traffic or lane-guidance UI to test: neither has a data source wired in yet (see
-  ARCHITECTURE.md's Road intelligence section).
+- `HERE_API_KEY` is server-side in Supabase and powers production traffic-aware routing, live
+  incidents/closures, exit/signpost guidance and the capability-gated lane-data path. The key must
+  never be copied into the Android client or committed to Git.
+- Static hazards and speed limits still use Overpass as an additive fallback; weather uses
+  Open-Meteo. Failure of those context providers never blocks navigation.
+- Route Preview shows traffic delay only when the routing provider supplied a real traffic-aware
+  duration and free-flow duration.
+- A severe provider-confirmed crash/closure ahead can trigger one traffic-aware recalculation; the
+  existing route remains usable if rerouting fails.
+- LaneLock renders only when HERE Route Matching returns real lane attributes and at least one lane
+  is compatible with the active maneuver. Recommended lanes are blue; nonrecommended lanes are
+  muted. No lane row means no trustworthy provider data — never a guessed lane layout.
+- Exit/signpost wording comes from the routing provider and appears in both Map and Live guidance.
+- Run `.\scripts\production-routing-acceptance.ps1` before calling routing/traffic production
+  ready. It validates worldwide HERE routing, live traffic connectivity and lane-provider access.
 
 ## Environment modes (Phase 11)
 
@@ -351,3 +407,153 @@ App behaviour:
 - **"Map unavailable" immediately:** the style URL is wrong or unreachable (Logcat tag `Mbgl`/MapLibre shows the HTTP error).
 - **Dot never appears on emulator:** set a location in Extended controls; the emulator provides no fix by default.
 - **R8 stripping in release:** MapLibre ships consumer rules; add keep rules to `app/proguard-rules.pro` only if a release-only crash proves it necessary.
+
+
+## LaneLock: OSM + Mapbox
+
+Production LaneLock no longer depends on HERE Route Matching.
+
+The lane gateway combines:
+- OpenStreetMap `turn:lanes`, `turn:lanes:forward`, and `turn:lanes:backward` through Overpass.
+- Mapbox Directions lane arrays for the same short upcoming-route trace.
+
+Set the Mapbox token as a Supabase Edge Function secret, never in the Android APK or repository:
+
+```powershell
+npx supabase secrets set MAPBOX_ACCESS_TOKEN=<your-mapbox-public-access-token> --project-ref upcfmhcfuagloqlcmezr
+npx supabase functions deploy lane-guidance --project-ref upcfmhcfuagloqlcmezr --no-verify-jwt
+```
+
+The gateway confidence rule is fail-closed:
+- OSM + Mapbox agree -> high confidence, show LaneLock.
+- One trustworthy source only -> medium confidence, show LaneLock.
+- Both present but conflict -> return no guidance and hide LaneLock.
+- Missing/ambiguous evidence -> hide LaneLock.
+
+HERE remains the production provider for traffic-aware routing, incidents, alternatives, ETA, exits, and signposts.
+
+
+## Global Places
+
+Global Places uses the existing server-side `HERE_API_KEY` through the OpenMaps `places` Edge Function. No HERE provider credential is added to the Android APK.
+
+Deploy the gateway:
+
+```powershell
+npx supabase functions deploy places --project-ref upcfmhcfuagloqlcmezr --no-verify-jwt
+```
+
+Run worldwide acceptance:
+
+```powershell
+.\scripts\production-places-acceptance.ps1
+```
+
+The production path is HERE Browse + OSM aggregation behind the gateway, with direct Android Overpass as the last-resort fallback.
+
+
+## Live Trip Sharing
+
+The Android app uses the OpenMaps `trip-share` Edge Function. The Supabase publishable key is safe for the mobile client; session owner/share capability tokens are generated at runtime and are not committed.
+
+Deploy:
+
+```powershell
+npx supabase functions deploy trip-share --project-ref upcfmhcfuagloqlcmezr --no-verify-jwt
+```
+
+Run production lifecycle acceptance:
+
+```powershell
+.\scripts\production-trip-sharing-acceptance.ps1
+```
+
+The public viewer link contains only the share capability. Android retains the separate owner capability in memory for live updates and explicit revocation.
+
+
+## Community Reports
+
+The Android app uses the OpenMaps `community-reports` Edge Function. Reports are short-lived and moderated through confidence/feedback rather than treated as authoritative provider data.
+
+Production acceptance:
+
+```powershell
+.\scripts\production-community-reports-acceptance.ps1
+```
+
+GitHub Actions runs this acceptance together with Android assemble, unit tests and lint for pull requests targeting `production/platform-v1`.
+
+
+## Neural Navigation Voice
+
+The OpenMaps `voice` Edge Function keeps the neural TTS provider credential server-side. Android never receives the provider key.
+
+Required Supabase secret:
+
+```text
+OPENAI_API_KEY
+```
+
+The function uses the OpenAI Speech API with `gpt-4o-mini-tts`, requests low-latency WAV audio and returns it to the app. If the secret, provider or network is unavailable, Android automatically falls back to the platform TextToSpeech engine; navigation itself never waits on voice.
+
+The app includes a user-facing disclosure that the neural navigation voice is AI-generated.
+
+
+## Worldwide Localization
+
+OpenMaps declares these Android app locales:
+
+- `en-US`
+- `en-GB`
+- `es`
+- `fr`
+- `ar`
+- `he`
+
+On Android 13+, Settings > Navigation > App language opens the OS per-app language settings for OpenMaps. Arabic and Hebrew use Android's native RTL configuration.
+
+Distance and speed units can remain `Automatic (regional)` or be overridden to Imperial/Metric. Automatic mode uses US imperial in the United States, Liberia and Myanmar; UK imperial uses miles/yards/mph; other regions use metric.
+
+Production localization acceptance:
+
+```powershell
+.\scripts\production-localization-acceptance.ps1
+```
+
+The existing Places and neural-voice production acceptance suites also carry locale-specific requests, including Arabic/Hebrew voice synthesis.
+
+
+## Production release signing
+
+OpenMaps does not commit a release keystore, alias, or password. The Android build reads production
+signing material only from Gradle properties, environment variables, or git-ignored
+`local.properties`.
+
+Required values:
+
+- `OPENMAPS_RELEASE_STORE_FILE` — path to the production keystore, relative to the repository root
+  or an absolute path supported by the build environment.
+- `OPENMAPS_RELEASE_STORE_PASSWORD`
+- `OPENMAPS_RELEASE_KEY_ALIAS`
+- `OPENMAPS_RELEASE_KEY_PASSWORD`
+
+Before producing a release artifact, run:
+
+```powershell
+.\gradlew.bat verifyReleaseSigningConfiguration
+.\gradlew.bat bundleRelease
+```
+
+or on a Unix CI runner:
+
+```bash
+./gradlew verifyReleaseSigningConfiguration bundleRelease
+```
+
+The verification task fails if any value is missing or the configured keystore file does not exist.
+Signing passwords are never written to BuildConfig, Android resources, the manifest, or source
+control.
+
+The production keystore and its passwords must be provisioned through the release owner's secure
+credential store/CI secret manager. Do not place them in GitHub source, chat transcripts, screenshots,
+or committed Gradle files.

@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": {
+    "productionBranch": "production/platform-v1",
+    "baselineCommit": "ddd37b7e456a7adb5478767202a80a533638e14d"
+  },
+  "statusDefinitions": {
+    "verified": "Production acceptance has directly exercised this capability in the region.",
+    "supported": "Production provider/path is configured, but this exact region lacks direct acceptance evidence.",
+    "conditional": "Capability depends on road/provider evidence and must hide or degrade honestly when unavailable.",
+    "fallback": "A safe fallback exists, but the preferred regional experience is not fully supported.",
+    "unverified": "Implementation exists, but physical/regional validation is still required.",
+    "blocked": "A known release dependency prevents production certification.",
+    "unsupported": "OpenMaps does not currently provide this capability for the region."
+  },
+  "globalBlockers": [
+    "stadia_maps_production_credentials",
+    "arcore_geospatial_production_provisioning",
+    "release_signing_credentials",
+    "physical_android_field_validation"
+  ],
+  "regions": [
+    {
+      "id": "houston-us",
+      "city": "Houston",
+      "country": "United States",
+      "locale": "en-US",
+      "capabilities": {
+        "search": {"status": "verified", "evidence": "global-search-acceptance.ps1"},
+        "reverseGeocoding": {"status": "supported", "evidence": "HERE-first production gateway"},
+        "routing": {"status": "verified", "evidence": "production-routing-acceptance.ps1"},
+        "trafficEta": {"status": "verified", "evidence": "production-routing-acceptance.ps1"},
+        "trafficIncidents": {"status": "verified", "evidence": "Houston incident corridor acceptance"},
+        "laneGuidance": {"status": "conditional", "evidence": "OSM + Mapbox capability acceptance; guidance hidden when evidence conflicts"},
+        "speedLimits": {"status": "conditional", "evidence": "provider/OSM road intelligence"},
+        "places": {"status": "verified", "evidence": "production-places-acceptance.ps1"},
+        "parkingPoi": {"status": "verified", "evidence": "production-places-acceptance.ps1"},
+        "parkingOccupancy": {"status": "unsupported", "evidence": "no live occupancy provider"},
+        "communityReports": {"status": "supported", "evidence": "production community-report backend"},
+        "voice": {"status": "verified", "evidence": "EnglishUs neural voice production acceptance"},
+        "localization": {"status": "verified", "evidence": "English US"},
+        "liveAr": {"status": "blocked", "evidence": "ARCore production credential plumbing/privacy are implemented; restricted production key activation + physical Earth tracking validation remain"},
+        "mapPlatform": {"status": "blocked", "evidence": "Stadia Maps production integration is implemented; production API-key activation/live validation remains"},
+        "offlineRoute": {"status": "supported", "evidence": "Phase 12 cached-route implementation merged"},
+        "offlineMap": {"status": "blocked", "evidence": "MapLibre active-route corridor cache is implemented under Stadia 100 MB/device terms; production API-key activation/live validation remains"}
+      }
+    },
+    {
+      "id": "london-gb",
+      "city": "London",
+      "country": "United Kingdom",
+      "locale": "en-GB",
+      "capabilities": {
+        "search": {"status": "verified", "evidence": "10 Downing Street + reverse geocoding acceptance"},
+        "reverseGeocoding": {"status": "verified", "evidence": "London reverse-geocoding acceptance"},
+        "routing": {"status": "verified", "evidence": "production-routing-acceptance.ps1"},
+        "trafficEta": {"status": "verified", "evidence": "production-routing-acceptance.ps1"},
+        "trafficIncidents": {"status": "supported", "evidence": "HERE incidents gateway; no London-specific incident acceptance"},
+        "laneGuidance": {"status": "conditional", "evidence": "OSM + Mapbox; road evidence dependent"},
+        "speedLimits": {"status": "conditional", "evidence": "provider/OSM road intelligence"},
+        "places": {"status": "verified", "evidence": "production-places-acceptance.ps1"},
+        "parkingPoi": {"status": "verified", "evidence": "production-places-acceptance.ps1"},
+        "parkingOccupancy": {"status": "unsupported", "evidence": "no live occupancy provider"},
+        "communityReports": {"status": "supported", "evidence": "production community-report backend"},
+        "voice": {"status": "verified", "evidence": "EnglishUk neural voice acceptance"},
+        "localization": {"status": "verified", "evidence": "English UK terminology and units"},
+        "liveAr": {"status": "blocked", "evidence": "ARCore production credential plumbing/privacy are implemented; restricted production key activation + physical Earth tracking validation remain"},
+        "mapPlatform": {"status": "blocked", "evidence": "Stadia Maps production integration is implemented; production API-key activation/live validation remains"},
+        "offlineRoute": {"status": "supported", "evidence": "Phase 12 cached-route implementation merged"},
+        "offlineMap": {"status": "blocked", "evidence": "MapLibre active-route corridor cache is implemented under Stadia 100 MB/device terms; production API-key activation/live validation remains"}
+      }
+    },
+    {
+      "id": "paris-fr",
+      "city": "Paris",
+      "country": "France",
+      "locale": "fr-FR",
+      "capabilities": {
+        "search": {"status": "verified", "evidence": "Eiffel Tower acceptance"},
+        "reverseGeocoding": {"status": "supported", "evidence": "HERE-first production gateway"},
+        "routing": {"status": "verified", "evidence": "production-routing-acceptance.ps1"},
+        "trafficEta": {"status": "verified", "evidence": "production-routing-acceptance.ps1"},
+        "trafficIncidents": {"status": "supported", "evidence": "HERE incidents gateway; no Paris-specific incident acceptance"},
+        "laneGuidance": {"status": "conditional", "evidence": "OSM + Mapbox; road evidence dependent"},
+        "speedLimits": {"status": "conditional", "evidence": "provider/OSM road intelligence"},
+        "places": {"status": "verified", "evidence": "production-places-acceptance.ps1"},
+        "parkingPoi": {"status": "verified", "evidence": "production-places-acceptance.ps1"},
+        "parkingOccupancy": {"status": "unsupported", "evidence": "no live occupancy provider"},
+        "communityReports": {"status": "supported", "evidence": "production community-report backend"},
+        "voice": {"status": "verified", "evidence": "French neural voice acceptance"},
+        "localization": {"status": "verified", "evidence": "French localization"},
+        "liveAr": {"status": "blocked", "evidence": "ARCore production credential plumbing/privacy are implemented; restricted production key activation + physical Earth tracking validation remain"},
+        "mapPlatform": {"status": "blocked", "evidence": "Stadia Maps production integration is implemented; production API-key activation/live validation remains"},
+        "offlineRoute": {"status": "supported", "evidence": "Phase 12 cached-route implementation merged"},
+        "offlineMap": {"status": "blocked", "evidence": "MapLibre active-route corridor cache is implemented under Stadia 100 MB/device terms; production API-key activation/live validation remains"}
+      }
+    },
+    {
+      "id": "lagos-ng",
+      "city": "Lagos",
+      "country": "Nigeria",
+      "locale": "en-NG",
+      "capabilities": {
+        "search": {"status": "verified", "evidence": "Lekki Conservation Centre acceptance"},
+        "reverseGeocoding": {"status": "supported", "evidence": "HERE-first production gateway"},
+        "routing": {"status": "verified", "evidence": "production-routing-acceptance.ps1"},
+        "trafficEta": {"status": "verified", "evidence": "production-routing-acceptance.ps1"},
+        "trafficIncidents": {"status": "supported", "evidence": "HERE incidents gateway; regional incident density not accepted"},
+        "laneGuidance": {"status": "conditional", "evidence": "OSM + Mapbox; local lane tagging/provider evidence dependent"},
+        "speedLimits": {"status": "conditional", "evidence": "provider/OSM road intelligence"},
+        "places": {"status": "verified", "evidence": "production-places-acceptance.ps1"},
+        "parkingPoi": {"status": "verified", "evidence": "production-places-acceptance.ps1"},
+        "parkingOccupancy": {"status": "unsupported", "evidence": "no live occupancy provider"},
+        "communityReports": {"status": "supported", "evidence": "production community-report backend"},
+        "voice": {"status": "verified", "evidence": "NigerianPidgin + English neural voice acceptance"},
+        "localization": {"status": "fallback", "evidence": "English UI; Nigerian Pidgin voice available"},
+        "liveAr": {"status": "blocked", "evidence": "ARCore production credential plumbing/privacy are implemented; regional VPS availability + restricted key activation + physical validation remain"},
+        "mapPlatform": {"status": "blocked", "evidence": "Stadia Maps production integration is implemented; production API-key activation/live validation remains"},
+        "offlineRoute": {"status": "supported", "evidence": "Phase 12 cached-route implementation merged"},
+        "offlineMap": {"status": "blocked", "evidence": "MapLibre active-route corridor cache is implemented under Stadia 100 MB/device terms; production API-key activation/live validation remains"}
+      }
+    },
+    {
+      "id": "tokyo-jp",
+      "city": "Tokyo",
+      "country": "Japan",
+      "locale": "ja-JP",
+      "capabilities": {
+        "search": {"status": "supported", "evidence": "worldwide HERE/Nominatim gateway; no Tokyo-specific search acceptance case"},
+        "reverseGeocoding": {"status": "supported", "evidence": "HERE-first production gateway"},
+        "routing": {"status": "verified", "evidence": "production-routing-acceptance.ps1"},
+        "trafficEta": {"status": "verified", "evidence": "production-routing-acceptance.ps1"},
+        "trafficIncidents": {"status": "supported", "evidence": "HERE incidents gateway; no Tokyo-specific incident acceptance"},
+        "laneGuidance": {"status": "conditional", "evidence": "OSM + Mapbox; road evidence dependent"},
+        "speedLimits": {"status": "conditional", "evidence": "provider/OSM road intelligence"},
+        "places": {"status": "verified", "evidence": "production-places-acceptance.ps1"},
+        "parkingPoi": {"status": "verified", "evidence": "production-places-acceptance.ps1"},
+        "parkingOccupancy": {"status": "unsupported", "evidence": "no live occupancy provider"},
+        "communityReports": {"status": "supported", "evidence": "production community-report backend"},
+        "voice": {"status": "fallback", "evidence": "Japanese navigation voice not implemented; Android/system language fallback only"},
+        "localization": {"status": "fallback", "evidence": "Japanese app localization not implemented"},
+        "liveAr": {"status": "blocked", "evidence": "ARCore production credential plumbing/privacy are implemented; regional VPS availability + restricted key activation + physical validation remain"},
+        "mapPlatform": {"status": "blocked", "evidence": "Stadia Maps production integration is implemented; production API-key activation/live validation remains"},
+        "offlineRoute": {"status": "supported", "evidence": "Phase 12 cached-route implementation merged"},
+        "offlineMap": {"status": "blocked", "evidence": "MapLibre active-route corridor cache is implemented under Stadia 100 MB/device terms; production API-key activation/live validation remains"}
+      }
+    },
+    {
+      "id": "sydney-au",
+      "city": "Sydney",
+      "country": "Australia",
+      "locale": "en-AU",
+      "capabilities": {
+        "search": {"status": "supported", "evidence": "worldwide HERE/Nominatim gateway; no Sydney-specific search acceptance case"},
+        "reverseGeocoding": {"status": "supported", "evidence": "HERE-first production gateway"},
+        "routing": {"status": "verified", "evidence": "production-routing-acceptance.ps1"},
+        "trafficEta": {"status": "verified", "evidence": "production-routing-acceptance.ps1"},
+        "trafficIncidents": {"status": "supported", "evidence": "HERE incidents gateway; no Sydney-specific incident acceptance"},
+        "laneGuidance": {"status": "conditional", "evidence": "OSM + Mapbox; road evidence dependent"},
+        "speedLimits": {"status": "conditional", "evidence": "provider/OSM road intelligence"},
+        "places": {"status": "verified", "evidence": "production-places-acceptance.ps1"},
+        "parkingPoi": {"status": "verified", "evidence": "production-places-acceptance.ps1"},
+        "parkingOccupancy": {"status": "unsupported", "evidence": "no live occupancy provider"},
+        "communityReports": {"status": "supported", "evidence": "production community-report backend"},
+        "voice": {"status": "fallback", "evidence": "English voice available; no Australian-specific voice profile"},
+        "localization": {"status": "fallback", "evidence": "English fallback; no dedicated en-AU terminology profile"},
+        "liveAr": {"status": "blocked", "evidence": "ARCore production credential plumbing/privacy are implemented; regional VPS availability + restricted key activation + physical validation remain"},
+        "mapPlatform": {"status": "blocked", "evidence": "Stadia Maps production integration is implemented; production API-key activation/live validation remains"},
+        "offlineRoute": {"status": "supported", "evidence": "Phase 12 cached-route implementation merged"},
+        "offlineMap": {"status": "blocked", "evidence": "MapLibre active-route corridor cache is implemented under Stadia 100 MB/device terms; production API-key activation/live validation remains"}
+      }
+    }
+  ]
+}

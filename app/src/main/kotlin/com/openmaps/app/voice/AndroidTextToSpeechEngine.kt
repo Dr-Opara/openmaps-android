@@ -1,8 +1,10 @@
 package com.openmaps.app.voice
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.voice.VoiceAnnouncementTemplates
 import com.openmaps.app.core.voice.VoiceEvent
 import com.openmaps.app.core.voice.VoiceGuidanceEngine
@@ -29,12 +31,21 @@ class AndroidTextToSpeechEngine(context: Context) : VoiceGuidanceEngine {
     override val state: Flow<VoiceGuidanceState> = _state.asStateFlow()
 
     private var tts: TextToSpeech? = null
+    private var measurementSystem: MeasurementSystem = MeasurementSystem.Auto
 
     init {
         tts = TextToSpeech(context.applicationContext) { status ->
             val available = status == TextToSpeech.SUCCESS
             _state.value = _state.value.copy(ttsAvailable = available)
-            if (available) applyLocale(_state.value.language)
+            if (available) {
+                tts?.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                )
+                applyLocale(_state.value.language)
+            }
         }
     }
 
@@ -42,7 +53,7 @@ class AndroidTextToSpeechEngine(context: Context) : VoiceGuidanceEngine {
         val current = _state.value
         if (!current.enabled || !current.ttsAvailable) return
         val engine = tts ?: return
-        val phrase = VoiceAnnouncementTemplates.phraseFor(event, current.language)
+        val phrase = VoiceAnnouncementTemplates.phraseFor(event, current.language, measurementSystem)
         try {
             engine.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, event::class.simpleName)
         } catch (t: Throwable) {
@@ -59,6 +70,10 @@ class AndroidTextToSpeechEngine(context: Context) : VoiceGuidanceEngine {
     override fun setLanguage(language: VoiceLanguage) {
         _state.value = _state.value.copy(language = language)
         if (_state.value.ttsAvailable) applyLocale(language)
+    }
+
+    override fun setMeasurementSystem(system: MeasurementSystem) {
+        measurementSystem = system
     }
 
     override fun stop() {
@@ -111,6 +126,8 @@ class AndroidTextToSpeechEngine(context: Context) : VoiceGuidanceEngine {
         VoiceLanguage.EnglishUk -> Locale.UK
         VoiceLanguage.Spanish -> Locale("es", "ES")
         VoiceLanguage.French -> Locale.FRANCE
+        VoiceLanguage.Arabic -> Locale("ar")
+        VoiceLanguage.Hebrew -> Locale("he", "IL")
         VoiceLanguage.NigerianPidgin -> Locale("en", "NG") // handled above; listed for exhaustiveness
     }
 

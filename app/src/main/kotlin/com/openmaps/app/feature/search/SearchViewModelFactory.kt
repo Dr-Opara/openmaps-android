@@ -11,6 +11,7 @@ fun searchViewModelFactory(container: AppContainer): ViewModelProvider.Factory =
         SearchViewModel(
             geocodingRepository = container.geocodingRepository,
             recentSearchStore = container.recentSearchStore,
+            initialLocaleTag = container.localizationPrefs.currentLocaleTag(),
         )
     }
 }

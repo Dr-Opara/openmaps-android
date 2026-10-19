@@ -1,9 +1,14 @@
 package com.openmaps.app
 
 import android.app.Application
+import android.content.Context
+import com.openmaps.app.core.geocoding.BackendGeocodingRepository
+import com.openmaps.app.core.geocoding.BackendReverseGeocodingRepository
+import com.openmaps.app.core.geocoding.CompositeGeocodingRepository
 import com.openmaps.app.core.geocoding.GeocodingRepository
 import com.openmaps.app.core.geocoding.NominatimGeocodingRepository
 import com.openmaps.app.core.geocoding.RecentSearchStore
+import com.openmaps.app.core.geocoding.ReverseGeocodingRepository
 import com.openmaps.app.core.geocoding.SharedPreferencesRecentSearchStore
 import com.openmaps.app.core.camera.CameraPermissionPrefs
 import com.openmaps.app.core.environment.OverpassRoadClassRepository
@@ -11,16 +16,29 @@ import com.openmaps.app.core.environment.RoadClassRepository
 import com.openmaps.app.core.location.AndroidLocationRepository
 import com.openmaps.app.core.location.LocationPermissionPrefs
 import com.openmaps.app.core.location.LocationRepository
+import com.openmaps.app.core.localization.LocalizationPrefs
+import com.openmaps.app.core.network.AndroidConnectivityMonitor
+import com.openmaps.app.core.network.ConnectivityMonitor
+import com.openmaps.app.core.places.BackendPlaceRepository
 import com.openmaps.app.core.places.CompositePlaceRepository
 import com.openmaps.app.core.places.OverpassPlaceRepository
 import com.openmaps.app.core.places.PlaceRepository
+import com.openmaps.app.core.reporting.BackendCommunityReportsRepository
 import com.openmaps.app.core.reporting.DriverReportRepository
-import com.openmaps.app.core.reporting.UnavailableDriverReportRepository
+import com.openmaps.app.core.roadintelligence.BackendLaneGuidanceRepository
+import com.openmaps.app.core.roadintelligence.CompositeRoadIntelligenceRepository
+import com.openmaps.app.core.roadintelligence.LaneGuidanceRepository
 import com.openmaps.app.core.roadintelligence.DefaultRoadIntelligenceRepository
+import com.openmaps.app.core.roadintelligence.HereTrafficRoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
+import com.openmaps.app.core.routing.BackendRoutingRepository
+import com.openmaps.app.core.routing.CachedRoutingRepository
+import com.openmaps.app.core.routing.CompositeRoutingRepository
 import com.openmaps.app.core.routing.RoutingRepository
+import com.openmaps.app.core.sharing.BackendTripShareRepository
 import com.openmaps.app.core.sharing.TripShareRepository
-import com.openmaps.app.core.sharing.UnavailableTripShareRepository
+import com.openmaps.app.core.sharing.TripShareRecoveryStore
+import com.openmaps.app.core.sharing.EncryptedTripShareRecoveryStore
 import com.openmaps.app.core.routing.ValhallaRoutingRepository
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
 import com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization
@@ -28,27 +46,131 @@ import com.openmaps.app.core.voice.VoiceGuidanceEngine
 import com.openmaps.app.core.voice.VoiceGuidancePrefs
 import com.openmaps.app.map.BuildConfigMapStyleProvider
 import com.openmaps.app.map.MapStyleProvider
+import com.openmaps.app.map.OfflineMapCorridorCache
+import com.openmaps.app.map.MapLibreOfflineMapCorridorCache
 import com.openmaps.app.voice.AndroidTextToSpeechEngine
+import com.openmaps.app.voice.BackendNeuralVoiceRepository
+import com.openmaps.app.voice.HybridVoiceGuidanceEngine
+import com.openmaps.app.core.reliability.ReliabilityEvent
+import com.openmaps.app.core.reliability.ReliabilityEventName
+import com.openmaps.app.core.reliability.ReliabilityOutcome
+import com.openmaps.app.core.reliability.ReliabilityReporter
+import com.openmaps.app.reliability.AndroidCrashRecorder
+import com.openmaps.app.reliability.BackendReliabilityReporter
+import com.openmaps.app.core.navigation.NavigationForegroundController
+import com.openmaps.app.core.navigation.NavigationRecoveryStore
+import com.openmaps.app.core.navigation.EncryptedNavigationRecoveryStore
+import com.openmaps.app.service.AndroidNavigationForegroundController
 
 /** Minimal manual dependency container (no DI framework needed at this size). */
 class AppContainer(application: Application) {
     val locationRepository: LocationRepository = AndroidLocationRepository(application)
     val locationPermissionPrefs: LocationPermissionPrefs = LocationPermissionPrefs(application)
     val cameraPermissionPrefs: CameraPermissionPrefs = CameraPermissionPrefs(application)
+    val localizationPrefs: LocalizationPrefs = LocalizationPrefs(application)
+    val connectivityMonitor: ConnectivityMonitor = AndroidConnectivityMonitor(application)
+    val navigationForegroundController: NavigationForegroundController =
+        AndroidNavigationForegroundController(application)
+    val navigationRecoveryStore: NavigationRecoveryStore =
+        EncryptedNavigationRecoveryStore(application)
+
+    /**
+     * Stable anonymous per-install backend identity. It is sent only to the OpenMaps gateway,
+     * where the server hashes it before rate-limit accounting; provider APIs never receive it.
+     */
+    private val backendClientId: String by lazy {
+        val prefs = application.getSharedPreferences("openmaps_backend_gateway", Context.MODE_PRIVATE)
+        prefs.getString("anonymous_client_id", null) ?: java.util.UUID.randomUUID().toString().also {
+            prefs.edit().putString("anonymous_client_id", it).apply()
+        }
+    }
+
+    val crashRecorder: AndroidCrashRecorder = AndroidCrashRecorder(application)
+
+    val reliabilityReporter: ReliabilityReporter = BackendReliabilityReporter(
+        endpointUrl = BuildConfig.RELIABILITY_GATEWAY_URL,
+        publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+        clientId = backendClientId,
+        appVersion = BuildConfig.VERSION_NAME,
+        appBuild = BuildConfig.VERSION_CODE,
+        deviceApi = android.os.Build.VERSION.SDK_INT,
+    )
+
     val mapStyleProvider: MapStyleProvider = BuildConfigMapStyleProvider()
-    val geocodingRepository: GeocodingRepository = NominatimGeocodingRepository(
-        userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+    val offlineMapCorridorCache: OfflineMapCorridorCache = MapLibreOfflineMapCorridorCache(
+        context = application,
+        styleProvider = mapStyleProvider,
+        enabled = BuildConfig.OFFLINE_MAP_CACHE_ENABLED,
+        maxBytes = BuildConfig.OFFLINE_MAP_CACHE_LIMIT_BYTES,
+    )
+    /**
+     * Production geocoding path:
+     *   OpenMaps backend gateway -> direct worldwide Nominatim fallback.
+     *
+     * The backend is the primary seam for contracted/SLA providers. Direct public Nominatim is
+     * deliberately only a last-resort fallback so the app can still resolve a destination during a
+     * gateway/provider outage without pretending it has production SLA guarantees.
+     */
+    val geocodingRepository: GeocodingRepository = CompositeGeocodingRepository(
+        providers = listOf(
+            BackendGeocodingRepository(
+                endpointUrl = BuildConfig.GEOCODING_GATEWAY_URL,
+                publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                clientId = backendClientId,
+            ),
+            NominatimGeocodingRepository(
+                userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; fallback)",
+            ),
+        ),
+    )
+    val reverseGeocodingRepository: ReverseGeocodingRepository = BackendReverseGeocodingRepository(
+        endpointUrl = BuildConfig.REVERSE_GEOCODING_GATEWAY_URL,
+        publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+        clientId = backendClientId,
     )
     val recentSearchStore: RecentSearchStore = SharedPreferencesRecentSearchStore(application)
 
-    /** Community reporting is intentionally unavailable until a moderated provider is connected. */
-    val driverReportRepository: DriverReportRepository = UnavailableDriverReportRepository()
+    /** Production moderated community-reporting backend. */
+    private val communityReportsRepository = BackendCommunityReportsRepository(
+        endpointUrl = BuildConfig.COMMUNITY_REPORTS_GATEWAY_URL,
+        publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+        anonymousClientId = backendClientId,
+    )
+    val driverReportRepository: DriverReportRepository = communityReportsRepository
 
-    /** Live trip sharing is intentionally unavailable until an expiring-token backend is connected. */
-    val tripShareRepository: TripShareRepository = UnavailableTripShareRepository()
+    val tripShareRecoveryStore: TripShareRecoveryStore =
+        EncryptedTripShareRecoveryStore(application)
 
-    val routingRepository: RoutingRepository = ValhallaRoutingRepository(
-        userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+    /** Production live trip sharing with expiring public links and private owner capabilities. */
+    val tripShareRepository: TripShareRepository = BackendTripShareRepository(
+        endpointUrl = BuildConfig.TRIP_SHARE_GATEWAY_URL,
+        publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+        clientId = backendClientId,
+    )
+
+    /**
+     * Production routing path:
+     *   OpenMaps traffic-aware routing gateway -> Valhalla fallback.
+     *
+     * HERE traffic-aware routing is activated server-side when HERE_API_KEY is configured. Until
+     * then, the backend fails closed and this composite transparently falls back to Valhalla.
+     */
+    val routingRepository: RoutingRepository = CachedRoutingRepository(
+        context = application,
+        upstream = CompositeRoutingRepository(
+            providers = listOf(
+                BackendRoutingRepository(
+                    endpointUrl = BuildConfig.ROUTING_GATEWAY_URL,
+                    publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                    clientId = backendClientId,
+                    localeTagProvider = localizationPrefs::currentLocaleTag,
+                ),
+                ValhallaRoutingRepository(
+                    userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; routing fallback)",
+                    localeTagProvider = localizationPrefs::currentLocaleTag,
+                ),
+            ),
+        ),
     )
 
     /**
@@ -59,13 +181,21 @@ class AppContainer(application: Application) {
      * against a provider that is measurably flaky: whichever mirror is currently healthy answers
      * first, and a total outage degrades to cached data instead of an error screen.
      *
-     * **Production seam:** when a contracted/self-hosted places provider exists, add it to [providers]
-     * ahead of Overpass — nothing else changes. The UI never learns which provider answered.
+     * Production path:
+     *   OpenMaps places gateway (HERE Browse) -> public Overpass/OSM fallback.
+     *
+     * Provider secrets remain server-side and the UI remains provider-neutral.
      */
     val placesRepository: PlaceRepository = CompositePlaceRepository(
         providers = listOf(
+            BackendPlaceRepository(
+                endpointUrl = BuildConfig.PLACES_GATEWAY_URL,
+                publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                clientId = backendClientId,
+                localeTagProvider = localizationPrefs::currentLocaleTag,
+            ),
             OverpassPlaceRepository(
-                userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+                userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; places fallback)",
             ),
         ),
     )
@@ -74,8 +204,30 @@ class AppContainer(application: Application) {
      * Phase 10 road intelligence (hazards, weather, speed limits — see ARCHITECTURE.md's Road
      * intelligence section for exactly which of those are real today versus absent-by-design).
      */
-    val roadIntelligenceRepository: RoadIntelligenceRepository = DefaultRoadIntelligenceRepository(
-        userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; development)",
+    val roadIntelligenceRepository: RoadIntelligenceRepository = CompositeRoadIntelligenceRepository(
+        providers = listOf(
+            communityReportsRepository,
+            HereTrafficRoadIntelligenceRepository(
+                endpointUrl = BuildConfig.TRAFFIC_INCIDENTS_GATEWAY_URL,
+                publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                clientId = backendClientId,
+                localeTagProvider = localizationPrefs::currentLocaleTag,
+            ),
+            DefaultRoadIntelligenceRepository(
+                userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; fallback)",
+            ),
+        ),
+    )
+
+    /**
+     * LaneLock remains truth-gated. The backend combines OSM turn-lane metadata with Mapbox
+     * Directions lane arrays when configured; conflicting or insufficient evidence returns null.
+     * HERE Route Matching is no longer a dependency.
+     */
+    val laneGuidanceRepository: LaneGuidanceRepository = BackendLaneGuidanceRepository(
+        endpointUrl = BuildConfig.LANE_GUIDANCE_GATEWAY_URL,
+        publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+        clientId = backendClientId,
     )
 
     /**
@@ -103,8 +255,19 @@ class AppContainer(application: Application) {
      * to kick off at app start — unlike ARCore it never touches the camera or needs an Activity),
      * seeded from the persisted language/mute preference.
      */
-    val voiceGuidanceEngine: VoiceGuidanceEngine = AndroidTextToSpeechEngine(application).apply {
+    private val androidTtsFallback = AndroidTextToSpeechEngine(application)
+
+    val voiceGuidanceEngine: VoiceGuidanceEngine = HybridVoiceGuidanceEngine(
+        context = application,
+        neuralRepository = BackendNeuralVoiceRepository(
+            endpointUrl = BuildConfig.VOICE_GATEWAY_URL,
+            publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+        clientId = backendClientId,
+        ),
+        fallback = androidTtsFallback,
+    ).apply {
         setLanguage(voiceGuidancePrefs.language())
+        setMeasurementSystem(localizationPrefs.measurementSystem())
         setEnabled(voiceGuidancePrefs.isEnabled())
     }
 }
@@ -116,5 +279,14 @@ class OpenMapsApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        container.crashRecorder.install()
+        (container.reliabilityReporter as? BackendReliabilityReporter)
+            ?.uploadPendingCrash(container.crashRecorder)
+        container.reliabilityReporter.record(
+            ReliabilityEvent(
+                name = ReliabilityEventName.AppLaunch,
+                outcome = ReliabilityOutcome.Success,
+            ),
+        )
     }
 }

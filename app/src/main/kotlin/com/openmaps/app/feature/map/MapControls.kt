@@ -47,7 +47,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
@@ -61,6 +60,9 @@ import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.localization.LocalAppLocale
+import com.openmaps.app.core.localization.LocalMeasurementSystem
+import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.map.MapMode
@@ -376,8 +378,9 @@ fun RouteEndpointFields(
 /**
  * The mockup's route-mode row: Driving / Transit / Walking.
  *
- * **Only Driving is real.** OpenMaps computes a single driving profile from Valhalla, so Transit and
- * Walking are rendered but permanently disabled rather than shown with invented travel times. They
+ * **Only Driving is real.** OpenMaps computes a production traffic-aware driving profile through
+ * its routing gateway (with Valhalla as a fallback), so Transit and Walking are rendered but
+ * permanently disabled rather than shown with invented travel times. They
  * are `enabled = false` buttons, not clickable-and-ignored ones, so the control can never be a lie.
  */
 @Composable
@@ -473,6 +476,7 @@ fun BottomPanel(
     onExploreCategoryClicked: (PlaceCategory) -> Unit,
     /** Opens the step list for the computed route (mockup's "Steps" button). */
     onSteps: () -> Unit,
+    onAlternativeSelected: (Int) -> Unit = {},
     canStart: Boolean,
     isNavigating: Boolean,
     navigationError: NavigationError?,
@@ -521,7 +525,7 @@ fun BottomPanel(
                 modifier = Modifier.align(Alignment.Start).padding(top = 2.dp),
             )
             Spacer(Modifier.height(12.dp))
-            RoutePreviewSummary(routeState)
+            RoutePreviewSummary(routeState, onAlternativeSelected)
             Spacer(Modifier.height(14.dp))
             NavigationControls(
                 canStart = canStart,
@@ -796,20 +800,17 @@ private fun homeAngularDifference(a: Double, b: Double): Double {
     return if (raw > 180.0) 360.0 - raw else raw
 }
 
-private fun homeDistanceLabel(meters: Double): String {
-    val feet = meters * 3.28084
-    val miles = meters / 1609.344
-    return when {
-        feet < 1000.0 -> "${feet.roundToInt()} ft"
-        miles < 10.0 -> String.format(Locale.US, "%.1f mi", miles)
-        else -> "${miles.roundToInt()} mi"
-    }
-}
+@Composable
+private fun homeDistanceLabel(meters: Double): String =
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current, LocalAppLocale.current)
 
 private const val HOME_AHEAD_HALF_ANGLE_DEGREES = 55.0
 
 @Composable
-private fun RoutePreviewSummary(routeState: RouteState) {
+private fun RoutePreviewSummary(
+    routeState: RouteState,
+    onAlternativeSelected: (Int) -> Unit = {},
+) {
     when (routeState) {
         RouteState.Idle -> Unit
         RouteState.WaitingForLocation -> RouteStatusText(stringResource(R.string.route_waiting_for_location))
@@ -834,11 +835,65 @@ private fun RoutePreviewSummary(routeState: RouteState) {
                     value = ArrivalTimeFormatter.format(
                         routeState.route.durationSeconds,
                         System.currentTimeMillis(),
+                        locale = LocalAppLocale.current,
                     ),
                     label = stringResource(R.string.route_preview_arrival),
                     modifier = Modifier.weight(1f),
                 )
             }
+            routeState.route.trafficDelaySeconds
+                ?.takeIf { routeState.route.isTrafficAware && it >= 60.0 }
+                ?.let { delay ->
+                    Text(
+                        text = stringResource(R.string.route_traffic_delay_format, (delay / 60.0).roundToInt()),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OpenMapsColors.TextSecondary,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+
+            if (routeState.route.alternatives.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = stringResource(R.string.route_other_routes),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = OpenMapsColors.TextPrimary,
+                )
+                Spacer(Modifier.height(6.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    routeState.route.alternatives.take(2).forEachIndexed { index, alternative ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(OpenMapsColors.SurfaceMuted, GlassShapes.Row)
+                                .clickable { onAlternativeSelected(index) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    text = alternative.label ?: stringResource(R.string.route_alternate_fallback),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = OpenMapsColors.TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = "${formatDuration(alternative.durationSeconds)} · ${formatDistance(alternative.distanceMeters)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OpenMapsColors.TextSecondary,
+                                )
+                            }
+                            Text(
+                                text = stringResource(R.string.route_use_action),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = OpenMapsColors.ElectricBlueFilled,
+                            )
+                        }
+                    }
+                }
+            }
+
             if (routeState.route.maneuvers.isNotEmpty()) {
                 Text(
                     text = stringResource(
@@ -898,8 +953,8 @@ private fun RouteSummaryLine(routeState: RouteState) {
         RouteState.WaitingForLocation -> RouteStatusText(stringResource(R.string.route_waiting_for_location))
         RouteState.Loading -> RouteLoadingRow()
         // Mockup Route Preview: a large duration/distance headline, then the arrival line beneath.
-        // No traffic/quality note here — OpenMaps has no traffic provider, so that line only ever
-        // appears if a real source ever supplies it (see docs/ARCHITECTURE.md road intelligence).
+        // Traffic delay is shown in RoutePreviewSummary only when the production provider supplied
+        // real traffic-aware timing; this compact summary never invents a second estimate.
         is RouteState.Ready -> {
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
@@ -916,7 +971,14 @@ private fun RouteSummaryLine(routeState: RouteState) {
                 )
             }
             RouteStatusText(
-                text = "Arrive ${ArrivalTimeFormatter.format(routeState.route.durationSeconds, System.currentTimeMillis())}",
+                text = stringResource(
+                    R.string.route_arrive_format,
+                    ArrivalTimeFormatter.format(
+                        routeState.route.durationSeconds,
+                        System.currentTimeMillis(),
+                        locale = LocalAppLocale.current,
+                    ),
+                ),
                 color = OpenMapsColors.TextSecondary,
             )
         }
@@ -955,19 +1017,13 @@ private fun RouteError.toMessageRes(): Int = when (this) {
     RouteError.NoRouteFound -> R.string.route_error_no_route
 }
 
-private fun formatDistance(meters: Double): String {
-    val miles = meters / METERS_PER_MILE
-    return if (miles < 10) String.format(Locale.US, "%.1f mi", miles) else "${miles.roundToInt()} mi"
-}
+@Composable
+private fun formatDistance(meters: Double): String =
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
 
-private fun formatDuration(seconds: Double): String {
-    val totalMinutes = (seconds / 60).roundToInt().coerceAtLeast(1)
-    val hours = totalMinutes / 60
-    val minutes = totalMinutes % 60
-    return if (hours > 0) "$hours hr $minutes min" else "$minutes min"
-}
-
-private const val METERS_PER_MILE = 1609.344
+@Composable
+private fun formatDuration(seconds: Double): String =
+    NavigationUnits.formatDuration(seconds, LocalAppLocale.current)
 
 /** One card for every location situation; copy and primary action depend on [prompt]. */
 @Composable
@@ -1091,6 +1147,28 @@ fun LiveFallbackBanner(message: String, onDismiss: () -> Unit, modifier: Modifie
                 tint = OpenMapsColors.TextSecondary,
             )
         }
+    }
+}
+
+
+/**
+ * Persistent degraded-service notice for a route restored from the local cache. No dismiss action:
+ * the notice disappears only after a live route replaces the cached one.
+ */
+@Composable
+fun DegradedRouteBanner(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .surfaceCard(GlassShapes.Pill)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.route_degraded_cached),
+            style = MaterialTheme.typography.labelMedium,
+            color = OpenMapsColors.Warning,
+        )
     }
 }
 

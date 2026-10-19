@@ -9,6 +9,7 @@ import com.openmaps.app.core.environment.EnvironmentSignals
 import com.openmaps.app.core.environment.ManeuverSpacing
 import com.openmaps.app.core.environment.RoadClass
 import com.openmaps.app.core.environment.RoadClassRepository
+import com.openmaps.app.core.geocoding.ReverseGeocodingRepository
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.location.LocationRepository
@@ -16,9 +17,20 @@ import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.LocationUpdate
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.location.isGranted
+import com.openmaps.app.core.localization.LocalizationPrefs
+import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.navigation.NavigationSession
 import com.openmaps.app.core.navigation.OffRouteDecision
+import com.openmaps.app.core.navigation.NavigationForegroundController
+import com.openmaps.app.core.navigation.NavigationRecoveryStore
+import com.openmaps.app.core.navigation.NoopNavigationRecoveryStore
+import com.openmaps.app.core.navigation.NoopNavigationForegroundController
 import com.openmaps.app.core.navigation.RouteProgress
+import com.openmaps.app.core.reliability.NoopReliabilityReporter
+import com.openmaps.app.core.reliability.ReliabilityEvent
+import com.openmaps.app.core.reliability.ReliabilityEventName
+import com.openmaps.app.core.reliability.ReliabilityOutcome
+import com.openmaps.app.core.reliability.ReliabilityReporter
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PlaceCategoryMapper
@@ -36,17 +48,24 @@ import com.openmaps.app.core.roadintelligence.RoadAlertActivation
 import com.openmaps.app.core.roadintelligence.RoadAlertHysteresis
 import com.openmaps.app.core.roadintelligence.RoadAlertPriority
 import com.openmaps.app.core.roadintelligence.RoadEventSeverity
+import com.openmaps.app.core.roadintelligence.RoadEventType
+import com.openmaps.app.core.roadintelligence.LaneGuidanceRepository
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RouteAlert
 import com.openmaps.app.core.roadintelligence.SpeedLimitInfo
 import com.openmaps.app.core.roadintelligence.SpeedUnit
+import com.openmaps.app.core.roadintelligence.TrafficCondition
+import com.openmaps.app.core.roadintelligence.TrafficCongestionLevel
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.routing.RoutingException
 import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.core.sharing.TripShareRepository
+import com.openmaps.app.core.sharing.TripShareRecoveryStore
+import com.openmaps.app.core.sharing.NoopTripShareRecoveryStore
 import com.openmaps.app.core.sharing.TripShareRequest
 import com.openmaps.app.core.sharing.TripShareSession
+import com.openmaps.app.core.sharing.TripShareUpdate
 import com.openmaps.app.core.sharing.UnavailableTripShareRepository
 import com.openmaps.app.core.voice.NoopVoiceGuidanceEngine
 import com.openmaps.app.core.voice.VoiceAnnouncementPlanner
@@ -57,6 +76,8 @@ import com.openmaps.app.core.voice.VoiceLanguage
 import com.openmaps.app.feature.live.LiveReadiness
 import com.openmaps.app.map.CameraState
 import com.openmaps.app.map.MapCommand
+import com.openmaps.app.map.OfflineMapCorridorCache
+import com.openmaps.app.map.NoopOfflineMapCorridorCache
 import com.openmaps.app.map.MapError
 import com.openmaps.app.map.MapEvent
 import com.openmaps.app.map.MapMode
@@ -90,20 +111,37 @@ class MapViewModel(
     private val placesRepository: PlaceRepository,
     private val roadIntelligenceRepository: RoadIntelligenceRepository,
     private val roadClassRepository: RoadClassRepository,
+    private val laneGuidanceRepository: LaneGuidanceRepository? = null,
+    private val reverseGeocodingRepository: ReverseGeocodingRepository? = null,
     private val driverReportRepository: DriverReportRepository = UnavailableDriverReportRepository(),
     private val tripShareRepository: TripShareRepository = UnavailableTripShareRepository(),
+    private val tripShareRecoveryStore: TripShareRecoveryStore = NoopTripShareRecoveryStore,
     /** Delta-spec section 14. Defaults to a no-op so every existing test keeps working with no
      * voice at all; the real TTS engine is supplied by [AppContainer]. */
     private val voiceGuidanceEngine: VoiceGuidanceEngine = NoopVoiceGuidanceEngine(),
     /** Null in tests (no Android `Context` there); the real instance is supplied by [AppContainer]. */
     private val voiceGuidancePrefs: VoiceGuidancePrefs? = null,
+    /** Phase 7 locale/unit preferences; null in pure ViewModel tests. */
+    private val localizationPrefs: LocalizationPrefs? = null,
+    private val reliabilityReporter: ReliabilityReporter = NoopReliabilityReporter,
+    private val navigationForegroundController: NavigationForegroundController = NoopNavigationForegroundController,
+    private val navigationRecoveryStore: NavigationRecoveryStore = NoopNavigationRecoveryStore,
+    private val offlineMapCorridorCache: OfflineMapCorridorCache = NoopOfflineMapCorridorCache,
     private val fixTimeoutMillis: Long = DEFAULT_FIX_TIMEOUT_MILLIS,
 ) : ViewModel() {
+
+    private val recoveredNavigation = navigationRecoveryStore.load()
 
     private val _uiState = MutableStateFlow(
         MapUiState(
             voiceEnabled = voiceGuidancePrefs?.isEnabled() ?: true,
             voiceLanguage = voiceGuidancePrefs?.language() ?: VoiceLanguage.EnglishUs,
+            measurementSystem = localizationPrefs?.measurementSystem() ?: MeasurementSystem.Auto,
+            selectedDestination = recoveredNavigation?.destination,
+            routeState = recoveredNavigation?.route?.let(RouteState::Ready) ?: RouteState.Idle,
+            navigationState = if (recoveredNavigation != null) NavigationState.Ready else NavigationState.Idle,
+            selectedMapMode = MapMode.Map,
+            selectedNavigationMode = NavigationMode.Map,
         ),
     )
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
@@ -129,10 +167,32 @@ class MapViewModel(
     private var locationJob: Job? = null
     private var timeoutJob: Job? = null
     private var routeJob: Job? = null
+    private var reverseGeocodingJob: Job? = null
+    private var lastReverseGeocodedLocation: UserLocation? = null
     private var isAppVisible = false
     private var autoCenterHandled = false
     private var userHasMovedCamera = false
     private var autoPromptEmitted = false
+    private var routeRequestStartedAtMillis: Long? = null
+    private var recoveryPending = recoveredNavigation != null
+
+    private fun recordReliability(
+        name: ReliabilityEventName,
+        outcome: ReliabilityOutcome = ReliabilityOutcome.Info,
+        reason: String? = null,
+        durationMillis: Long? = null,
+        metadata: Map<String, String> = emptyMap(),
+    ) {
+        reliabilityReporter.record(
+            ReliabilityEvent(
+                name = name,
+                outcome = outcome,
+                reason = reason,
+                durationMillis = durationMillis,
+                metadata = metadata,
+            ),
+        )
+    }
 
     /**
      * Invoked after a reroute replaces the route. Phase 7 anchors and Phase 8 arrows are both
@@ -158,6 +218,9 @@ class MapViewModel(
     private var hazardsJob: Job? = null
     private var weatherJob: Job? = null
     private var speedLimitJob: Job? = null
+    private var laneGuidanceJob: Job? = null
+    private var lastLaneGuidanceKey: String? = null
+    private var lastRoadEventsRefreshMillis: Long = 0L
 
     /** Where the last weather/speed-limit fetch was centered, for each's own move-threshold check. */
     private var lastWeatherFetchLocation: UserLocation? = null
@@ -207,6 +270,12 @@ class MapViewModel(
         _uiState.update { it.copy(voiceEnabled = enabled) }
     }
 
+    fun onMeasurementSystemChanged(system: MeasurementSystem) {
+        localizationPrefs?.setMeasurementSystem(system)
+        voiceGuidanceEngine.setMeasurementSystem(system)
+        _uiState.update { it.copy(measurementSystem = system) }
+    }
+
     /** Delta-spec section 24: Settings > Navigation > Voice Language. */
     fun onVoiceLanguageChanged(language: VoiceLanguage) {
         voiceGuidanceEngine.setLanguage(language)
@@ -230,7 +299,15 @@ class MapViewModel(
 
     // endregion
 
-    private var activeTripShareSession: TripShareSession? = null
+    private var activeTripShareSession: TripShareSession? = tripShareRecoveryStore.load()
+    private var tripShareUpdateJob: Job? = null
+    private var lastTripShareUpdateMillis: Long = 0L
+
+    /**
+     * Prevents a persistent live incident from triggering a network reroute on every GPS tick.
+     * Cleared only when a genuinely new trip starts.
+     */
+    private val incidentRerouteIds = mutableSetOf<String>()
 
     // region Navigation session (Phase 4)
 
@@ -260,7 +337,11 @@ class MapViewModel(
         if (_uiState.value.locationPermission == state) return
         _uiState.update {
             val next = it.copy(locationPermission = state)
-            if (state.isGranted) next else next.copy(currentLocation = null, locationStatus = LocationStatus.Idle)
+            if (state.isGranted) next else next.copy(
+                currentLocation = null,
+                currentLocationPlace = null,
+                locationStatus = LocationStatus.Idle,
+            )
         }
         if (state == LocationPermissionState.NotRequested && !autoPromptEmitted) {
             autoPromptEmitted = true
@@ -269,7 +350,7 @@ class MapViewModel(
         syncLocationCollection()
     }
 
-    /** GPS/network listeners run only while the app is visible (battery and privacy). */
+    /** GPS/network listeners run while visible, or while a user-started foreground trip is active. */
     fun onAppVisibilityChanged(visible: Boolean) {
         isAppVisible = visible
         syncLocationCollection()
@@ -530,6 +611,23 @@ class MapViewModel(
     // region Routing
 
     /**
+     * Called from the process-wide connectivity monitor. A validated network recovery refreshes
+     * only a cached degraded route; normal live routes are left untouched.
+     */
+    fun onConnectivityChanged(isOnline: Boolean) {
+        if (!isOnline) return
+        val state = _uiState.value
+        val cached = (state.routeState as? RouteState.Ready)?.route?.isOfflineCached == true
+        if (!cached) return
+
+        if (state.isNavigating) {
+            state.currentLocation?.let(::requestReroute)
+        } else {
+            requestRoute()
+        }
+    }
+
+    /**
      * Fetches a route from the current location to [MapUiState.selectedDestination]. Cancels
      * any in-flight request first, so a destination change (or a second call for any other
      * reason) always replaces the pending route rather than racing it — only the latest call's
@@ -552,19 +650,102 @@ class MapViewModel(
         val originCoordinate = originOverride?.let { Coordinate(it.latitude, it.longitude) }
             ?: Coordinate(deviceOrigin!!.latitude, deviceOrigin.longitude)
         _uiState.update { it.copy(routeState = RouteState.Loading) }
+        routeRequestStartedAtMillis = System.currentTimeMillis()
+        recordReliability(ReliabilityEventName.RouteRequest)
         routeJob = viewModelScope.launch {
             routingRepository.route(
                 origin = originCoordinate,
                 destination = Coordinate(destination.latitude, destination.longitude),
             ).onSuccess { route ->
-                _uiState.update { it.copy(routeState = RouteState.Ready(route)) }
+                recordReliability(
+                    ReliabilityEventName.RouteReady,
+                    ReliabilityOutcome.Success,
+                    durationMillis = routeRequestStartedAtMillis?.let { System.currentTimeMillis() - it },
+                    metadata = mapOf("trafficAware" to route.isTrafficAware.toString()),
+                )
+                routeRequestStartedAtMillis = null
+                _uiState.update {
+                    it.copy(
+                        routeState = RouteState.Ready(route),
+                        roadIntelligenceState = it.roadIntelligenceState.copy(
+                            traffic = trafficConditionFor(route),
+                        ),
+                    )
+                }
                 route.bounds?.let { bounds -> commandChannel.trySend(MapCommand.FitBounds(bounds)) }
+                offlineMapCorridorCache.prefetch(route)
                 fetchPlacesAlongRoute(route)
                 fetchRoadEventsAlongRoute(route)
             }.onFailure { cause ->
+                recordReliability(
+                    ReliabilityEventName.RouteFailed,
+                    ReliabilityOutcome.Error,
+                    reason = cause::class.java.simpleName,
+                    durationMillis = routeRequestStartedAtMillis?.let { System.currentTimeMillis() - it },
+                )
+                routeRequestStartedAtMillis = null
                 _uiState.update { it.copy(routeState = RouteState.Error(cause.toRouteError())) }
             }
         }
+    }
+
+    /**
+     * Route Preview alternative selection. The backend already returned full navigation geometry,
+     * so switching routes is instant and does not spend another provider request.
+     */
+    fun onRouteAlternativeSelected(index: Int) {
+        val ready = _uiState.value.routeState as? RouteState.Ready ?: return
+        val alternative = ready.route.alternatives.getOrNull(index) ?: return
+        val currentAsAlternative = com.openmaps.app.core.routing.RouteAlternative(
+            id = ready.route.id,
+            label = ready.route.label,
+            geometry = ready.route.geometry,
+            distanceMeters = ready.route.distanceMeters,
+            durationSeconds = ready.route.durationSeconds,
+            bounds = ready.route.bounds,
+            maneuvers = ready.route.maneuvers,
+            baseDurationSeconds = ready.route.baseDurationSeconds,
+            typicalDurationSeconds = ready.route.typicalDurationSeconds,
+            trafficDelaySeconds = ready.route.trafficDelaySeconds,
+            isTrafficAware = ready.route.isTrafficAware,
+        )
+        val remaining = ready.route.alternatives.toMutableList().apply {
+            removeAt(index)
+            add(0, currentAsAlternative)
+        }
+        val selected = alternative.asRouteResult(remaining)
+        _uiState.update {
+            it.copy(
+                routeState = RouteState.Ready(selected),
+                roadIntelligenceState = it.roadIntelligenceState.copy(
+                    traffic = trafficConditionFor(selected),
+                ),
+            )
+        }
+        selected.bounds?.let { commandChannel.trySend(MapCommand.FitBounds(it)) }
+        offlineMapCorridorCache.prefetch(selected)
+        fetchPlacesAlongRoute(selected)
+        fetchRoadEventsAlongRoute(selected)
+    }
+
+    private fun trafficConditionFor(route: RouteResult): TrafficCondition? {
+        if (!route.isTrafficAware) return null
+        val base = route.baseDurationSeconds ?: return null
+        val adjusted = route.durationSeconds
+        val delay = (adjusted - base).coerceAtLeast(0.0)
+        val ratio = if (base > 0.0) delay / base else 0.0
+        val level = when {
+            delay < 60.0 -> TrafficCongestionLevel.Light
+            ratio < 0.15 -> TrafficCongestionLevel.Moderate
+            ratio < 0.35 -> TrafficCongestionLevel.Heavy
+            else -> TrafficCongestionLevel.Severe
+        }
+        return TrafficCondition(
+            congestionLevel = level,
+            baseDurationSeconds = base,
+            trafficAdjustedDurationSeconds = adjusted,
+            isLive = true,
+        )
     }
 
     // endregion
@@ -921,15 +1102,23 @@ class MapViewModel(
         _uiState.update { it.copy(visiblePlaces = ranked.take(cap)) }
     }
 
-    private fun Place.toSearchResult(): SearchResult = SearchResult(
-        id = id,
-        name = name,
-        displayName = address ?: name,
-        latitude = latitude,
-        longitude = longitude,
-        category = category.name,
-        address = address,
-    )
+    private fun Place.toSearchResult(): SearchResult {
+        // Prefer a provider-supplied entrance/access point for routing when available. A POI's
+        // visual centroid can be deep inside a mall, hospital campus, stadium or parking complex;
+        // routing to that centroid is a common consumer-map failure. We only use an access point
+        // when the provider explicitly supplied one, otherwise we preserve the canonical POI point.
+        val destinationLatitude = metadata.accessLatitude ?: latitude
+        val destinationLongitude = metadata.accessLongitude ?: longitude
+        return SearchResult(
+            id = id,
+            name = name,
+            displayName = address ?: name,
+            latitude = destinationLatitude,
+            longitude = destinationLongitude,
+            category = category.name,
+            address = address,
+        )
+    }
 
     private fun Throwable.toPlacesError(): PlacesError = when (this) {
         is PlaceException.NoNetwork -> PlacesError.NoNetwork
@@ -1155,6 +1344,7 @@ class MapViewModel(
             it.copy(
                 selectedNavigationMode = mode,
                 isLiveSafetyWarningVisible = false,
+                roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
             )
         }
     }
@@ -1196,15 +1386,34 @@ class MapViewModel(
         val route = (state.routeState as? RouteState.Ready)?.route
         if (route == null) return
         if (state.currentLocation == null) {
+            recordReliability(
+                ReliabilityEventName.NavigationStartFailed,
+                ReliabilityOutcome.Error,
+                reason = "location_unavailable",
+            )
             _uiState.update { it.copy(navigationState = NavigationState.Error(NavigationError.LocationUnavailable)) }
             return
         }
         if (route.maneuvers.isEmpty()) {
+            recordReliability(
+                ReliabilityEventName.NavigationStartFailed,
+                ReliabilityOutcome.Error,
+                reason = "route_unavailable",
+            )
             _uiState.update { it.copy(navigationState = NavigationState.Error(NavigationError.RouteUnavailable)) }
             return
         }
 
         session = NavigationSession(route)
+        incidentRerouteIds.clear()
+        laneGuidanceJob?.cancel()
+        laneGuidanceJob = null
+        lastLaneGuidanceKey = null
+        _uiState.update {
+            it.copy(
+                roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
+            )
+        }
         navigationFollowSuspended = false
         // A fresh trip must not inherit the previous one's confirmed environment mode.
         environmentHysteresis.reset()
@@ -1213,7 +1422,9 @@ class MapViewModel(
         voiceGuidanceEngine.speak(VoiceEvent.NavigationStarted)
         // Seed progress immediately from the last known fix so the banner has something to show
         // before the next location tick arrives.
-        val seeded = state.currentLocation.let { session?.locate(it.toCoordinate()) }
+        val seeded = state.currentLocation.let {
+            session?.locate(it.toCoordinate(), it.bearingDegrees?.toDouble())
+        }
         // Route Preview owns the user's navigation choice. Conventional Map is the default;
         // Live is opt-in and only reaches this function after the safety acknowledgement.
         val didStart = seeded != null
@@ -1233,6 +1444,15 @@ class MapViewModel(
             )
         }
         if (seeded != null) {
+            recoveryPending = false
+            state.selectedDestination?.let { navigationRecoveryStore.save(route, it) }
+            navigationForegroundController.start()
+            syncLocationCollection()
+            recordReliability(
+                ReliabilityEventName.NavigationStarted,
+                ReliabilityOutcome.Success,
+                metadata = mapOf("mode" to requestedMode.name.lowercase()),
+            )
             followCameraWith(seeded)
             publishRouteProgress(seeded)
         }
@@ -1266,6 +1486,48 @@ class MapViewModel(
         }
     }
 
+    fun onCommunityReportConfirmed(reportId: String) {
+        voteOnCommunityReport(reportId, confirm = true)
+    }
+
+    fun onCommunityReportDismissed(reportId: String) {
+        voteOnCommunityReport(reportId, confirm = false)
+    }
+
+    private fun voteOnCommunityReport(reportId: String, confirm: Boolean) {
+        if (reportId.isBlank()) return
+        viewModelScope.launch {
+            val result = if (confirm) {
+                driverReportRepository.confirm(reportId)
+            } else {
+                driverReportRepository.dismiss(reportId)
+            }
+            result.onSuccess {
+                if (!confirm) {
+                    _uiState.update { state ->
+                        state.copy(
+                            roadIntelligenceState = state.roadIntelligenceState.copy(
+                                events = state.roadIntelligenceState.events.filterNot {
+                                    it.metadata["communityReportId"] == reportId
+                                },
+                            ),
+                        )
+                    }
+                    recomputeRoadAlerts()
+                }
+                refreshCommunityAndRoadEvents(force = true)
+            }
+        }
+    }
+
+    private fun refreshCommunityAndRoadEvents(force: Boolean = false) {
+        val route = (_uiState.value.routeState as? RouteState.Ready)?.route ?: return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastRoadEventsRefreshMillis < ROAD_EVENTS_REFRESH_INTERVAL_MILLIS) return
+        lastRoadEventsRefreshMillis = now
+        fetchRoadEventsAlongRoute(route)
+    }
+
     fun onTripShareRequested() {
         val state = _uiState.value
         val destination = state.selectedDestination
@@ -1274,8 +1536,17 @@ class MapViewModel(
             _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Unavailable) }
             return
         }
+
+        val existing = activeTripShareSession
+        if (existing != null && existing.expiresAtMillis > System.currentTimeMillis()) {
+            _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Success) }
+            eventChannel.trySend(MapUiEvent.ShareTripUrl(existing.url))
+            return
+        }
+
         _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Working) }
-        val remainingSeconds = state.navigationProgress?.remainingDurationSeconds ?: 0.0
+        val progress = state.navigationProgress
+        val remainingSeconds = progress?.remainingDurationSeconds ?: 0.0
         val expiresInMillis = maxOf(
             MIN_TRIP_SHARE_EXPIRY_MILLIS,
             (remainingSeconds * 1_000.0).toLong() + TRIP_SHARE_GRACE_MILLIS,
@@ -1286,9 +1557,13 @@ class MapViewModel(
                     destination = destination,
                     currentLocation = location,
                     expiresAtMillis = System.currentTimeMillis() + expiresInMillis,
+                    remainingDistanceMeters = progress?.remainingDistanceMeters,
+                    remainingDurationSeconds = progress?.remainingDurationSeconds,
                 ),
             ).onSuccess { session ->
                 activeTripShareSession = session
+                tripShareRecoveryStore.save(session)
+                lastTripShareUpdateMillis = System.currentTimeMillis()
                 _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Success) }
                 eventChannel.send(MapUiEvent.ShareTripUrl(session.url))
             }.onFailure {
@@ -1307,9 +1582,78 @@ class MapViewModel(
     }
 
     private fun stopTripSharingIfNeeded() {
-        val session = activeTripShareSession ?: return
+        val session = activeTripShareSession ?: run {
+            tripShareRecoveryStore.clear()
+            return
+        }
         activeTripShareSession = null
+        tripShareRecoveryStore.clear()
+        tripShareUpdateJob?.cancel()
+        tripShareUpdateJob = null
+        lastTripShareUpdateMillis = 0L
         viewModelScope.launch { tripShareRepository.stopSession(session) }
+        _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Idle) }
+    }
+
+    private fun maybeUpdateTripSharing(location: UserLocation, progress: RouteProgress) {
+        val session = activeTripShareSession ?: return
+        if (System.currentTimeMillis() >= session.expiresAtMillis) {
+            activeTripShareSession = null
+            tripShareRecoveryStore.clear()
+            tripShareUpdateJob?.cancel()
+            tripShareUpdateJob = null
+            _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Idle) }
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (now - lastTripShareUpdateMillis < TRIP_SHARE_UPDATE_INTERVAL_MILLIS) return
+        if (tripShareUpdateJob?.isActive == true) return
+
+        lastTripShareUpdateMillis = now
+        tripShareUpdateJob = viewModelScope.launch {
+            tripShareRepository.updateSession(
+                session,
+                TripShareUpdate(
+                    currentLocation = location,
+                    remainingDistanceMeters = progress.remainingDistanceMeters,
+                    remainingDurationSeconds = progress.remainingDurationSeconds,
+                ),
+            ).onFailure { error ->
+                if (error is com.openmaps.app.core.sharing.TripShareException.Expired ||
+                    error is com.openmaps.app.core.sharing.TripShareException.Closed
+                ) {
+                    activeTripShareSession = null
+                    tripShareRecoveryStore.clear()
+                    _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Idle) }
+                }
+            }
+        }
+    }
+
+    private fun completeTripSharingOnArrival(location: UserLocation, progress: RouteProgress) {
+        val session = activeTripShareSession ?: run {
+            tripShareRecoveryStore.clear()
+            return
+        }
+        activeTripShareSession = null
+        tripShareRecoveryStore.clear()
+        tripShareUpdateJob?.cancel()
+        lastTripShareUpdateMillis = 0L
+        tripShareUpdateJob = viewModelScope.launch {
+            tripShareRepository.updateSession(
+                session,
+                TripShareUpdate(
+                    currentLocation = location,
+                    remainingDistanceMeters = 0.0,
+                    remainingDurationSeconds = 0.0,
+                    arrived = true,
+                ),
+            ).onFailure {
+                // Privacy fallback: if "arrived" cannot be persisted, attempt to invalidate the
+                // public link rather than leaving a live-looking session behind until expiry.
+                tripShareRepository.stopSession(session)
+            }
+        }
         _uiState.update { it.copy(tripShareStatus = ExternalActionStatus.Idle) }
     }
 
@@ -1325,11 +1669,21 @@ class MapViewModel(
 
     /** Explicit red Exit action: end the trip and return to Discover/Home, not Route Preview. */
     fun endNavigationToHome() {
+        if (_uiState.value.isNavigating) {
+            recordReliability(ReliabilityEventName.NavigationEnded, ReliabilityOutcome.Info, reason = "exit_to_home")
+        }
+        navigationForegroundController.stop()
+        navigationRecoveryStore.clear()
+        recoveryPending = false
+        offlineMapCorridorCache.clear()
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
         rerouteInFlight = false
         liveAutoFallbackArmed = false
+        laneGuidanceJob?.cancel()
+        laneGuidanceJob = null
+        lastLaneGuidanceKey = null
         routeJob?.cancel()
         routeJob = null
         _routeProgressView.value = null
@@ -1352,8 +1706,10 @@ class MapViewModel(
                 stepsRouteSummary = null,
                 navigationFollowSuspended = false,
                 isLiveSafetyWarningVisible = false,
+                roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
             )
         }
+        syncLocationCollection()
         recomputeVisiblePlaces()
         recomputeRoadAlerts()
         recomputeEnvironment()
@@ -1361,14 +1717,29 @@ class MapViewModel(
 
     /** Ends the trip and returns the map to plain route browsing. Never touches the route itself. */
     fun stopNavigation() {
+        if (_uiState.value.isNavigating) {
+            recordReliability(ReliabilityEventName.NavigationEnded, ReliabilityOutcome.Info, reason = "stopped")
+        }
+        navigationForegroundController.stop()
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
         rerouteInFlight = false
         liveAutoFallbackArmed = false
+        laneGuidanceJob?.cancel()
+        laneGuidanceJob = null
+        lastLaneGuidanceKey = null
         _uiState.update {
-            it.copy(navigationState = NavigationState.Idle, navigationFollowSuspended = false)
+            it.copy(
+                navigationState = NavigationState.Idle,
+                navigationFollowSuspended = false,
+                roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
+            )
         }
+        navigationRecoveryStore.clear()
+        recoveryPending = false
+        offlineMapCorridorCache.clear()
+        syncLocationCollection()
         _routeProgressView.value = null
         recomputeVisiblePlaces()
         // A new trip must not inherit stale confirm/exit streaks, and route-relative hazard alerts
@@ -1382,15 +1753,74 @@ class MapViewModel(
     }
 
     /**
+     * Rehydrates a process-killed trip from local state only after a fresh device fix exists.
+     * Recovery always returns in conventional Map mode; Live/AR remains opt-in after recreation.
+     */
+    private fun maybeResumeRecoveredNavigation(location: UserLocation) {
+        if (!recoveryPending || !isAppVisible) return
+        val state = _uiState.value
+        val route = (state.routeState as? RouteState.Ready)?.route ?: run {
+            navigationRecoveryStore.clear()
+            recoveryPending = false
+            return
+        }
+        val destination = state.selectedDestination ?: run {
+            navigationRecoveryStore.clear()
+            recoveryPending = false
+            return
+        }
+        if (route.maneuvers.isEmpty()) {
+            navigationRecoveryStore.clear()
+            recoveryPending = false
+            return
+        }
+
+        val restoredSession = NavigationSession(route)
+        val progress = restoredSession.locate(
+            location.toCoordinate(),
+            location.bearingDegrees?.toDouble(),
+        ) ?: return
+
+        session = restoredSession
+        recoveryPending = false
+        navigationForegroundController.start()
+        _uiState.update {
+            it.copy(
+                selectedDestination = destination,
+                selectedMapMode = MapMode.Map,
+                selectedNavigationMode = NavigationMode.Map,
+                navigationState = NavigationState.Active(withOffRouteFlag(progress, false)),
+                navigationFollowSuspended = false,
+            )
+        }
+        publishRouteProgress(progress)
+        followCameraWith(progress)
+        syncLocationCollection()
+        recordReliability(
+            ReliabilityEventName.NavigationStarted,
+            ReliabilityOutcome.Success,
+            reason = "process_recovery",
+            metadata = mapOf("mode" to "map"),
+        )
+    }
+
+    /**
      * Advances the trip from a fresh fix. Called for every location update, so it must be cheap and
      * must never throw: a navigation bug should not be able to take down the map screen.
      */
     private fun onNavigationTick(location: UserLocation) {
         val activeSession = session ?: return
-        val progress = activeSession.locate(location.toCoordinate()) ?: return
+        val progress = activeSession.locate(
+            location.toCoordinate(),
+            location.bearingDegrees?.toDouble(),
+        ) ?: return
         publishRouteProgress(progress)
 
         if (progress.hasArrived) {
+            navigationForegroundController.stop()
+            navigationRecoveryStore.clear()
+            recoveryPending = false
+            completeTripSharingOnArrival(location, progress)
             session = null
             // Arrival ends the trip: release the AR anchors and remove the arrows.
             onNavigationEnded()
@@ -1398,6 +1828,8 @@ class MapViewModel(
             // muted overlay would suggest there is still road ahead to drive.
             _routeProgressView.value = null
             _uiState.update { it.copy(navigationState = NavigationState.Arrived(progress)) }
+            syncLocationCollection()
+            recordReliability(ReliabilityEventName.Arrived, ReliabilityOutcome.Success)
             voiceGuidanceEngine.speak(VoiceEvent.Arrived)
             viewModelScope.launch {
                 delay(ARRIVAL_RETURN_HOME_DELAY_MILLIS)
@@ -1408,7 +1840,11 @@ class MapViewModel(
             return
         }
 
+        maybeUpdateTripSharing(location, progress)
+        refreshCommunityAndRoadEvents()
         dispatchVoiceForProgress(progress)
+        maybeFetchLaneGuidance(progress)
+        maybeRerouteForCriticalIncident(location, progress)
 
         when (activeSession.updateOffRoute(progress)) {
             OffRouteDecision.OnRoute -> {
@@ -1416,12 +1852,14 @@ class MapViewModel(
                 followCameraWith(progress)
             }
             OffRouteDecision.OffRouteConfirmed -> {
+                recordReliability(ReliabilityEventName.OffRouteConfirmed, ReliabilityOutcome.Degraded)
                 // Flagged but not rerouting yet: hold the route and keep tracking. Still follow,
                 // so the driver keeps seeing where they are relative to it.
                 _uiState.update { it.copy(navigationState = NavigationState.OffRoute(withOffRouteFlag(progress, true))) }
                 followCameraWith(progress)
             }
             OffRouteDecision.TriggerReroute -> {
+                recordReliability(ReliabilityEventName.RerouteTriggered, ReliabilityOutcome.Degraded)
                 _uiState.update { it.copy(navigationState = NavigationState.Rerouting) }
                 voiceGuidanceEngine.speak(VoiceEvent.Rerouting)
                 requestReroute(location)
@@ -1429,13 +1867,105 @@ class MapViewModel(
         }
     }
 
+    /**
+     * Requests lane guidance once per upcoming maneuver. The trace ends at that maneuver and uses
+     * only real route geometry. The backend combines OSM turn-lane tags and Mapbox lane arrays,
+     * and returns null whenever the evidence is missing, conflicting, or not maneuver-compatible.
+     */
+    private fun maybeFetchLaneGuidance(progress: RouteProgress) {
+        val repository = laneGuidanceRepository ?: return
+        val route = (_uiState.value.routeState as? RouteState.Ready)?.route ?: return
+        val maneuver = progress.currentManeuver
+        val key = "${maneuver.beginShapeIndex}:${maneuver.endShapeIndex}:${maneuver.type}"
+        if (key == lastLaneGuidanceKey || laneGuidanceJob?.isActive == true) return
+
+        val end = maneuver.endShapeIndex.coerceIn(1, route.geometry.lastIndex)
+        val start = maxOf(0, minOf(maneuver.beginShapeIndex, end - 1, end - LANE_TRACE_MAX_POINTS))
+        val trace = route.geometry.subList(start, end + 1)
+        if (trace.size < 2) return
+
+        lastLaneGuidanceKey = key
+        _uiState.update {
+            it.copy(
+                roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
+            )
+        }
+        laneGuidanceJob = viewModelScope.launch {
+            repository.guidance(trace, maneuver.type)
+                .onSuccess { guidance ->
+                    // Do not allow a late response for a maneuver already passed to light up LaneLock.
+                    val active = _uiState.value.navigationProgress?.currentManeuver
+                    val stillCurrent = active != null &&
+                        active.beginShapeIndex == maneuver.beginShapeIndex &&
+                        active.endShapeIndex == maneuver.endShapeIndex &&
+                        active.type == maneuver.type
+                    if (stillCurrent) {
+                        _uiState.update { state ->
+                            state.copy(
+                                roadIntelligenceState = state.roadIntelligenceState.copy(
+                                    laneGuidance = guidance,
+                                ),
+                            )
+                        }
+                        recomputeRoadAlerts()
+                    }
+                }
+        }
+    }
+
+    /**
+     * A provider-confirmed severe closure/crash ahead is a routing input, not merely decoration.
+     * Trigger one traffic-aware recalculation while preserving the current route until a replacement
+     * succeeds. This is intentionally narrower than "reroute on any incident".
+     */
+    private fun maybeRerouteForCriticalIncident(
+        location: UserLocation,
+        progress: RouteProgress,
+    ) {
+        if (rerouteInFlight) return
+        val candidate = _uiState.value.roadIntelligenceState.events
+            .asSequence()
+            .filter { event ->
+                event.id !in incidentRerouteIds &&
+                    event.severity >= RoadEventSeverity.High &&
+                    (event.type == RoadEventType.Closure || event.type == RoadEventType.Crash) &&
+                    event.isTrustedForAutomaticReroute()
+            }
+            .mapNotNull { event ->
+                val routeMeters = event.routeDistanceMeters ?: return@mapNotNull null
+                val ahead = routeMeters - progress.distanceTraveledMeters
+                if (ahead in 0.0..CRITICAL_INCIDENT_REROUTE_DISTANCE_METERS) event to ahead else null
+            }
+            .minByOrNull { it.second }
+            ?: return
+
+        incidentRerouteIds += candidate.first.id
+        _uiState.update { it.copy(navigationState = NavigationState.Rerouting) }
+        voiceGuidanceEngine.speak(VoiceEvent.Rerouting)
+        requestReroute(location)
+    }
+
+    private fun com.openmaps.app.core.roadintelligence.RoadEvent.isTrustedForAutomaticReroute(): Boolean {
+        if (metadata["source"] != "community") return true
+        val confidence = metadata["confidence"]?.toDoubleOrNull() ?: return false
+        val confirmations = metadata["confirmations"]?.toIntOrNull() ?: 0
+        return confidence >= COMMUNITY_REROUTE_MIN_CONFIDENCE && confirmations >= COMMUNITY_REROUTE_MIN_CONFIRMATIONS
+    }
+
     /** Completes the arrival lifecycle and returns to the clean Discover/Home state. */
     private fun finishArrivalToHome() {
+        navigationForegroundController.stop()
+        navigationRecoveryStore.clear()
+        recoveryPending = false
+        offlineMapCorridorCache.clear()
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
         rerouteInFlight = false
         liveAutoFallbackArmed = false
+        laneGuidanceJob?.cancel()
+        laneGuidanceJob = null
+        lastLaneGuidanceKey = null
         routeJob?.cancel()
         routeJob = null
         _routeProgressView.value = null
@@ -1460,6 +1990,7 @@ class MapViewModel(
                 isLiveSafetyWarningVisible = false,
             )
         }
+        syncLocationCollection()
         recomputeVisiblePlaces()
         recomputeRoadAlerts()
         recomputeEnvironment()
@@ -1480,13 +2011,20 @@ class MapViewModel(
         routeJob = viewModelScope.launch {
             routingRepository.route(origin.toCoordinate(), Coordinate(destination.latitude, destination.longitude))
                 .onSuccess { route ->
+                    recordReliability(ReliabilityEventName.RerouteSucceeded, ReliabilityOutcome.Success)
+                    navigationRecoveryStore.save(route, destination)
                     rerouteInFlight = false
                     session = NavigationSession(route)
+                    laneGuidanceJob?.cancel()
+                    laneGuidanceJob = null
+                    lastLaneGuidanceKey = null
                     // Anchors and arrows were derived from the OLD route's geometry, so they are now
                     // stale. Notify before the new set is produced so two routes never overlap.
                     onRouteReplaced()
                     navigationFollowSuspended = false
-                    val progress = _uiState.value.currentLocation?.let { session?.locate(it.toCoordinate()) }
+                    val progress = _uiState.value.currentLocation?.let {
+                        session?.locate(it.toCoordinate(), it.bearingDegrees?.toDouble())
+                    }
                     _uiState.update {
                         it.copy(
                             navigationFollowSuspended = false,
@@ -1494,6 +2032,10 @@ class MapViewModel(
                             navigationState = progress
                                 ?.let { p -> NavigationState.Active(withOffRouteFlag(p, false)) }
                                 ?: NavigationState.Ready,
+                            roadIntelligenceState = it.roadIntelligenceState.copy(
+                                traffic = trafficConditionFor(route),
+                                laneGuidance = null,
+                            ),
                         )
                     }
                     progress?.let {
@@ -1501,6 +2043,7 @@ class MapViewModel(
                         followCameraWith(it)
                     }
                     // The old route's corridor places/hazards are stale now; fetch against the new one.
+                    offlineMapCorridorCache.prefetch(route)
                     fetchPlacesAlongRoute(route)
                     // The old route's matched distances are meaningless against new geometry, and a
                     // fresh trip must not inherit the old one's confirm/exit streaks.
@@ -1517,11 +2060,14 @@ class MapViewModel(
                     recomputeEnvironment()
                 }
                 .onFailure {
+                    recordReliability(ReliabilityEventName.RerouteFailed, ReliabilityOutcome.Error)
                     rerouteInFlight = false
                     // Not a dead end: the old route is still valid and still displayed, so return
                     // to tracking against it and surface a one-time notice instead of an error.
                     session?.offRouteDetector?.reset()
-                    val progress = _uiState.value.currentLocation?.let { loc -> session?.locate(loc.toCoordinate()) }
+                    val progress = _uiState.value.currentLocation?.let { loc ->
+                        session?.locate(loc.toCoordinate(), loc.bearingDegrees?.toDouble())
+                    }
                     _uiState.update {
                         it.copy(
                             navigationState = progress
@@ -1587,7 +2133,13 @@ class MapViewModel(
     // region Location pipeline
 
     private fun syncLocationCollection() {
-        if (_uiState.value.locationPermission.isGranted && isAppVisible) {
+        val state = _uiState.value
+        val backgroundNavigationActive = when (state.navigationState) {
+            is NavigationState.Active, is NavigationState.OffRoute, NavigationState.Rerouting -> true
+            NavigationState.Idle, NavigationState.Ready, is NavigationState.Arrived, is NavigationState.Error -> false
+        }
+        val shouldCollect = state.locationPermission.isGranted && (isAppVisible || backgroundNavigationActive)
+        if (shouldCollect) {
             if (locationJob?.isActive != true) startLocationCollection()
         } else {
             stopLocationCollection()
@@ -1648,6 +2200,8 @@ class MapViewModel(
                     )
                 }
                 centerOnFirstFix(update.location)
+                maybeReverseGeocodeCurrentLocation(update.location)
+                maybeResumeRecoveredNavigation(update.location)
                 // A route that was only missing an origin can proceed now that one exists.
                 if (_uiState.value.routeState == RouteState.WaitingForLocation) requestRoute()
                 // Navigation advances from every fix, but only once a trip is actually underway.
@@ -1667,7 +2221,13 @@ class MapViewModel(
             }
             LocationUpdate.ServicesDisabled -> {
                 timeoutJob?.cancel()
-                _uiState.update { it.copy(currentLocation = null, locationStatus = LocationStatus.ServicesDisabled) }
+                _uiState.update {
+                    it.copy(
+                        currentLocation = null,
+                        currentLocationPlace = null,
+                        locationStatus = LocationStatus.ServicesDisabled,
+                    )
+                }
             }
             LocationUpdate.ServicesEnabled -> {
                 if (_uiState.value.locationStatus != LocationStatus.Available) {
@@ -1693,6 +2253,40 @@ class MapViewModel(
         )
     }
 
+    /**
+     * Resolves GPS coordinates into a human-readable location without hammering the backend on every
+     * one-second location tick. A first fix resolves immediately; later requests require meaningful
+     * movement. Failure never removes a previously resolved place because GPS itself is still valid.
+     */
+    private fun maybeReverseGeocodeCurrentLocation(location: UserLocation) {
+        val repository = reverseGeocodingRepository ?: return
+        val previous = lastReverseGeocodedLocation
+        if (previous != null) {
+            val movedMeters = RouteCorridor.metersBetween(
+                previous.toCoordinate(),
+                location.toCoordinate(),
+            )
+            if (movedMeters < REVERSE_GEOCODE_MOVE_THRESHOLD_METERS) return
+        }
+        if (reverseGeocodingJob?.isActive == true) return
+
+        lastReverseGeocodedLocation = location
+        reverseGeocodingJob = viewModelScope.launch {
+            repository.reverse(
+                location.latitude,
+                location.longitude,
+                localizationPrefs?.currentLocaleTag(),
+            )
+                .onSuccess { resolved ->
+                    if (resolved != null) {
+                        _uiState.update { state ->
+                            state.copy(currentLocationPlace = resolved)
+                        }
+                    }
+                }
+        }
+    }
+
     // endregion
 
     private fun moveCamera(target: CameraState, durationMillis: Int, animated: Boolean = true) {
@@ -1704,6 +2298,8 @@ class MapViewModel(
     private fun UserLocation.toCoordinate(): Coordinate = Coordinate(latitude, longitude)
 
     override fun onCleared() {
+        laneGuidanceJob?.cancel()
+        reverseGeocodingJob?.cancel()
         commandChannel.close()
         eventChannel.close()
     }
@@ -1713,7 +2309,14 @@ class MapViewModel(
         const val MIN_TRIP_SHARE_EXPIRY_MILLIS = 60 * 60 * 1_000L
         const val TRIP_SHARE_GRACE_MILLIS = 30 * 60 * 1_000L
         const val MAX_TRIP_SHARE_EXPIRY_MILLIS = 24 * 60 * 60 * 1_000L
+        const val TRIP_SHARE_UPDATE_INTERVAL_MILLIS = 5_000L
+        const val ROAD_EVENTS_REFRESH_INTERVAL_MILLIS = 90_000L
+        const val COMMUNITY_REROUTE_MIN_CONFIDENCE = 0.65
+        const val COMMUNITY_REROUTE_MIN_CONFIRMATIONS = 2
         const val ARRIVAL_RETURN_HOME_DELAY_MILLIS = 6_000L
+        const val CRITICAL_INCIDENT_REROUTE_DISTANCE_METERS = 5_000.0
+        const val LANE_TRACE_MAX_POINTS = 24
+        const val REVERSE_GEOCODE_MOVE_THRESHOLD_METERS = 100.0
         const val INITIAL_USER_ZOOM = 15.0
         const val RECENTER_MIN_ZOOM = 14.0
         const val DESTINATION_ZOOM = 15.0

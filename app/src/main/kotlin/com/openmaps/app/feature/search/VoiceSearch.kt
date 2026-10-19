@@ -69,7 +69,10 @@ fun rememberVoiceSearchLauncher(
         } else {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, DEFAULT_RECOGNITION_LOCALE)
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE,
+                    context.resources.configuration.locales[0].toLanguageTag(),
+                )
                 putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
             }
             try {
@@ -83,8 +86,6 @@ fun rememberVoiceSearchLauncher(
     }
 }
 
-/** US English, matching the app's default navigation voice language. */
-private const val DEFAULT_RECOGNITION_LOCALE = "en-US"
 
 private tailrec fun Context.findActivityOrNull(): Activity? = when (this) {
     is Activity -> this
