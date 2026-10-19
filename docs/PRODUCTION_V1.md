@@ -451,3 +451,31 @@ Implemented on `feature/privacy-security-hardening-v1`:
 
 Supabase security advisors report no high/critical findings. Existing
 `rls_enabled_no_policy` INFO findings are intentional for service-role-only operational tables.
+
+## Production implementation Phase 12: Offline & Degraded Operation
+
+Implemented on `feature/offline-degraded-operation-v1`:
+
+- Successful routes are persisted locally for short-lived degraded reuse.
+- A cached route is eligible only when it is fresh (maximum six hours), the requested origin remains
+  near the cached origin, and the destination still matches closely.
+- Cached routes are explicitly marked `isOfflineCached`; stale traffic timing, traffic delay and
+  alternatives are stripped on restore so OpenMaps never presents yesterday's provider state as live.
+- Map UI displays a persistent degraded-route notice while a cached route is active.
+- Android monitors validated internet connectivity. When connectivity returns, a cached route is
+  automatically refreshed from the live routing chain; active navigation reroutes in place while
+  Route Preview performs a normal route refresh.
+- Active navigation already preserves the existing route when a live reroute fails.
+- Places retains its cache -> provider -> stale-cache -> explicit-failure chain.
+- Human-quality Voice retains Android TextToSpeech as the local failure/offline fallback.
+- Search, routing and Places already expose explicit network/timeout/degraded errors rather than fake
+  success states.
+- CI includes an Offline/Degraded acceptance gate and unit tests covering route-cache freshness,
+  destination matching and removal of stale traffic metadata.
+
+Provider-dependent release gate:
+
+- Deterministic pre-download of a route's map-tile corridor is intentionally not enabled against the
+  development OpenFreeMap source. Offline-region/prefetch behavior must be implemented and certified
+  against the selected production tile provider's SDK/URL scheme, cache limits, redistribution terms
+  and offline licensing. The route/navigation recovery work above does not claim offline-map coverage.
