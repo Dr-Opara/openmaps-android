@@ -199,15 +199,29 @@ Camera fit: on a successful route, `MapViewModel` sends one `MapCommand.FitBound
 - `Url(url, name, isDevelopmentOnly, attribution)`: a style JSON over HTTPS.
 - `InlineJson(json, name, isDevelopmentOnly, attribution)`: a style document built at runtime or bundled; this is the hook for self-hosted/PMTiles-backed styles.
 
-`BuildConfigMapStyleProvider` reads three `BuildConfig` fields generated in `app/build.gradle.kts`:
+`BuildConfigMapStyleProvider` reads production-aware `BuildConfig` fields generated in
+`app/build.gradle.kts`.
 
-| Gradle property | Default | Meaning |
-| --- | --- | --- |
-| `openmaps.style.url` | `https://tiles.openfreemap.org/styles/liberty` | style JSON URL |
-| `openmaps.style.name` | `OpenFreeMap Liberty` | shown in Settings |
-| `openmaps.style.devOnly` | `true` | shows a "Development only" label |
+| Setting | Production behavior |
+| --- | --- |
+| `STADIA_MAPS_API_KEY` | activates the approved Stadia Maps vector style |
+| `openmaps.stadia.style` | optional Stadia style id; defaults to `alidade_smooth` |
+| `openmaps.style.url` | explicit provider-neutral override for development/testing |
+| `openmaps.style.name` | human-readable provider label |
+| `openmaps.style.devOnly` | explicit development-only override |
 
-**The default is DEVELOPMENT ONLY.** OpenFreeMap is a free public instance (OpenStreetMap data, no API key). It has no SLA, and we have not confirmed its terms for our expected production volume. Do not ship to the public on it; move to a self-hosted or contracted source first (see [PMTiles migration](#migrating-to-pmtiles--self-hosted-tiles)). We intentionally do **not** use `tile.openstreetmap.org`, whose usage policy forbids this kind of app traffic.
+**Production:** MapLibre remains the renderer; Stadia Maps is the approved production vector-tile
+provider. When the Stadia key is absent, OpenMaps intentionally falls back to OpenFreeMap Liberty and
+marks the source development-only. `verifyProductionMapConfiguration` prevents that fallback from
+being mistaken for a releasable production map configuration.
+
+The active-route offline cache uses MapLibre's native offline-region database with the same
+authenticated Stadia style. OpenMaps keeps one route region, replaces it after route/reroute changes,
+and stops downloads at 90 MiB total resources to preserve headroom under the provider's mobile
+caching limit.
+
+We intentionally do **not** use `tile.openstreetmap.org`, whose usage policy forbids this kind of
+app traffic.
 
 Attribution is mandatory for OSM-derived data. The SDK's attribution control stays enabled, and Settings shows `MapStyleSource.attribution`.
 
