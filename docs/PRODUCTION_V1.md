@@ -572,3 +572,30 @@ Remaining external activation gate:
 - After the key is configured, run both `verifyProductionMapConfiguration` and
   `scripts/production-stadia-map-live-acceptance.ps1` before promoting map/offline-map capability
   from BLOCKED in the regional matrix.
+
+
+## ARCore Geospatial production activation
+
+Implemented on `feature/arcore-production-activation-v1`:
+
+- Production ARCore credentials remain external to source control and resolve from Gradle property,
+  environment variable or git-ignored `local.properties`.
+- Android already injects the key through the `com.google.android.ar.API_KEY` manifest metadata
+  expected by ARCore.
+- `verifyProductionArCoreConfiguration` fails release preparation when the key is absent or clearly
+  incomplete without printing the credential.
+- `ARCORE_GEOSPATIAL_CONFIGURED` exposes only a non-secret build-time boolean; the credential is
+  never copied into BuildConfig.
+- CI now verifies optional-AR device support, manifest plumbing, Geospatial mode activation,
+  explicit `ERROR_NOT_AUTHORIZED` handling, CameraX fallback, the required Geospatial privacy
+  acknowledgement and the absence of a committed Google API key.
+- The Live consumer UI remains non-technical while internal diagnostics preserve the exact ARCore
+  failure state for field validation.
+
+External production gate:
+
+- Create/restrict the Google Cloud ARCore API key for `com.openmaps.app` and the certificate that
+  actually signs the installed build.
+- Supply it as `ARCORE_API_KEY`, run `verifyProductionArCoreConfiguration`, install on an
+  ARCore-capable physical device, and verify outdoors that Earth is authorized and reaches tracking.
+- AR/VPS remains BLOCKED in the regional capability matrix until that physical test is completed.

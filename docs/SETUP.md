@@ -169,6 +169,22 @@ meta-data that ARCore reads, and `app/build.gradle.kts` injects its value.
 > A **release** build signed by your own key needs a **second** API key restricted to the release
 > certificate, because the package+fingerprint pair must match the key actually signing the APK.
 
+### Production credential gate
+
+Before a release candidate is built, verify that the production ARCore key is present:
+
+```powershell
+.\gradlew.bat verifyProductionArCoreConfiguration
+```
+
+The key may come from a Gradle property, the `ARCORE_API_KEY` environment variable, or the
+git-ignored root `local.properties`. The task deliberately does **not** print the key.
+
+This check proves credential injection only. Final authorization is a physical-device gate: install
+the build signed with the certificate used in the Google Cloud Android-app restriction, open Live
+outdoors, and confirm the diagnostics no longer report `ERROR_NOT_AUTHORIZED` and that Earth
+reaches tracking.
+
 ### Google Cloud steps
 
 1. Open the [project selector](https://console.cloud.google.com/projectselector) and create a project
@@ -198,13 +214,15 @@ meta-data that ARCore reads, and `app/build.gradle.kts` injects its value.
    (Substitute your SDK path.) Then outdoors, the Live overlay should stop reading
    `AR: Earth unavailable (not authorized)`.
 
-### Two things this will still not fix
+### What remains after the key is configured
 
-- **ARCore privacy notice.** Google requires that apps using the Geospatial API *"present the user
-  with a prompt to acknowledge and allow the use of data from their device."* OpenMaps does not yet
-  show one. It does not affect functional testing, but it is a release blocker and is still open.
-- **Coverage.** Geospatial needs VPS coverage or a good open-sky GPS fix. VPS is not available
-  everywhere, and `Earth.trackingState` can stay non-`TRACKING` for reasons unrelated to authorization.
+- **Privacy acknowledgement is implemented.** OpenMaps shows the ARCore/Geospatial camera + location
+  disclosure at Live activation and keeps the same information accessible in Settings.
+- **Coverage still varies.** Geospatial needs VPS coverage or a good open-sky GPS fix. VPS is not
+  available everywhere, and `Earth.trackingState` can stay non-`TRACKING` for reasons unrelated
+  to authorization.
+- **Physical validation remains mandatory.** A successful Gradle credential check proves only that
+  the key is present. A real ARCore-capable phone must still reach an authorized Earth state outdoors.
 
 ## AR route anchors and arrows (Phases 7/8)
 

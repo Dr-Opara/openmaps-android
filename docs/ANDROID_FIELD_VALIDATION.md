@@ -21,7 +21,7 @@ row PASS. A row moves from NOT RUN only after a physical ARCore-capable Android 
 | LaneLock | Real multi-lane approach; only trustworthy lane evidence shown | NOT RUN |
 | Highway exits | Exit/signpost guidance matches physical road signs | NOT RUN |
 | Map ↔ Live | Switch Map↔Live at least 20 times during one trip | NOT RUN |
-| ARCore Earth | Geospatial reaches usable tracking with provisioned production key | NOT RUN |
+| ARCore Earth | `verifyProductionArCoreConfiguration` passes; installed build no longer reports `ERROR_NOT_AUTHORIZED`; Earth reaches usable tracking outdoors | NOT RUN |
 | AR arrows | Road alignment, stability, heading and distance behavior | NOT RUN |
 | Overpass/elevation | Validate arrow lift/alignment on grades/overpasses | NOT RUN |
 | Bluetooth | Spoken guidance through vehicle/headset | NOT RUN |
@@ -40,4 +40,5 @@ row PASS. A row moves from NOT RUN only after a physical ARCore-capable Android 
 - Cached/degraded route is visibly identified and replaced after connectivity returns.
 - LaneLock is hidden when evidence conflicts or is missing.
 - AR limitations are shown honestly; CameraX/Map fallback never blocks core navigation.
+- ARCore Earth cannot pass while authorization is missing, even if the camera preview itself works.
 - Any defect found here reopens the owning production phase before public beta.
