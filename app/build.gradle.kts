@@ -9,6 +9,11 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val localProperties = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
 // ---------------------------------------------------------------------------
 // Map style configuration (see docs/ARCHITECTURE.md "Map style configuration").
 // Resolution order: -P / ~/.gradle/gradle.properties  ->  defaults below.
@@ -63,10 +68,6 @@ val styleDevOnly = providers.gradleProperty("openmaps.style.devOnly")
 // without credentials still compiles, installs, and falls back to the CameraX
 // path exactly as before.
 // ---------------------------------------------------------------------------
-val localProperties = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
-}
 // Note: `orElse(null)` is illegal in Gradle's Provider API (IllegalArgumentException), so the
 // local.properties fallback is coerced to "" here rather than passed straight in.
 val arcoreApiKey = providers.gradleProperty("ARCORE_API_KEY")
