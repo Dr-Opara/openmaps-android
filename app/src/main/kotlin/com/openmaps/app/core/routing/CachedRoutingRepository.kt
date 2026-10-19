@@ -1,8 +1,16 @@
 package com.openmaps.app.core.routing
 
 import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 import kotlin.math.*
 
 /**
@@ -24,7 +32,7 @@ class CachedRoutingRepository(
         upstream: RoutingRepository,
         maxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS,
     ) : this(
-        store = SharedPreferencesRouteCacheStore(context),
+        store = EncryptedRouteCacheStore(context),
         upstream = upstream,
         maxAgeMillis = maxAgeMillis,
     )
@@ -176,21 +184,64 @@ interface RouteCacheStore {
     fun clear()
 }
 
-class SharedPreferencesRouteCacheStore(context: Context) : RouteCacheStore {
+class EncryptedRouteCacheStore(context: Context) : RouteCacheStore {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    override fun get(): String? = prefs.getString(KEY_ROUTE, null)
+    override fun get(): String? {
+        val encoded = prefs.getString(KEY_ROUTE, null) ?: return null
+        return runCatching {
+            val packed = Base64.decode(encoded, Base64.NO_WRAP)
+            if (packed.size <= IV_BYTES) error("invalid encrypted route cache")
+            val iv = packed.copyOfRange(0, IV_BYTES)
+            val ciphertext = packed.copyOfRange(IV_BYTES, packed.size)
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(TAG_BITS, iv))
+            String(cipher.doFinal(ciphertext), Charsets.UTF_8)
+        }.getOrElse {
+            clear()
+            null
+        }
+    }
 
     override fun put(value: String) {
-        prefs.edit().putString(KEY_ROUTE, value).apply()
+        runCatching {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+            val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+            val packed = cipher.iv + encrypted
+            prefs.edit().putString(KEY_ROUTE, Base64.encodeToString(packed, Base64.NO_WRAP)).apply()
+        }
     }
 
     override fun clear() {
         prefs.edit().remove(KEY_ROUTE).apply()
     }
 
+    private fun secretKey(): SecretKey {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build(),
+        )
+        return generator.generateKey()
+    }
+
     private companion object {
         const val PREFS_NAME = "openmaps_route_cache"
         const val KEY_ROUTE = "last_route"
+        const val KEY_ALIAS = "openmaps_route_cache_v1"
+        const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        const val TRANSFORMATION = "AES/GCM/NoPadding"
+        const val IV_BYTES = 12
+        const val TAG_BITS = 128
     }
 }
