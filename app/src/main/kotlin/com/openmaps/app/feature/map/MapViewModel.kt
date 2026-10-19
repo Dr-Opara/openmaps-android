@@ -1689,6 +1689,7 @@ class MapViewModel(
                 roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
             )
         }
+        syncLocationCollection()
         recomputeVisiblePlaces()
         recomputeRoadAlerts()
         recomputeEnvironment()
@@ -1715,6 +1716,9 @@ class MapViewModel(
                 roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
             )
         }
+        navigationRecoveryStore.clear()
+        recoveryPending = false
+        syncLocationCollection()
         _routeProgressView.value = null
         recomputeVisiblePlaces()
         // A new trip must not inherit stale confirm/exit streaks, and route-relative hazard alerts
@@ -1803,6 +1807,7 @@ class MapViewModel(
             // muted overlay would suggest there is still road ahead to drive.
             _routeProgressView.value = null
             _uiState.update { it.copy(navigationState = NavigationState.Arrived(progress)) }
+            syncLocationCollection()
             recordReliability(ReliabilityEventName.Arrived, ReliabilityOutcome.Success)
             voiceGuidanceEngine.speak(VoiceEvent.Arrived)
             viewModelScope.launch {
@@ -1928,6 +1933,9 @@ class MapViewModel(
 
     /** Completes the arrival lifecycle and returns to the clean Discover/Home state. */
     private fun finishArrivalToHome() {
+        navigationForegroundController.stop()
+        navigationRecoveryStore.clear()
+        recoveryPending = false
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
@@ -1960,6 +1968,7 @@ class MapViewModel(
                 isLiveSafetyWarningVisible = false,
             )
         }
+        syncLocationCollection()
         recomputeVisiblePlaces()
         recomputeRoadAlerts()
         recomputeEnvironment()
@@ -2102,7 +2111,11 @@ class MapViewModel(
 
     private fun syncLocationCollection() {
         val state = _uiState.value
-        val shouldCollect = state.locationPermission.isGranted && (isAppVisible || state.isNavigating)
+        val backgroundNavigationActive = when (state.navigationState) {
+            is NavigationState.Active, is NavigationState.OffRoute, NavigationState.Rerouting -> true
+            NavigationState.Idle, NavigationState.Ready, is NavigationState.Arrived, is NavigationState.Error -> false
+        }
+        val shouldCollect = state.locationPermission.isGranted && (isAppVisible || backgroundNavigationActive)
         if (shouldCollect) {
             if (locationJob?.isActive != true) startLocationCollection()
         } else {
