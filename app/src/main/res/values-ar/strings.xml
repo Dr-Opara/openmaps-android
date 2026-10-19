@@ -298,4 +298,8 @@
     <string name="settings_privacy_telemetry">يتم تقليل بيانات القياس التشغيلي والاحتفاظ بها لمدة تصل إلى 30 يومًا. تستبعد تقارير الأعطال رسائل الاستثناء والإحداثيات والوجهات والعناوين ونص البحث.</string>
     <string name="settings_privacy_arcore">يستخدم Live AR خدمات Google Play للواقع المعزز (ARCore). عند تفعيل Geospatial، تعالج Google بيانات المستشعرات مثل الكاميرا والموقع.</string>
     <string name="route_degraded_cached">يتم استخدام مسار محفوظ. قد لا تتوفر حركة المرور المباشرة والإغلاقات وتحديثات وقت الوصول حتى عودة الاتصال.</string>
+    <string name="navigation_service_channel">التنقل النشط</string>
+    <string name="navigation_service_channel_description">يبقي الموقع والتنقل نشطين أثناء قفل الشاشة أو عمل OpenMaps في الخلفية.</string>
+    <string name="navigation_service_title">تنقل OpenMaps</string>
+    <string name="navigation_service_body">التنقل نشط</string>
 </resources>
