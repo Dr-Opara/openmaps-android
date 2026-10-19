@@ -55,6 +55,11 @@ jobs:
         shell: pwsh
         run: ./scripts/production-android-release-hardening-acceptance.ps1
 
+      - name: Regional capability matrix acceptance
+        if: ${{ hashFiles('scripts/production-regional-capability-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-regional-capability-acceptance.ps1
+
       - name: Privacy security acceptance
         if: ${{ hashFiles('scripts/production-privacy-security-acceptance.ps1') != '' }}
         shell: pwsh
