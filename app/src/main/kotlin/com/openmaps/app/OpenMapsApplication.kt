@@ -53,6 +53,8 @@ import com.openmaps.app.core.reliability.ReliabilityOutcome
 import com.openmaps.app.core.reliability.ReliabilityReporter
 import com.openmaps.app.reliability.AndroidCrashRecorder
 import com.openmaps.app.reliability.BackendReliabilityReporter
+import com.openmaps.app.core.navigation.NavigationForegroundController
+import com.openmaps.app.service.AndroidNavigationForegroundController
 
 /** Minimal manual dependency container (no DI framework needed at this size). */
 class AppContainer(application: Application) {
@@ -61,6 +63,8 @@ class AppContainer(application: Application) {
     val cameraPermissionPrefs: CameraPermissionPrefs = CameraPermissionPrefs(application)
     val localizationPrefs: LocalizationPrefs = LocalizationPrefs(application)
     val connectivityMonitor: ConnectivityMonitor = AndroidConnectivityMonitor(application)
+    val navigationForegroundController: NavigationForegroundController =
+        AndroidNavigationForegroundController(application)
 
     /**
      * Stable anonymous per-install backend identity. It is sent only to the OpenMaps gateway,
