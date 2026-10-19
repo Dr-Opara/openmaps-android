@@ -825,8 +825,8 @@ internal fun speedLineText(
             "${RoadAlertPresentation.formatCurrentSpeed(currentSpeedMetersPerSecond, unit, measurementSystem, locale)} · " +
                 RoadAlertPresentation.headline(speedLimitAlert, measurementSystem, locale)
         currentSpeedMetersPerSecond != null ->
-            RoadAlertPresentation.formatCurrentSpeed(currentSpeedMetersPerSecond, unit, measurementSystem)
-        speedLimitAlert != null -> RoadAlertPresentation.headline(speedLimitAlert, measurementSystem)
+            RoadAlertPresentation.formatCurrentSpeed(currentSpeedMetersPerSecond, unit, measurementSystem, locale)
+        speedLimitAlert != null -> RoadAlertPresentation.headline(speedLimitAlert, measurementSystem, locale)
         else -> null
     }
 }
