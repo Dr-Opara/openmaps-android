@@ -37,6 +37,7 @@ class MapLibreOfflineMapCorridorCache(
 
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var requestGeneration = 0L
 
     override fun prefetch(route: RouteResult) {
         if (!enabled || maxBytes <= 0L) return
@@ -45,10 +46,13 @@ class MapLibreOfflineMapCorridorCache(
         val plan = OfflineCorridorPolicy.plan(route) ?: return
 
         mainHandler.post {
+            val generation = ++requestGeneration
             val manager = OfflineManager.getInstance(appContext)
             manager.setMaximumAmbientCacheSize(maxBytes, null)
             deleteOwnedRegions(manager) {
-                createRouteRegion(manager, source.url, plan)
+                if (generation == requestGeneration) {
+                    createRouteRegion(manager, source.url, plan, generation)
+                }
             }
         }
     }
@@ -56,6 +60,7 @@ class MapLibreOfflineMapCorridorCache(
     override fun clear() {
         if (!enabled) return
         mainHandler.post {
+            requestGeneration++
             deleteOwnedRegions(OfflineManager.getInstance(appContext), onComplete = {})
         }
     }
@@ -64,6 +69,7 @@ class MapLibreOfflineMapCorridorCache(
         manager: OfflineManager,
         styleUrl: String,
         plan: OfflineCorridorPlan,
+        generation: Long,
     ) {
         val b = plan.bounds
         val definition = OfflineTilePyramidRegionDefinition(
@@ -86,6 +92,15 @@ class MapLibreOfflineMapCorridorCache(
             metadata,
             object : OfflineManager.CreateOfflineRegionCallback {
                 override fun onCreate(offlineRegion: OfflineRegion) {
+                    if (generation != requestGeneration) {
+                        offlineRegion.delete(
+                            object : OfflineRegion.OfflineRegionDeleteCallback {
+                                override fun onDelete() = Unit
+                                override fun onError(error: String) = Unit
+                            },
+                        )
+                        return
+                    }
                     offlineRegion.setObserver(
                         object : OfflineRegion.OfflineRegionObserver {
                             override fun onStatusChanged(status: OfflineRegionStatus) {
