@@ -75,6 +75,7 @@ val arcoreApiKey = providers.gradleProperty("ARCORE_API_KEY")
     .orElse(providers.environmentVariable("ARCORE_API_KEY"))
     .orElse(localProperties.getProperty("ARCORE_API_KEY") ?: "")
     .getOrElse("")
+val arcoreProductionConfigured = arcoreApiKey.isNotBlank()
 
 // ---------------------------------------------------------------------------
 // OpenMaps production backend gateway.
@@ -234,6 +235,7 @@ android {
         buildConfigField("String", "VOICE_GATEWAY_URL", "\"$voiceGatewayUrl\"")
         buildConfigField("String", "RELIABILITY_GATEWAY_URL", "\"$reliabilityGatewayUrl\"")
         buildConfigField("String", "GEOCODING_PUBLISHABLE_KEY", "\"$backendPublishableKey\"")
+        buildConfigField("boolean", "ARCORE_GEospatial_CONFIGURED", arcoreProductionConfigured.toString())
 
         // Feeds the `com.google.android.ar.API_KEY` meta-data in AndroidManifest.xml.
         manifestPlaceholders["ARCORE_API_KEY"] = arcoreApiKey
@@ -291,6 +293,20 @@ tasks.register("verifyProductionMapConfiguration") {
         }
         check(usingStadiaMaps) {
             "Production map style must use the approved Stadia Maps tile host."
+        }
+    }
+}
+
+tasks.register("verifyProductionArCoreConfiguration") {
+    group = "verification"
+    description = "Fails unless ARCore Geospatial production credentials are configured."
+    doLast {
+        check(arcoreProductionConfigured) {
+            "ARCore Geospatial production key is not configured. Provide ARCORE_API_KEY through a " +
+                "Gradle property, environment variable, or git-ignored local.properties."
+        }
+        check(arcoreApiKey.length >= 20) {
+            "ARCORE_API_KEY is present but does not look like a complete Google API key."
         }
     }
 }
