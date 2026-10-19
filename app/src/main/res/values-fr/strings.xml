@@ -289,4 +289,8 @@
     <string name="route_use_action">Utiliser</string>
     <string name="lane_use_lane">PRENDRE CETTE VOIE</string>
     <string name="route_degraded_cached">Utilisation d’un itinéraire enregistré. Le trafic en direct, les fermetures et les mises à jour de l’heure d’arrivée peuvent être indisponibles jusqu’au retour de la connexion.</string>
+    <string name="navigation_service_channel">Navigation active</string>
+    <string name="navigation_service_channel_description">Maintient la localisation et la navigation actives lorsque l’écran est verrouillé ou qu’OpenMaps est en arrière-plan.</string>
+    <string name="navigation_service_title">Navigation OpenMaps</string>
+    <string name="navigation_service_body">La navigation est active</string>
 </resources>
