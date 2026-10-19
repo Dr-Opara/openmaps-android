@@ -63,6 +63,9 @@ interface MapEngine {
      */
     fun setRoadEvents(events: List<RoadEvent>)
 
+    /** Apply OpenMaps-owned browsing/navigation and day/night cartography without recreating the map. */
+    fun setCartographyMode(mode: CartographyMode)
+
     /**
      * Mark the first [RouteProgressView.traveledShapeIndex] points of the current route as already
      * driven, so the renderer can draw them differently from the road still ahead. Null clears the
