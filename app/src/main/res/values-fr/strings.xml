@@ -298,4 +298,8 @@
     <string name="settings_privacy_telemetry">La télémétrie opérationnelle est limitée au minimum et conservée jusqu’à 30 jours. Les rapports de plantage excluent les messages d’exception, coordonnées, destinations, adresses et texte de recherche.</string>
     <string name="settings_privacy_arcore">Live AR utilise les Services Google Play pour la RA (ARCore). Lorsque Geospatial est actif, Google traite des données de capteurs telles que la caméra et la position.</string>
     <string name="route_degraded_cached">Utilisation d’un itinéraire enregistré. Le trafic en direct, les fermetures et les mises à jour de l’heure d’arrivée peuvent être indisponibles jusqu’au retour de la connexion.</string>
+    <string name="navigation_service_channel">Navigation active</string>
+    <string name="navigation_service_channel_description">Maintient la localisation et la navigation actives lorsque l’écran est verrouillé ou qu’OpenMaps est en arrière-plan.</string>
+    <string name="navigation_service_title">Navigation OpenMaps</string>
+    <string name="navigation_service_body">La navigation est active</string>
 </resources>
