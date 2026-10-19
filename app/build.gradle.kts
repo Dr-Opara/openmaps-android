@@ -18,9 +18,31 @@ plugins {
 // until you self-host / move to PMTiles or a paid provider.
 // ---------------------------------------------------------------------------
 val defaultStyleUrl = "https://tiles.openfreemap.org/styles/liberty"
-val styleUrl = providers.gradleProperty("openmaps.style.url").orElse(defaultStyleUrl).get()
-val styleName = providers.gradleProperty("openmaps.style.name").orElse("OpenFreeMap Liberty").get()
-val styleDevOnly = providers.gradleProperty("openmaps.style.devOnly").orElse("true").get().toBoolean()
+val stadiaMapsApiKey = providers.gradleProperty("STADIA_MAPS_API_KEY")
+    .orElse(providers.environmentVariable("STADIA_MAPS_API_KEY"))
+    .orElse(localProperties.getProperty("STADIA_MAPS_API_KEY") ?: "")
+    .getOrElse("")
+    .trim()
+val stadiaStyleId = providers.gradleProperty("openmaps.stadia.style")
+    .orElse("alidade_smooth")
+    .get()
+val stadiaStyleUrl = if (stadiaMapsApiKey.isNotBlank()) {
+    "https://tiles.stadiamaps.com/styles/$stadiaStyleId.json?api_key=$stadiaMapsApiKey"
+} else {
+    ""
+}
+val explicitStyleUrl = providers.gradleProperty("openmaps.style.url").orNull?.trim().orEmpty()
+val styleUrl = when {
+    explicitStyleUrl.isNotBlank() -> explicitStyleUrl
+    stadiaStyleUrl.isNotBlank() -> stadiaStyleUrl
+    else -> defaultStyleUrl
+}
+val defaultStyleName = if (stadiaStyleUrl.isNotBlank()) "Stadia Maps" else "OpenFreeMap Liberty"
+val styleName = providers.gradleProperty("openmaps.style.name").orElse(defaultStyleName).get()
+val styleDevOnly = providers.gradleProperty("openmaps.style.devOnly")
+    .orElse(if (stadiaStyleUrl.isNotBlank()) "false" else "true")
+    .get()
+    .toBoolean()
 
 // ---------------------------------------------------------------------------
 // ARCore Geospatial API key.
@@ -192,6 +214,9 @@ android {
         versionName = "0.1.0-phase1"
 
         buildConfigField("String", "MAP_STYLE_URL", "\"$styleUrl\"")
+        buildConfigField("String", "MAP_STYLE_PROVIDER", "\"${if (stadiaStyleUrl.isNotBlank()) "stadia" else "development"}\"")
+        buildConfigField("boolean", "OFFLINE_MAP_CACHE_ENABLED", (!styleDevOnly && stadiaStyleUrl.isNotBlank()).toString())
+        buildConfigField("long", "OFFLINE_MAP_CACHE_LIMIT_BYTES", "94371840L")
         buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
         buildConfigField("String", "BACKEND_PUBLISHABLE_KEY", "\"$backendPublishableKey\"")
         buildConfigField("String", "MAP_STYLE_NAME", "\"$styleName\"")
@@ -248,6 +273,23 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
+    }
+}
+
+tasks.register("verifyProductionMapConfiguration") {
+    group = "verification"
+    description = "Fails unless a production Stadia Maps key/provider is configured."
+    doLast {
+        check(stadiaMapsApiKey.isNotBlank()) {
+            "Production map provider is not configured. Provide STADIA_MAPS_API_KEY through a " +
+                "Gradle property, environment variable, or git-ignored local.properties."
+        }
+        check(!styleDevOnly) {
+            "Production map style is still marked development-only."
+        }
+        check(styleUrl.startsWith("https://tiles.stadiamaps.com/styles/")) {
+            "Production map style must use the approved Stadia Maps tile host."
+        }
     }
 }
 
