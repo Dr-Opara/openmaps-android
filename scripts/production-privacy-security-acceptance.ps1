@@ -36,7 +36,8 @@ foreach ($name in $forbidden) {
     $secretWiring += $name
   }
 }
-Add-Result "No server secrets in Android" ($secretWiring.Count -eq 0) (if ($secretWiring.Count -eq 0) { "none" } else { $secretWiring -join ", " })
+$secretDetail = if ($secretWiring.Count -eq 0) { "none" } else { $secretWiring -join ", " }
+Add-Result "No server secrets in Android" ($secretWiring.Count -eq 0) $secretDetail
 
 $rows | Format-Table -AutoSize
 Write-Host ""
