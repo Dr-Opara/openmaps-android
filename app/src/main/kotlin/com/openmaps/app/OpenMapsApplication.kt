@@ -17,6 +17,8 @@ import com.openmaps.app.core.location.AndroidLocationRepository
 import com.openmaps.app.core.location.LocationPermissionPrefs
 import com.openmaps.app.core.location.LocationRepository
 import com.openmaps.app.core.localization.LocalizationPrefs
+import com.openmaps.app.core.network.AndroidConnectivityMonitor
+import com.openmaps.app.core.network.ConnectivityMonitor
 import com.openmaps.app.core.places.BackendPlaceRepository
 import com.openmaps.app.core.places.CompositePlaceRepository
 import com.openmaps.app.core.places.OverpassPlaceRepository
@@ -58,6 +60,7 @@ class AppContainer(application: Application) {
     val locationPermissionPrefs: LocationPermissionPrefs = LocationPermissionPrefs(application)
     val cameraPermissionPrefs: CameraPermissionPrefs = CameraPermissionPrefs(application)
     val localizationPrefs: LocalizationPrefs = LocalizationPrefs(application)
+    val connectivityMonitor: ConnectivityMonitor = AndroidConnectivityMonitor(application)
 
     /**
      * Stable anonymous per-install backend identity. It is sent only to the OpenMaps gateway,
