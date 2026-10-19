@@ -45,6 +45,11 @@ jobs:
         shell: pwsh
         run: ./scripts/production-reliability-acceptance.ps1
 
+      - name: Privacy security acceptance
+        if: ${{ hashFiles('scripts/production-privacy-security-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-privacy-security-acceptance.ps1
+
       - name: Worldwide localization acceptance
         if: ${{ hashFiles('scripts/production-localization-acceptance.ps1') != '' }}
         shell: pwsh
