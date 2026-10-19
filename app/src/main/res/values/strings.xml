@@ -127,6 +127,7 @@
     <string name="route_error_server">Something went wrong on our end. Try again.</string>
     <string name="route_error_malformed">We couldn\'t read that response. Try again.</string>
     <string name="route_error_no_route">No route found to this destination.</string>
+    <string name="route_degraded_cached">Using a saved route. Live traffic, closures and ETA updates may be unavailable until connectivity returns.</string>
     <string name="route_origin_your_location">Your location</string>
     <string name="route_destination_placeholder">Choose a destination</string>
     <string name="route_mode_driving">Driving</string>
