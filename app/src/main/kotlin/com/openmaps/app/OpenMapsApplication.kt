@@ -37,6 +37,8 @@ import com.openmaps.app.core.routing.CompositeRoutingRepository
 import com.openmaps.app.core.routing.RoutingRepository
 import com.openmaps.app.core.sharing.BackendTripShareRepository
 import com.openmaps.app.core.sharing.TripShareRepository
+import com.openmaps.app.core.sharing.TripShareRecoveryStore
+import com.openmaps.app.core.sharing.EncryptedTripShareRecoveryStore
 import com.openmaps.app.core.routing.ValhallaRoutingRepository
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
 import com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization
@@ -127,6 +129,9 @@ class AppContainer(application: Application) {
         anonymousClientId = backendClientId,
     )
     val driverReportRepository: DriverReportRepository = communityReportsRepository
+
+    val tripShareRecoveryStore: TripShareRecoveryStore =
+        EncryptedTripShareRecoveryStore(application)
 
     /** Production live trip sharing with expiring public links and private owner capabilities. */
     val tripShareRepository: TripShareRepository = BackendTripShareRepository(
