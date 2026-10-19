@@ -65,6 +65,11 @@ jobs:
         shell: pwsh
         run: ./scripts/production-privacy-security-acceptance.ps1
 
+      - name: ARCore geospatial structural acceptance
+        if: ${{ hashFiles('scripts/production-arcore-geospatial-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-arcore-geospatial-acceptance.ps1
+
       - name: Map platform cartography acceptance
         if: ${{ hashFiles('scripts/production-map-platform-acceptance.ps1') != '' }}
         shell: pwsh
