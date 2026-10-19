@@ -13,6 +13,8 @@ Status meanings:
 The machine-readable source of truth is
 [`config/regional-capabilities.json`](../config/regional-capabilities.json).
 
+This matrix must be reviewed again after each production provider or localization change.
+
 ## Launch acceptance cities
 
 | Capability | Houston | London | Paris | Lagos | Tokyo | Sydney |
