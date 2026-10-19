@@ -44,6 +44,12 @@ import com.openmaps.app.map.MapStyleProvider
 import com.openmaps.app.voice.AndroidTextToSpeechEngine
 import com.openmaps.app.voice.BackendNeuralVoiceRepository
 import com.openmaps.app.voice.HybridVoiceGuidanceEngine
+import com.openmaps.app.core.reliability.ReliabilityEvent
+import com.openmaps.app.core.reliability.ReliabilityEventName
+import com.openmaps.app.core.reliability.ReliabilityOutcome
+import com.openmaps.app.core.reliability.ReliabilityReporter
+import com.openmaps.app.reliability.AndroidCrashRecorder
+import com.openmaps.app.reliability.BackendReliabilityReporter
 
 /** Minimal manual dependency container (no DI framework needed at this size). */
 class AppContainer(application: Application) {
@@ -62,6 +68,17 @@ class AppContainer(application: Application) {
             prefs.edit().putString("anonymous_client_id", it).apply()
         }
     }
+
+    val crashRecorder: AndroidCrashRecorder = AndroidCrashRecorder(application)
+
+    val reliabilityReporter: ReliabilityReporter = BackendReliabilityReporter(
+        endpointUrl = BuildConfig.RELIABILITY_GATEWAY_URL,
+        publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+        clientId = backendClientId,
+        appVersion = BuildConfig.VERSION_NAME,
+        appBuild = BuildConfig.VERSION_CODE,
+        deviceApi = android.os.Build.VERSION.SDK_INT,
+    )
 
     val mapStyleProvider: MapStyleProvider = BuildConfigMapStyleProvider()
     /**
@@ -234,5 +251,14 @@ class OpenMapsApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        container.crashRecorder.install()
+        (container.reliabilityReporter as? BackendReliabilityReporter)
+            ?.uploadPendingCrash(container.crashRecorder)
+        container.reliabilityReporter.record(
+            ReliabilityEvent(
+                name = ReliabilityEventName.AppLaunch,
+                outcome = ReliabilityOutcome.Success,
+            ),
+        )
     }
 }
