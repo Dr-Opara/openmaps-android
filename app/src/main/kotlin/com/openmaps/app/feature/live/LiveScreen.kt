@@ -82,6 +82,10 @@ import com.openmaps.app.core.designsystem.OpenMapsWordmark
 import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.environment.EnvironmentNavigationProfile
 import com.openmaps.app.core.environment.EnvironmentProfiles
+import com.openmaps.app.core.localization.LocalAppLocale
+import com.openmaps.app.core.localization.LocalMeasurementSystem
+import com.openmaps.app.core.localization.MeasurementSystem
+import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.LivePlaceProjector
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
@@ -431,13 +435,15 @@ private fun LiveRoadAlertHud(
         return
     }
 
-    val distance = RoadAlertPresentation.distanceAheadLabel(topAlert)
-    val delay = RoadAlertPresentation.delayLabel(topAlert)
+    val measurementSystem = LocalMeasurementSystem.current
+    val locale = LocalAppLocale.current
+    val distance = RoadAlertPresentation.distanceAheadLabel(topAlert, measurementSystem, locale)
+    val delay = RoadAlertPresentation.delayLabel(topAlert, locale)
     val detail = listOfNotNull(distance, delay).joinToString(" · ")
     Column(modifier = modifier) {
         LiveCompactPill(
             text = buildString {
-                append(RoadAlertPresentation.headline(topAlert))
+                append(RoadAlertPresentation.headline(topAlert, measurementSystem, locale))
                 if (detail.isNotBlank()) {
                     append(" · ")
                     append(detail)
@@ -455,10 +461,10 @@ private fun LiveRoadAlertHud(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 TextButton(onClick = { onCommunityConfirm(reportId) }) {
-                    Text("Still there", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                    Text(stringResource(R.string.community_still_there), style = MaterialTheme.typography.labelSmall, color = Color.White)
                 }
                 TextButton(onClick = { onCommunityDismiss(reportId) }) {
-                    Text("Not there", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                    Text(stringResource(R.string.community_not_there), style = MaterialTheme.typography.labelSmall, color = Color.White)
                 }
             }
         }
@@ -479,11 +485,20 @@ private fun LiveSpeedBlock(
     speedLimitAlert: RouteAlert.SpeedLimit?,
     modifier: Modifier = Modifier,
 ) {
-    val speedValue = currentSpeedMetersPerSecond?.let { formatLiveSpeed(it) }
-    val limitValue = speedLimitAlert?.let { alert ->
-        val info = alert.info
-        formatLiveSpeed(metersPerSecondFor(info.value, info.unit))
+    val measurementSystem = LocalMeasurementSystem.current
+    val locale = LocalAppLocale.current
+    val speedValue = currentSpeedMetersPerSecond?.let {
+        NavigationUnits.formatCurrentSpeed(it, measurementSystem, locale).substringBeforeLast(" ")
     }
+    val limitValue = speedLimitAlert?.let { alert ->
+        NavigationUnits.formatPostedSpeed(
+            value = alert.info.value,
+            sourceIsMph = alert.info.unit == SpeedUnit.Mph,
+            preference = measurementSystem,
+            locale = locale,
+        ).substringBeforeLast(" ")
+    }
+    val speedUnit = NavigationUnits.speedUnitLabel(measurementSystem, locale)
     if (speedValue == null && limitValue == null) return
 
     // Mockup: two adjacent rounded-square blocks, not one stacked pill — current speed (dark,
@@ -502,7 +517,7 @@ private fun LiveSpeedBlock(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(text = it, style = MaterialTheme.typography.headlineSmall, color = Color.White)
-                Text(text = speedUnitLabel(), style = MaterialTheme.typography.labelSmall, color = OpenMapsColors.TextOnDarkSecondary)
+                Text(text = speedUnit, style = MaterialTheme.typography.labelSmall, color = OpenMapsColors.TextOnDarkSecondary)
             }
         }
         limitValue?.let {
@@ -524,20 +539,6 @@ private fun LiveSpeedBlock(
     }
 }
 
-/** The displayed unit. OpenMaps is US-first, so mph unless a provider reports km/h. */
-private fun speedUnitLabel(): String = "mph"
-
-private fun formatLiveSpeed(metersPerSecond: Float): String =
-    (metersPerSecond * MPS_TO_MPH).roundToInt().toString()
-
-/** Converts a posted limit into the same unit [LiveSpeedBlock] displays. */
-private fun metersPerSecondFor(value: Double, unit: SpeedUnit): Float =
-    when (unit) {
-        SpeedUnit.Mph -> (value / MPS_TO_MPH).toFloat()
-        SpeedUnit.Kmh -> (value / 3.6).toFloat()
-    }
-
-private const val MPS_TO_MPH = 2.2369363
 
 @Composable
 private fun LiveCompactPill(text: String, background: Color, foreground: Color, modifier: Modifier = Modifier) {
@@ -815,14 +816,17 @@ private fun LivePlaceChip(label: LivePlaceProjector.LivePlaceLabel, modifier: Mo
 internal fun speedLineText(
     currentSpeedMetersPerSecond: Float?,
     speedLimitAlert: RouteAlert.SpeedLimit?,
+    measurementSystem: MeasurementSystem = MeasurementSystem.Auto,
+    locale: Locale = Locale.getDefault(),
 ): String? {
-    // US-first default (section 8) when no posted-limit unit is known yet to derive from.
-    val unit = speedLimitAlert?.info?.unit ?: com.openmaps.app.core.roadintelligence.SpeedUnit.Mph
+    val unit = speedLimitAlert?.info?.unit ?: SpeedUnit.Mph
     return when {
         currentSpeedMetersPerSecond != null && speedLimitAlert != null ->
-            "${RoadAlertPresentation.formatCurrentSpeed(currentSpeedMetersPerSecond, unit)} · ${RoadAlertPresentation.headline(speedLimitAlert)}"
-        currentSpeedMetersPerSecond != null -> RoadAlertPresentation.formatCurrentSpeed(currentSpeedMetersPerSecond, unit)
-        speedLimitAlert != null -> RoadAlertPresentation.headline(speedLimitAlert)
+            "${RoadAlertPresentation.formatCurrentSpeed(currentSpeedMetersPerSecond, unit, measurementSystem, locale)} · " +
+                RoadAlertPresentation.headline(speedLimitAlert, measurementSystem, locale)
+        currentSpeedMetersPerSecond != null ->
+            RoadAlertPresentation.formatCurrentSpeed(currentSpeedMetersPerSecond, unit, measurementSystem, locale)
+        speedLimitAlert != null -> RoadAlertPresentation.headline(speedLimitAlert, measurementSystem, locale)
         else -> null
     }
 }
@@ -1480,9 +1484,13 @@ private fun LiveTripSummary(
                 )
             }
             Text(
-                text = "Arrive " + ArrivalTimeFormatter.format(
-                    hud.remainingDurationSeconds,
-                    System.currentTimeMillis(),
+                text = stringResource(
+                    R.string.route_arrive_format,
+                    ArrivalTimeFormatter.format(
+                        hud.remainingDurationSeconds,
+                        System.currentTimeMillis(),
+                        locale = LocalAppLocale.current,
+                    ),
                 ),
                 style = MaterialTheme.typography.labelSmall,
                 color = OpenMapsColors.TextSecondary,
@@ -1691,26 +1699,17 @@ private val ManeuverType.pointingDegrees: Int
 
 private const val EAST_DEGREES = 90
 
-/** Feet below a mile: on a navigation HUD "in 0.2 mi" is useless next to an arrow. */
-private fun formatLiveDistance(meters: Double): String {
-    val feet = meters * FEET_PER_METER
-    val miles = meters / METERS_PER_MILE
-    return when {
-        feet < 1000.0 -> "${feet.roundToInt()} ft"
-        miles < 10 -> String.format(Locale.US, "%.1f mi", miles)
-        else -> "${miles.roundToInt()} mi"
-    }
-}
+@Composable
+private fun formatLiveDistance(meters: Double): String =
+    NavigationUnits.formatDistance(
+        meters,
+        LocalMeasurementSystem.current,
+        LocalAppLocale.current,
+    )
 
-private fun formatLiveDuration(seconds: Double): String {
-    val totalMinutes = (seconds / 60).roundToInt().coerceAtLeast(1)
-    val hours = totalMinutes / 60
-    val minutes = totalMinutes % 60
-    return if (hours > 0) "$hours hr $minutes min" else "$minutes min"
-}
-
-private const val FEET_PER_METER = 3.28084
-private const val METERS_PER_MILE = 1609.344
+@Composable
+private fun formatLiveDuration(seconds: Double): String =
+    NavigationUnits.formatDuration(seconds, LocalAppLocale.current)
 
 private fun RouteAlert.communityReportId(): String? = when (this) {
     is RouteAlert.Hazard -> event.metadata["communityReportId"]

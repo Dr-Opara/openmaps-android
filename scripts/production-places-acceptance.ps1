@@ -6,20 +6,30 @@ param(
 $ErrorActionPreference = "Stop"
 
 function Invoke-OpenMapsPlaces {
-    param([hashtable]$Center, [string[]]$Categories, [double]$RadiusMeters = 3000)
+    param(
+        [hashtable]$Center,
+        [string[]]$Categories,
+        [double]$RadiusMeters = 3000,
+        [string]$LocaleTag = "en-US"
+    )
     $started = Get-Date
-    $body = @{ center = $Center; radiusMeters = $RadiusMeters; categories = $Categories } | ConvertTo-Json -Depth 20
+    $body = @{
+        center = $Center
+        radiusMeters = $RadiusMeters
+        categories = $Categories
+        localeTag = $LocaleTag
+    } | ConvertTo-Json -Depth 20
     $response = Invoke-RestMethod -Method Post -Uri "$BaseUrl/places" -Headers @{ apikey = $PublishableKey } -ContentType "application/json" -Body $body
     [pscustomobject]@{ Response = $response; LatencyMs = [int]((Get-Date) - $started).TotalMilliseconds }
 }
 
 $cases = @(
-    @{ Name = "Houston"; Center = @{ latitude = 29.7604; longitude = -95.3698 } },
-    @{ Name = "London"; Center = @{ latitude = 51.5074; longitude = -0.1278 } },
-    @{ Name = "Paris"; Center = @{ latitude = 48.8566; longitude = 2.3522 } },
-    @{ Name = "Lagos"; Center = @{ latitude = 6.5244; longitude = 3.3792 } },
-    @{ Name = "Tokyo"; Center = @{ latitude = 35.6762; longitude = 139.6503 } },
-    @{ Name = "Sydney"; Center = @{ latitude = -33.8688; longitude = 151.2093 } }
+    @{ Name = "Houston"; LocaleTag = "en-US"; Center = @{ latitude = 29.7604; longitude = -95.3698 } },
+    @{ Name = "London"; LocaleTag = "en-GB"; Center = @{ latitude = 51.5074; longitude = -0.1278 } },
+    @{ Name = "Paris"; LocaleTag = "fr-FR"; Center = @{ latitude = 48.8566; longitude = 2.3522 } },
+    @{ Name = "Lagos"; LocaleTag = "en-NG"; Center = @{ latitude = 6.5244; longitude = 3.3792 } },
+    @{ Name = "Tokyo"; LocaleTag = "ja-JP"; Center = @{ latitude = 35.6762; longitude = 139.6503 } },
+    @{ Name = "Sydney"; LocaleTag = "en-AU"; Center = @{ latitude = -33.8688; longitude = 151.2093 } }
 )
 
 $categories = @("Restaurant","Gas","Parking","EvCharging","Medical","Hotel","Education")
@@ -28,7 +38,7 @@ $rows = New-Object System.Collections.Generic.List[object]
 
 foreach ($case in $cases) {
     try {
-        $call = Invoke-OpenMapsPlaces -Center $case.Center -Categories $categories
+        $call = Invoke-OpenMapsPlaces -Center $case.Center -Categories $categories -LocaleTag $case.LocaleTag
         $r = $call.Response
         $places = @($r.places)
         $providers = @($r.providers)
@@ -45,6 +55,7 @@ foreach ($case in $cases) {
         if (-not $latencyOk) { $failures.Add("$($case.Name): latency $($call.LatencyMs) ms exceeded 12000 ms") }
         $rows.Add([pscustomobject]@{
             Case = $case.Name
+            Locale = $case.LocaleTag
             Provider = [string]$r.provider
             Providers = ($providers -join ",")
             Places = $places.Count
@@ -55,7 +66,7 @@ foreach ($case in $cases) {
         })
     } catch {
         $failures.Add("$($case.Name): places request failed - $($_.Exception.Message)")
-        $rows.Add([pscustomobject]@{ Case = $case.Name; Provider = "-"; Providers = "-"; Places = 0; Categories = 0; Education = 0; LatencyMs = 0; Passed = $false })
+        $rows.Add([pscustomobject]@{ Case = $case.Name; Locale = $case.LocaleTag; Provider = "-"; Providers = "-"; Places = 0; Categories = 0; Education = 0; LatencyMs = 0; Passed = $false })
     }
 }
 

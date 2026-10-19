@@ -21,9 +21,10 @@ object ArrivalTimeFormatter {
         remainingDurationSeconds: Double,
         nowMillis: Long,
         zoneId: ZoneId = ZoneId.systemDefault(),
+        locale: Locale = Locale.getDefault(),
     ): String {
         val arrival = Instant.ofEpochMilli(nowMillis + (remainingDurationSeconds * 1000).toLong())
-        val formatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale.getDefault())
+        val formatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale)
         return arrival.atZone(zoneId).toLocalTime().format(formatter)
     }
 }

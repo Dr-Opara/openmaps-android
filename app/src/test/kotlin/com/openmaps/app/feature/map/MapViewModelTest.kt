@@ -11,6 +11,7 @@ import com.openmaps.app.core.location.LocationStatus
 import com.openmaps.app.core.location.LocationUpdate
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.navigation.OffRouteDetector
+import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PlaceException
@@ -2090,6 +2091,8 @@ class MapViewModelTest {
             private set
         var lastLanguage: VoiceLanguage? = null
             private set
+        var lastMeasurementSystem: MeasurementSystem? = null
+            private set
 
         override fun speak(event: VoiceEvent) {
             spoken += event
@@ -2101,6 +2104,10 @@ class MapViewModelTest {
 
         override fun setLanguage(language: VoiceLanguage) {
             lastLanguage = language
+        }
+
+        override fun setMeasurementSystem(system: MeasurementSystem) {
+            lastMeasurementSystem = system
         }
 
         override fun stop() {

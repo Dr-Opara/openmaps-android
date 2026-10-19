@@ -11,10 +11,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.roadintelligence.LaneDirection
+import com.openmaps.app.core.localization.LocalAppLocale
+import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.roadintelligence.LaneGuidance
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceState
 import com.openmaps.app.core.roadintelligence.RouteAlert
@@ -33,6 +37,8 @@ fun RoadAlertBanner(
 ) {
     val topAlert = roadState.activeAlerts.firstOrNull { it !is RouteAlert.SpeedLimit }
     val speedLimitAlert = roadState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull()
+    val measurementSystem = LocalMeasurementSystem.current
+    val locale = LocalAppLocale.current
     val currentSpeed = roadState.currentSpeedMetersPerSecond
     if (topAlert == null && speedLimitAlert == null) return
 
@@ -49,9 +55,13 @@ fun RoadAlertBanner(
             } else {
                 Column {
                     Chip(background = OpenMapsColors.Warning) {
-                        val distance = RoadAlertPresentation.distanceAheadLabel(alert)
+                        val distance = RoadAlertPresentation.distanceAheadLabel(alert, measurementSystem, locale)
                         Text(
-                            text = if (distance != null) "${RoadAlertPresentation.headline(alert)} $distance" else RoadAlertPresentation.headline(alert),
+                            text = if (distance != null) {
+                                "${RoadAlertPresentation.headline(alert, measurementSystem, locale)} $distance"
+                            } else {
+                                RoadAlertPresentation.headline(alert, measurementSystem, locale)
+                            },
                             style = MaterialTheme.typography.labelMedium,
                             color = OpenMapsColors.Navy900,
                             maxLines = 1,
@@ -61,10 +71,10 @@ fun RoadAlertBanner(
                     alert.communityReportId()?.let { reportId ->
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { onCommunityConfirm(reportId) }) {
-                                Text("Still there", style = MaterialTheme.typography.labelSmall)
+                                Text(stringResource(R.string.community_still_there), style = MaterialTheme.typography.labelSmall)
                             }
                             TextButton(onClick = { onCommunityDismiss(reportId) }) {
-                                Text("Not there", style = MaterialTheme.typography.labelSmall)
+                                Text(stringResource(R.string.community_not_there), style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
@@ -74,9 +84,10 @@ fun RoadAlertBanner(
         speedLimitAlert?.let { alert ->
             Chip(background = OpenMapsColors.Navy800) {
                 val text = if (currentSpeed != null) {
-                    "${RoadAlertPresentation.formatCurrentSpeed(currentSpeed, alert.info.unit)} / ${RoadAlertPresentation.headline(alert)}"
+                    "${RoadAlertPresentation.formatCurrentSpeed(currentSpeed, alert.info.unit, measurementSystem, locale)} / " +
+                        RoadAlertPresentation.headline(alert, measurementSystem, locale)
                 } else {
-                    RoadAlertPresentation.headline(alert)
+                    RoadAlertPresentation.headline(alert, measurementSystem, locale)
                 }
                 Text(
                     text = text,
@@ -116,7 +127,7 @@ fun LaneGuidanceStrip(
             .padding(horizontal = 10.dp, vertical = 7.dp),
     ) {
         Text(
-            text = "USE LANE",
+            text = stringResource(R.string.lane_use_lane),
             style = MaterialTheme.typography.labelSmall,
             color = labelColor,
         )

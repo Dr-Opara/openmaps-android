@@ -1,5 +1,6 @@
 package com.openmaps.app.core.voice
 
+import com.openmaps.app.core.localization.MeasurementSystem
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,8 @@ class NoopVoiceGuidanceEngine(
     override fun setLanguage(language: VoiceLanguage) {
         _state.value = _state.value.copy(language = language)
     }
+
+    override fun setMeasurementSystem(system: MeasurementSystem) = Unit
 
     override fun stop() = Unit
 

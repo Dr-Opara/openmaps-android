@@ -1,6 +1,8 @@
 package com.openmaps.app.core.voice
 
+import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.routing.ManeuverType
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -8,7 +10,7 @@ import org.junit.Test
 
 /**
  * Deterministic-template coverage (delta-spec sections 20-22): every [VoiceEvent] and every
- * [ManeuverType] must produce a real, non-blank phrase in all five languages — no language may
+ * [ManeuverType] must produce a real, non-blank phrase in every supported language — no language may
  * silently fall through to an empty string, which is the template-table equivalent of a crash.
  */
 class VoiceAnnouncementTemplatesTest {
@@ -113,6 +115,40 @@ class VoiceAnnouncementTemplatesTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun metricNavigation_usesMetricDistancePhrasing() {
+        val phrase = VoiceAnnouncementTemplates.phraseFor(
+            VoiceEvent.Maneuver(ManeuverType.TurnRight, "Rue de Rivoli", AnnouncementStage.Near),
+            VoiceLanguage.French,
+            MeasurementSystem.Metric,
+            Locale.FRANCE,
+        )
+        assertEquals("Dans 150 mètres, tournez à droite sur Rue de Rivoli.", phrase)
+    }
+
+    @Test
+    fun ukAutomaticNavigation_usesYardsForNearPrompt() {
+        val phrase = VoiceAnnouncementTemplates.phraseFor(
+            VoiceEvent.Maneuver(ManeuverType.TurnLeft, "Oxford Street", AnnouncementStage.Near),
+            VoiceLanguage.EnglishUk,
+            MeasurementSystem.Auto,
+            Locale.UK,
+        )
+        assertEquals("In 200 yards, turn left onto Oxford Street.", phrase)
+    }
+
+    @Test
+    fun rtlLanguages_haveNativeNavigationPhrases() {
+        assertEquals(
+            "لقد وصلت إلى وجهتك.",
+            VoiceAnnouncementTemplates.phraseFor(VoiceEvent.Arrived, VoiceLanguage.Arabic),
+        )
+        assertEquals(
+            "הגעתם ליעד.",
+            VoiceAnnouncementTemplates.phraseFor(VoiceEvent.Arrived, VoiceLanguage.Hebrew),
+        )
     }
 
     @Test

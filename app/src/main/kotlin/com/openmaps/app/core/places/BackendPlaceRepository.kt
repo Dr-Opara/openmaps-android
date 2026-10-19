@@ -11,6 +11,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
+import java.util.Locale
 
 /**
  * Production places provider backed by the OpenMaps Edge gateway.
@@ -22,6 +23,7 @@ import java.net.URL
 class BackendPlaceRepository(
     private val endpointUrl: String,
     private val publishableKey: String,
+    private val localeTagProvider: () -> String = { Locale.getDefault().toLanguageTag() },
 ) : PlaceRepository {
 
     override suspend fun nearbyPlaces(
@@ -96,6 +98,7 @@ class BackendPlaceRepository(
                 "categories",
                 JSONArray().apply { categories.forEach { put(it.name) } },
             )
+            .put("localeTag", localeTagProvider())
             .toString()
 
         try {

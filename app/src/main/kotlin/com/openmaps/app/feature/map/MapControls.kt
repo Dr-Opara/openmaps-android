@@ -60,6 +60,9 @@ import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.location.UserLocation
+import com.openmaps.app.core.localization.LocalAppLocale
+import com.openmaps.app.core.localization.LocalMeasurementSystem
+import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.map.MapMode
@@ -797,15 +800,9 @@ private fun homeAngularDifference(a: Double, b: Double): Double {
     return if (raw > 180.0) 360.0 - raw else raw
 }
 
-private fun homeDistanceLabel(meters: Double): String {
-    val feet = meters * 3.28084
-    val miles = meters / 1609.344
-    return when {
-        feet < 1000.0 -> "${feet.roundToInt()} ft"
-        miles < 10.0 -> String.format(Locale.US, "%.1f mi", miles)
-        else -> "${miles.roundToInt()} mi"
-    }
-}
+@Composable
+private fun homeDistanceLabel(meters: Double): String =
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current, LocalAppLocale.current)
 
 private const val HOME_AHEAD_HALF_ANGLE_DEGREES = 55.0
 
@@ -838,6 +835,7 @@ private fun RoutePreviewSummary(
                     value = ArrivalTimeFormatter.format(
                         routeState.route.durationSeconds,
                         System.currentTimeMillis(),
+                        locale = LocalAppLocale.current,
                     ),
                     label = stringResource(R.string.route_preview_arrival),
                     modifier = Modifier.weight(1f),
@@ -847,7 +845,7 @@ private fun RoutePreviewSummary(
                 ?.takeIf { routeState.route.isTrafficAware && it >= 60.0 }
                 ?.let { delay ->
                     Text(
-                        text = "+${(delay / 60.0).roundToInt()} min traffic",
+                        text = stringResource(R.string.route_traffic_delay_format, (delay / 60.0).roundToInt()),
                         style = MaterialTheme.typography.bodySmall,
                         color = OpenMapsColors.TextSecondary,
                         modifier = Modifier.padding(top = 8.dp),
@@ -857,7 +855,7 @@ private fun RoutePreviewSummary(
             if (routeState.route.alternatives.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "Other routes",
+                    text = stringResource(R.string.route_other_routes),
                     style = MaterialTheme.typography.labelLarge,
                     color = OpenMapsColors.TextPrimary,
                 )
@@ -874,7 +872,7 @@ private fun RoutePreviewSummary(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    text = alternative.label ?: "Alternate route",
+                                    text = alternative.label ?: stringResource(R.string.route_alternate_fallback),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = OpenMapsColors.TextPrimary,
                                     maxLines = 1,
@@ -887,7 +885,7 @@ private fun RoutePreviewSummary(
                                 )
                             }
                             Text(
-                                text = "Use",
+                                text = stringResource(R.string.route_use_action),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = OpenMapsColors.ElectricBlueFilled,
                             )
@@ -973,7 +971,14 @@ private fun RouteSummaryLine(routeState: RouteState) {
                 )
             }
             RouteStatusText(
-                text = "Arrive ${ArrivalTimeFormatter.format(routeState.route.durationSeconds, System.currentTimeMillis())}",
+                text = stringResource(
+                    R.string.route_arrive_format,
+                    ArrivalTimeFormatter.format(
+                        routeState.route.durationSeconds,
+                        System.currentTimeMillis(),
+                        locale = LocalAppLocale.current,
+                    ),
+                ),
                 color = OpenMapsColors.TextSecondary,
             )
         }
@@ -1012,19 +1017,13 @@ private fun RouteError.toMessageRes(): Int = when (this) {
     RouteError.NoRouteFound -> R.string.route_error_no_route
 }
 
-private fun formatDistance(meters: Double): String {
-    val miles = meters / METERS_PER_MILE
-    return if (miles < 10) String.format(Locale.US, "%.1f mi", miles) else "${miles.roundToInt()} mi"
-}
+@Composable
+private fun formatDistance(meters: Double): String =
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current)
 
-private fun formatDuration(seconds: Double): String {
-    val totalMinutes = (seconds / 60).roundToInt().coerceAtLeast(1)
-    val hours = totalMinutes / 60
-    val minutes = totalMinutes % 60
-    return if (hours > 0) "$hours hr $minutes min" else "$minutes min"
-}
-
-private const val METERS_PER_MILE = 1609.344
+@Composable
+private fun formatDuration(seconds: Double): String =
+    NavigationUnits.formatDuration(seconds, LocalAppLocale.current)
 
 /** One card for every location situation; copy and primary action depend on [prompt]. */
 @Composable

@@ -9,7 +9,11 @@ package com.openmaps.app.core.voice
 object VoicePronunciationNormalizer {
 
     fun normalize(text: String, language: VoiceLanguage): String {
-        if (language == VoiceLanguage.Spanish || language == VoiceLanguage.French) return text
+        if (
+            language != VoiceLanguage.EnglishUs &&
+            language != VoiceLanguage.EnglishUk &&
+            language != VoiceLanguage.NigerianPidgin
+        ) return text
 
         var out = text
         substitutions.forEach { (pattern, replacement) ->

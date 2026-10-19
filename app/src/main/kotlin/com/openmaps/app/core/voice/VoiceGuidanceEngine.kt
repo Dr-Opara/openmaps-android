@@ -1,5 +1,6 @@
 package com.openmaps.app.core.voice
 
+import com.openmaps.app.core.localization.MeasurementSystem
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -22,6 +23,9 @@ interface VoiceGuidanceEngine {
     fun setEnabled(enabled: Boolean)
 
     fun setLanguage(language: VoiceLanguage)
+
+    /** Keeps spoken far/near maneuver distances aligned with the user’s regional unit setting. */
+    fun setMeasurementSystem(system: MeasurementSystem)
 
     /** Stops any speech in progress — called on reroute/arrival so a stale phrase is never
      * still playing over a newer one. */

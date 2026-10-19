@@ -444,3 +444,27 @@ OPENAI_API_KEY
 The function uses the OpenAI Speech API with `gpt-4o-mini-tts`, requests low-latency WAV audio and returns it to the app. If the secret, provider or network is unavailable, Android automatically falls back to the platform TextToSpeech engine; navigation itself never waits on voice.
 
 The app includes a user-facing disclosure that the neural navigation voice is AI-generated.
+
+
+## Worldwide Localization
+
+OpenMaps declares these Android app locales:
+
+- `en-US`
+- `en-GB`
+- `es`
+- `fr`
+- `ar`
+- `he`
+
+On Android 13+, Settings > Navigation > App language opens the OS per-app language settings for OpenMaps. Arabic and Hebrew use Android's native RTL configuration.
+
+Distance and speed units can remain `Automatic (regional)` or be overridden to Imperial/Metric. Automatic mode uses US imperial in the United States, Liberia and Myanmar; UK imperial uses miles/yards/mph; other regions use metric.
+
+Production localization acceptance:
+
+```powershell
+.\scripts\production-localization-acceptance.ps1
+```
+
+The existing Places and neural-voice production acceptance suites also carry locale-specific requests, including Arabic/Hebrew voice synthesis.

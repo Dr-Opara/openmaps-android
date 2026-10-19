@@ -49,6 +49,9 @@ import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.navigation.RouteProgress
+import com.openmaps.app.core.localization.LocalAppLocale
+import com.openmaps.app.core.localization.LocalMeasurementSystem
+import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.reporting.DriverReportType
 import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.routing.RouteManeuver
@@ -617,6 +620,7 @@ fun ActiveMapNavigationPanel(
                 value = ArrivalTimeFormatter.format(
                     progress.remainingDurationSeconds,
                     System.currentTimeMillis(),
+                    locale = LocalAppLocale.current,
                 ),
                 label = stringResource(R.string.live_stat_arrival),
                 modifier = Modifier.weight(1f),
@@ -865,23 +869,10 @@ private fun NavigationState.progressOrNull(): RouteProgress? = when (this) {
  * Navigation distances are short-range and shown next to an arrow, so they switch to feet far
  * earlier than the trip summary's miles — "in 0.2 mi" is useless when the turn is 300 ft away.
  */
-private fun formatNavigationDistance(meters: Double): String {
-    val feet = meters * FEET_PER_METER
-    val miles = meters / METERS_PER_MILE
-    return when {
-        // Under 1000 ft: whole feet. Rounding to "10s" would make a 340 ft turn read as 340.
-        feet < 1000.0 -> "${feet.roundToInt()} ft"
-        miles < 10 -> String.format(Locale.US, "%.1f mi", miles)
-        else -> "${miles.roundToInt()} mi"
-    }
-}
+@Composable
+private fun formatNavigationDistance(meters: Double): String =
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current, LocalAppLocale.current)
 
-private fun formatNavigationDuration(seconds: Double): String {
-    val totalMinutes = (seconds / 60).roundToInt().coerceAtLeast(1)
-    val hours = totalMinutes / 60
-    val minutes = totalMinutes % 60
-    return if (hours > 0) "$hours hr $minutes min" else "$minutes min"
-}
-
-private const val FEET_PER_METER = 3.28084
-private const val METERS_PER_MILE = 1609.344
+@Composable
+private fun formatNavigationDuration(seconds: Double): String =
+    NavigationUnits.formatDuration(seconds, LocalAppLocale.current)

@@ -1,48 +1,92 @@
 package com.openmaps.app.core.voice
 
+import com.openmaps.app.core.localization.MeasurementSystem
+import com.openmaps.app.core.localization.RegionMeasurementPolicy
+import com.openmaps.app.core.localization.ResolvedMeasurementSystem
 import com.openmaps.app.core.routing.ManeuverType
+import java.util.Locale
 
 /**
- * Deterministic, template-based localization (delta-spec sections 20-22): every phrase below is a
- * fixed string or a fixed string with a street name substituted in — never a runtime translation
- * through an external service. [EnglishUk] intentionally uses the same wording as [EnglishUs]: the
- * two differ by TTS *voice/locale* (`AndroidTextToSpeechEngine` picks `en-GB` vs `en-US`), not by
- * word choice — section 19 keeps "voice locale" and "distance-unit preference" as separate
- * concepts, and this file is not where units are decided (`feet`/`miles` stay the app-wide US
- * convention regardless of spoken language, same as every other distance in the app).
- *
- * Coverage is the full [ManeuverType] set plus every [VoiceEvent] in section 15, in all five
- * languages. [AnnouncementStage.Far]/[AnnouncementStage.Near] use fixed canonical distance phrases
- * ("in half a mile" / "in 500 feet") rather than the live metres-remaining figure, matching the
- * spec's own examples and how real turn-by-turn voice guidance actually phrases things — a
- * constantly-changing exact number would also defeat [VoiceAnnouncementPlanner]'s whole point,
- * which is to announce a stage once, not a number every tick.
+ * Deterministic navigation phrases. Provider street/place names are inserted as returned; OpenMaps
+ * never machine-translates or invents a road name. Phase 7 makes the canonical far/near distances
+ * follow the active regional measurement preference and adds Arabic/Hebrew RTL speech.
  */
 object VoiceAnnouncementTemplates {
 
-    fun phraseFor(event: VoiceEvent, language: VoiceLanguage): String = when (event) {
+    fun phraseFor(
+        event: VoiceEvent,
+        language: VoiceLanguage,
+        measurementSystem: MeasurementSystem = MeasurementSystem.Imperial,
+        locale: Locale = Locale.getDefault(),
+    ): String = when (event) {
         VoiceEvent.NavigationStarted -> fixed(language, NAVIGATION_STARTED)
-        is VoiceEvent.Maneuver -> maneuverPhrase(event, language)
+        is VoiceEvent.Maneuver -> maneuverPhrase(event, language, measurementSystem, locale)
         VoiceEvent.Rerouting -> fixed(language, REROUTING)
         VoiceEvent.RouteUpdated -> fixed(language, ROUTE_UPDATED)
         VoiceEvent.DestinationApproaching -> fixed(language, DESTINATION_APPROACHING)
         VoiceEvent.Arrived -> fixed(language, ARRIVED)
     }
 
-    private fun maneuverPhrase(event: VoiceEvent.Maneuver, language: VoiceLanguage): String {
+    private fun maneuverPhrase(
+        event: VoiceEvent.Maneuver,
+        language: VoiceLanguage,
+        measurementSystem: MeasurementSystem,
+        locale: Locale,
+    ): String {
         val table = maneuverTables.getValue(language)
         val action = table.getValue(event.type).let { phrase ->
-            event.streetName?.takeIf { it.isNotBlank() }?.let { street -> "$phrase ${onto(language)} $street" } ?: phrase
+            event.streetName?.takeIf { it.isNotBlank() }?.let { street ->
+                "$phrase ${onto(language)} $street"
+            } ?: phrase
         }
-        val prefix = stagePrefix(event.stage, language)
+        val prefix = stagePrefix(event.stage, language, measurementSystem, locale)
         val sentence = if (prefix.isEmpty()) action.replaceFirstChar { it.uppercase() } else "$prefix$action"
         return "$sentence."
     }
 
-    private fun stagePrefix(stage: AnnouncementStage, language: VoiceLanguage): String = when (stage) {
-        AnnouncementStage.Immediate -> ""
-        AnnouncementStage.Far -> farPrefixes.getValue(language)
-        AnnouncementStage.Near -> nearPrefixes.getValue(language)
+    private fun stagePrefix(
+        stage: AnnouncementStage,
+        language: VoiceLanguage,
+        measurementSystem: MeasurementSystem,
+        locale: Locale,
+    ): String {
+        if (stage == AnnouncementStage.Immediate) return ""
+        val resolved = RegionMeasurementPolicy.resolve(measurementSystem, locale)
+        val far = stage == AnnouncementStage.Far
+        return when (language) {
+            VoiceLanguage.EnglishUs,
+            VoiceLanguage.EnglishUk,
+            -> when (resolved) {
+                ResolvedMeasurementSystem.Metric -> if (far) "In 800 meters, " else "In 150 meters, "
+                ResolvedMeasurementSystem.ImperialUk -> if (far) "In half a mile, " else "In 200 yards, "
+                ResolvedMeasurementSystem.ImperialUs -> if (far) "In half a mile, " else "In 500 feet, "
+            }
+            VoiceLanguage.Spanish -> when (resolved) {
+                ResolvedMeasurementSystem.Metric -> if (far) "En 800 metros, " else "En 150 metros, "
+                ResolvedMeasurementSystem.ImperialUk -> if (far) "En media milla, " else "En 200 yardas, "
+                ResolvedMeasurementSystem.ImperialUs -> if (far) "En media milla, " else "En 500 pies, "
+            }
+            VoiceLanguage.French -> when (resolved) {
+                ResolvedMeasurementSystem.Metric -> if (far) "Dans 800 mètres, " else "Dans 150 mètres, "
+                ResolvedMeasurementSystem.ImperialUk -> if (far) "Dans un demi-mile, " else "Dans 200 yards, "
+                ResolvedMeasurementSystem.ImperialUs -> if (far) "Dans un demi-mile, " else "Dans 500 pieds, "
+            }
+            VoiceLanguage.Arabic -> when (resolved) {
+                ResolvedMeasurementSystem.Metric -> if (far) "بعد 800 متر، " else "بعد 150 متر، "
+                ResolvedMeasurementSystem.ImperialUk -> if (far) "بعد نصف ميل، " else "بعد 200 ياردة، "
+                ResolvedMeasurementSystem.ImperialUs -> if (far) "بعد نصف ميل، " else "بعد 500 قدم، "
+            }
+            VoiceLanguage.Hebrew -> when (resolved) {
+                ResolvedMeasurementSystem.Metric -> if (far) "בעוד 800 מטר, " else "בעוד 150 מטר, "
+                ResolvedMeasurementSystem.ImperialUk -> if (far) "בעוד חצי מייל, " else "בעוד 200 יארד, "
+                ResolvedMeasurementSystem.ImperialUs -> if (far) "בעוד חצי מייל, " else "בעוד 500 רגל, "
+            }
+            VoiceLanguage.NigerianPidgin -> when (resolved) {
+                ResolvedMeasurementSystem.Metric -> if (far) "For about 800 meters, " else "For about 150 meters, "
+                ResolvedMeasurementSystem.ImperialUk -> if (far) "For about half mile, " else "For about 200 yards, "
+                ResolvedMeasurementSystem.ImperialUs -> if (far) "For about half mile, " else "For about 500 feet, "
+            }
+        }
     }
 
     private fun fixed(language: VoiceLanguage, table: Map<VoiceLanguage, String>): String = table.getValue(language)
@@ -51,30 +95,18 @@ object VoiceAnnouncementTemplates {
         VoiceLanguage.EnglishUs, VoiceLanguage.EnglishUk -> "onto"
         VoiceLanguage.Spanish -> "en"
         VoiceLanguage.French -> "sur"
+        VoiceLanguage.Arabic -> "إلى"
+        VoiceLanguage.Hebrew -> "אל"
         VoiceLanguage.NigerianPidgin -> "enter"
     }
-
-    private val farPrefixes = mapOf(
-        VoiceLanguage.EnglishUs to "In half a mile, ",
-        VoiceLanguage.EnglishUk to "In half a mile, ",
-        VoiceLanguage.Spanish to "En media milla, ",
-        VoiceLanguage.French to "Dans un demi-mile, ",
-        VoiceLanguage.NigerianPidgin to "For about half mile, ",
-    )
-
-    private val nearPrefixes = mapOf(
-        VoiceLanguage.EnglishUs to "In 500 feet, ",
-        VoiceLanguage.EnglishUk to "In 500 feet, ",
-        VoiceLanguage.Spanish to "En 500 pies, ",
-        VoiceLanguage.French to "Dans 500 pieds, ",
-        VoiceLanguage.NigerianPidgin to "For about 500 feet, ",
-    )
 
     private val NAVIGATION_STARTED = mapOf(
         VoiceLanguage.EnglishUs to "Navigation started.",
         VoiceLanguage.EnglishUk to "Navigation started.",
         VoiceLanguage.Spanish to "Navegación iniciada.",
         VoiceLanguage.French to "Navigation commencée.",
+        VoiceLanguage.Arabic to "بدأت الملاحة.",
+        VoiceLanguage.Hebrew to "הניווט התחיל.",
         VoiceLanguage.NigerianPidgin to "Navigation don start.",
     )
 
@@ -82,7 +114,9 @@ object VoiceAnnouncementTemplates {
         VoiceLanguage.EnglishUs to "Rerouting.",
         VoiceLanguage.EnglishUk to "Rerouting.",
         VoiceLanguage.Spanish to "Recalculando ruta.",
-        VoiceLanguage.French to "Recalcul de l'itinéraire.",
+        VoiceLanguage.French to "Recalcul de l’itinéraire.",
+        VoiceLanguage.Arabic to "جارٍ إعادة التوجيه.",
+        VoiceLanguage.Hebrew to "מחשב מסלול מחדש.",
         VoiceLanguage.NigerianPidgin to "I dey find new road.",
     )
 
@@ -91,6 +125,8 @@ object VoiceAnnouncementTemplates {
         VoiceLanguage.EnglishUk to "Route updated.",
         VoiceLanguage.Spanish to "Ruta actualizada.",
         VoiceLanguage.French to "Itinéraire mis à jour.",
+        VoiceLanguage.Arabic to "تم تحديث المسار.",
+        VoiceLanguage.Hebrew to "המסלול עודכן.",
         VoiceLanguage.NigerianPidgin to "New road don ready.",
     )
 
@@ -99,6 +135,8 @@ object VoiceAnnouncementTemplates {
         VoiceLanguage.EnglishUk to "Approaching your destination.",
         VoiceLanguage.Spanish to "Se acerca a su destino.",
         VoiceLanguage.French to "Vous approchez de votre destination.",
+        VoiceLanguage.Arabic to "أنت تقترب من وجهتك.",
+        VoiceLanguage.Hebrew to "אתם מתקרבים ליעד.",
         VoiceLanguage.NigerianPidgin to "You dey near your destination.",
     )
 
@@ -107,12 +145,11 @@ object VoiceAnnouncementTemplates {
         VoiceLanguage.EnglishUk to "You have arrived.",
         VoiceLanguage.Spanish to "Ha llegado a su destino.",
         VoiceLanguage.French to "Vous êtes arrivé à destination.",
+        VoiceLanguage.Arabic to "لقد وصلت إلى وجهتك.",
+        VoiceLanguage.Hebrew to "הגעתם ליעד.",
         VoiceLanguage.NigerianPidgin to "You don reach your destination.",
     )
 
-    /** One phrase per [ManeuverType], per language. [ManeuverType.Start]/[Unknown] use a safe
-     * generic phrase — the trip-start moment is actually announced via [VoiceEvent.NavigationStarted],
-     * and arrival via [VoiceEvent.Arrived], so neither is expected to reach here in practice. */
     private val maneuverTables: Map<VoiceLanguage, Map<ManeuverType, String>> = mapOf(
         VoiceLanguage.EnglishUs to enManeuvers(),
         VoiceLanguage.EnglishUk to enManeuvers(),
@@ -147,6 +184,38 @@ object VoiceAnnouncementTemplates {
             ManeuverType.Roundabout to "entrez dans le rond-point",
             ManeuverType.Destination to "vous êtes arrivé",
             ManeuverType.Unknown to "continuez",
+        ),
+        VoiceLanguage.Arabic to mapOf(
+            ManeuverType.Start to "استمر",
+            ManeuverType.Continue to "استمر مستقيمًا",
+            ManeuverType.SlightLeft to "الزم اليسار قليلًا",
+            ManeuverType.SlightRight to "الزم اليمين قليلًا",
+            ManeuverType.TurnLeft to "انعطف يسارًا",
+            ManeuverType.TurnRight to "انعطف يمينًا",
+            ManeuverType.SharpLeft to "انعطف يسارًا بحدة",
+            ManeuverType.SharpRight to "انعطف يمينًا بحدة",
+            ManeuverType.UTurn to "قم بالدوران للخلف",
+            ManeuverType.Merge to "اندمج مع الطريق",
+            ManeuverType.Ramp to "اسلك المخرج",
+            ManeuverType.Roundabout to "ادخل الدوار",
+            ManeuverType.Destination to "لقد وصلت إلى وجهتك",
+            ManeuverType.Unknown to "استمر",
+        ),
+        VoiceLanguage.Hebrew to mapOf(
+            ManeuverType.Start to "המשיכו",
+            ManeuverType.Continue to "המשיכו ישר",
+            ManeuverType.SlightLeft to "היצמדו מעט לשמאל",
+            ManeuverType.SlightRight to "היצמדו מעט לימין",
+            ManeuverType.TurnLeft to "פנו שמאלה",
+            ManeuverType.TurnRight to "פנו ימינה",
+            ManeuverType.SharpLeft to "פנו בחדות שמאלה",
+            ManeuverType.SharpRight to "פנו בחדות ימינה",
+            ManeuverType.UTurn to "בצעו פניית פרסה",
+            ManeuverType.Merge to "השתלבו בדרך",
+            ManeuverType.Ramp to "צאו ביציאה",
+            ManeuverType.Roundabout to "היכנסו לכיכר",
+            ManeuverType.Destination to "הגעתם ליעד",
+            ManeuverType.Unknown to "המשיכו",
         ),
         VoiceLanguage.NigerianPidgin to mapOf(
             ManeuverType.Start to "continue",

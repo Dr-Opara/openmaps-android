@@ -20,6 +20,7 @@ fun mapViewModelFactory(container: AppContainer): ViewModelProvider.Factory = vi
             tripShareRepository = container.tripShareRepository,
             voiceGuidanceEngine = container.voiceGuidanceEngine,
             voiceGuidancePrefs = container.voiceGuidancePrefs,
+            localizationPrefs = container.localizationPrefs,
         )
     }
 }

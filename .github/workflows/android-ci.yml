@@ -35,6 +35,11 @@ jobs:
       - name: Lint
         run: ./gradlew lint
 
+      - name: Worldwide localization acceptance
+        if: ${{ hashFiles('scripts/production-localization-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-localization-acceptance.ps1
+
       - name: Community reports production acceptance
         if: ${{ hashFiles('scripts/production-community-reports-acceptance.ps1') != '' }}
         shell: pwsh

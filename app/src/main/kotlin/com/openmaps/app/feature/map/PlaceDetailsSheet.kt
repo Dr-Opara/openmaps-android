@@ -52,6 +52,9 @@ import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.designsystem.surfaceCard
+import com.openmaps.app.core.localization.LocalAppLocale
+import com.openmaps.app.core.localization.LocalMeasurementSystem
+import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import java.util.Locale
@@ -203,8 +206,9 @@ internal val HOME_CHIP_CATEGORIES = listOf(
 )
 
 /** Tile caption: the mockup's discovery tiles use the same plural wording as the home chip strip. */
+@Composable
 internal fun PlaceCategory.tileLabel(): String = when (this) {
-    PlaceCategory.Restaurant -> "Food"
+    PlaceCategory.Restaurant -> stringResource(R.string.category_food)
     else -> chipLabel()
 }
 
@@ -213,10 +217,11 @@ internal fun PlaceCategory.tileLabel(): String = when (this) {
  * The Explore sheet uses the singular [displayName], so the two surfaces read naturally without
  * renaming the category itself.
  */
+@Composable
 internal fun PlaceCategory.chipLabel(): String = when (this) {
-    PlaceCategory.Restaurant -> "Restaurants"
-    PlaceCategory.Hotel -> "Hotels"
-    PlaceCategory.EvCharging -> "EV charging"
+    PlaceCategory.Restaurant -> stringResource(R.string.category_restaurants)
+    PlaceCategory.Hotel -> stringResource(R.string.category_hotels)
+    PlaceCategory.EvCharging -> stringResource(R.string.category_ev_charging)
     else -> displayName()
 }
 
@@ -638,12 +643,13 @@ private fun NearbyTabContent(place: Place, nearbyPlaces: List<Place>, onSelect: 
 private const val MAX_NEARBY_TAB_RESULTS = 8
 
 /** "0.3 mi away" / "150 ft off route" — whichever distance figure the place actually carries. */
+@Composable
 private fun placeSummaryLine(place: Place): String? {
     val detour = place.routeDetourMeters
     val straight = place.distanceMeters
     return when {
-        detour != null -> "${formatPlaceDistance(detour)} off route"
-        straight != null -> "${formatPlaceDistance(straight)} away"
+        detour != null -> stringResource(R.string.distance_off_route_format, formatPlaceDistance(detour))
+        straight != null -> stringResource(R.string.distance_away_format, formatPlaceDistance(straight))
         else -> place.address
     }
 }
@@ -673,40 +679,34 @@ private fun placeMetadataLine(place: Place): String? {
     }
 }
 
-private fun formatPlaceDistance(meters: Double): String {
-    val feet = meters * FEET_PER_METER
-    val miles = meters / METERS_PER_MILE
-    return when {
-        feet < 1000.0 -> "${feet.roundToInt()} ft"
-        miles < 10 -> String.format(Locale.US, "%.1f mi", miles)
-        else -> "${miles.roundToInt()} mi"
-    }
-}
-
-private const val FEET_PER_METER = 3.28084
-private const val METERS_PER_MILE = 1609.344
+@Composable
+private fun formatPlaceDistance(meters: Double): String =
+    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current, LocalAppLocale.current)
 
 /**
  * Screen-reader/UI label for a category. Hardcoded rather than `stringResource`, matching the
  * established pattern for short derived labels in this codebase (see `ManeuverType.spokenLabel`).
  */
-internal fun PlaceCategory.displayName(): String = when (this) {
-    PlaceCategory.Restaurant -> "Restaurant"
-    PlaceCategory.Coffee -> "Coffee"
-    PlaceCategory.Hotel -> "Hotel"
-    PlaceCategory.Grocery -> "Grocery"
-    PlaceCategory.Pharmacy -> "Pharmacy"
-    PlaceCategory.Parking -> "Parking"
-    PlaceCategory.Gas -> "Gas"
-    PlaceCategory.EvCharging -> "EV charging"
-    PlaceCategory.Bank -> "Bank"
-    PlaceCategory.Atm -> "ATM"
-    PlaceCategory.Convenience -> "Convenience"
-    PlaceCategory.Medical -> "Medical"
-    PlaceCategory.Entertainment -> "Entertainment"
-    PlaceCategory.Shopping -> "Shopping"
-    PlaceCategory.Education -> "Education"
-}
+@Composable
+internal fun PlaceCategory.displayName(): String = stringResource(
+    when (this) {
+        PlaceCategory.Restaurant -> R.string.category_restaurant
+        PlaceCategory.Coffee -> R.string.category_coffee
+        PlaceCategory.Hotel -> R.string.category_hotel
+        PlaceCategory.Grocery -> R.string.category_grocery
+        PlaceCategory.Pharmacy -> R.string.category_pharmacy
+        PlaceCategory.Parking -> R.string.category_parking
+        PlaceCategory.Gas -> R.string.category_gas
+        PlaceCategory.EvCharging -> R.string.category_ev_charging
+        PlaceCategory.Bank -> R.string.category_bank
+        PlaceCategory.Atm -> R.string.category_atm
+        PlaceCategory.Convenience -> R.string.category_convenience
+        PlaceCategory.Medical -> R.string.category_medical
+        PlaceCategory.Entertainment -> R.string.category_entertainment
+        PlaceCategory.Shopping -> R.string.category_shopping
+        PlaceCategory.Education -> R.string.category_education
+    },
+)
 
 /**
  * The category's semantic icon.
