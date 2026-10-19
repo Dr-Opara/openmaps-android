@@ -21,8 +21,8 @@ import java.util.Locale
 class HereTrafficRoadIntelligenceRepository(
     private val endpointUrl: String,
     private val publishableKey: String,
-    private val clientId: String? = null,
     private val localeTagProvider: () -> String = { Locale.getDefault().toLanguageTag() },
+    private val clientId: String? = null,
 ) : RoadIntelligenceRepository {
 
     override suspend fun roadEventsAlongRoute(
