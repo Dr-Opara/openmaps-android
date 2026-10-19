@@ -537,23 +537,35 @@ Required values:
 - `OPENMAPS_RELEASE_KEY_ALIAS`
 - `OPENMAPS_RELEASE_KEY_PASSWORD`
 
-Before producing a release artifact, run:
+Release metadata is configurable too:
+
+- `OPENMAPS_VERSION_NAME` — defaults to `0.9.0-beta.1`.
+- `OPENMAPS_VERSION_CODE` — defaults to `9001`.
+
+Before producing a release artifact, run the combined production gate and build:
 
 ```powershell
+.\gradlew.bat verifyProductionMapConfiguration
+.\gradlew.bat verifyProductionArCoreConfiguration
 .\gradlew.bat verifyReleaseSigningConfiguration
+.\gradlew.bat verifyProductionReleaseConfiguration
 .\gradlew.bat bundleRelease
+.\scripts\verify-signed-release.ps1 -Artifact app\build\outputs\bundle\release\app-release.aab
 ```
 
-or on a Unix CI runner:
+On Unix CI/release infrastructure use the equivalent `./gradlew` commands; the signature verifier
+is PowerShell Core compatible.
 
-```bash
-./gradlew verifyReleaseSigningConfiguration bundleRelease
-```
+The production gate fails if the version metadata is still development-like, Stadia or ARCore
+production configuration is incomplete, signing values are missing, or the keystore file does not
+exist. `verify-signed-release.ps1` then verifies the AAB/JAR signature (or APK signature with
+`apksigner`) and prints the final SHA-256 digest for release records.
 
-The verification task fails if any value is missing or the configured keystore file does not exist.
+Normal pull-request CI also runs `bundleRelease` **without production signing secrets** so R8,
+resource shrinking and release-only compilation are continuously tested. That CI artifact is not a
+release candidate and must not be distributed as signed production software.
+
 Signing passwords are never written to BuildConfig, Android resources, the manifest, or source
-control.
-
-The production keystore and its passwords must be provisioned through the release owner's secure
+control. The production keystore and passwords must be provisioned through the release owner's secure
 credential store/CI secret manager. Do not place them in GitHub source, chat transcripts, screenshots,
 or committed Gradle files.
