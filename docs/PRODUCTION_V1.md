@@ -510,3 +510,31 @@ Not claimable by automation:
 - Actual screen-lock, background, memory-pressure process recreation, 60+ minute trip, Bluetooth,
   thermal/battery, real LaneLock, tunnel/GPS-drift and AR road-alignment behavior require a physical
   Android phone and real-road execution. Those rows remain NOT RUN until executed.
+
+
+## Production implementation Phase 14: Regional Capability Matrix / Beta Readiness
+
+Implemented on `feature/regional-capability-matrix-v1`:
+
+- `config/regional-capabilities.json` is the machine-readable regional source of truth.
+- `docs/REGIONAL_CAPABILITY_MATRIX.md` presents the same evidence for launch review.
+- The initial launch matrix covers Houston, London, Paris, Lagos, Tokyo and Sydney.
+- Capability state distinguishes VERIFIED, SUPPORTED, CONDITIONAL, FALLBACK, UNVERIFIED, BLOCKED and
+  UNSUPPORTED instead of collapsing every provider feature into a misleading yes/no.
+- Routing and traffic-aware ETA are VERIFIED in all six launch cities because production routing
+  acceptance directly exercises each city with HERE and requires `trafficAware=true`.
+- Places is VERIFIED in all six launch cities because production Places acceptance directly requires
+  HERE commercial-provider participation and multi-category results in every city.
+- Search is only VERIFIED where the current search acceptance has direct evidence; Tokyo/Sydney stay
+  SUPPORTED until explicit search cases are added.
+- LaneLock remains CONDITIONAL by design because it is segment/evidence dependent, not a country-wide
+  entitlement.
+- Live parking occupancy is UNSUPPORTED until a real occupancy provider exists.
+- Tokyo voice/localization remains FALLBACK because Japanese UI/navigation voice is not implemented.
+- Live AR, production maps and offline map corridors remain BLOCKED until their declared external
+  dependencies and physical validation are complete.
+- CI validates matrix completeness, legal statuses, evidence text, six-city routing/Places evidence
+  and prevents premature promotion of the known blockers.
+
+Public beta is intentionally reported as BLOCKED while any global blocker remains. The matrix is a
+release-control artifact, not a marketing coverage claim.
