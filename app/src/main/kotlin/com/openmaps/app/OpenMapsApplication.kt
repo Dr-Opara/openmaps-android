@@ -51,6 +51,18 @@ class AppContainer(application: Application) {
     val locationPermissionPrefs: LocationPermissionPrefs = LocationPermissionPrefs(application)
     val cameraPermissionPrefs: CameraPermissionPrefs = CameraPermissionPrefs(application)
     val localizationPrefs: LocalizationPrefs = LocalizationPrefs(application)
+
+    /**
+     * Stable anonymous per-install backend identity. It is sent only to the OpenMaps gateway,
+     * where the server hashes it before rate-limit accounting; provider APIs never receive it.
+     */
+    private val backendClientId: String by lazy {
+        val prefs = application.getSharedPreferences("openmaps_backend_gateway", Context.MODE_PRIVATE)
+        prefs.getString("anonymous_client_id", null) ?: java.util.UUID.randomUUID().toString().also {
+            prefs.edit().putString("anonymous_client_id", it).apply()
+        }
+    }
+
     val mapStyleProvider: MapStyleProvider = BuildConfigMapStyleProvider()
     /**
      * Production geocoding path:
@@ -64,7 +76,8 @@ class AppContainer(application: Application) {
         providers = listOf(
             BackendGeocodingRepository(
                 endpointUrl = BuildConfig.GEOCODING_GATEWAY_URL,
-                publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+                publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                clientId = backendClientId,
             ),
             NominatimGeocodingRepository(
                 userAgent = "${application.packageName}/${BuildConfig.VERSION_NAME} (OpenMaps Android; fallback)",
@@ -73,29 +86,24 @@ class AppContainer(application: Application) {
     )
     val reverseGeocodingRepository: ReverseGeocodingRepository = BackendReverseGeocodingRepository(
         endpointUrl = BuildConfig.REVERSE_GEOCODING_GATEWAY_URL,
-        publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+        publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                clientId = backendClientId,
     )
     val recentSearchStore: RecentSearchStore = SharedPreferencesRecentSearchStore(application)
 
     /** Production moderated community-reporting backend. */
-    private val communityReportClientId: String by lazy {
-        val prefs = application.getSharedPreferences("openmaps_community_reports", Context.MODE_PRIVATE)
-        prefs.getString("anonymous_client_id", null) ?: java.util.UUID.randomUUID().toString().also {
-            prefs.edit().putString("anonymous_client_id", it).apply()
-        }
-    }
-
     private val communityReportsRepository = BackendCommunityReportsRepository(
         endpointUrl = BuildConfig.COMMUNITY_REPORTS_GATEWAY_URL,
-        publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
-        anonymousClientId = communityReportClientId,
+        publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+        anonymousClientId = backendClientId,
     )
     val driverReportRepository: DriverReportRepository = communityReportsRepository
 
     /** Production live trip sharing with expiring public links and private owner capabilities. */
     val tripShareRepository: TripShareRepository = BackendTripShareRepository(
         endpointUrl = BuildConfig.TRIP_SHARE_GATEWAY_URL,
-        publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+        publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                clientId = backendClientId,
     )
 
     /**
@@ -109,7 +117,8 @@ class AppContainer(application: Application) {
         providers = listOf(
             BackendRoutingRepository(
                 endpointUrl = BuildConfig.ROUTING_GATEWAY_URL,
-                publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+                publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                clientId = backendClientId,
                 localeTagProvider = localizationPrefs::currentLocaleTag,
             ),
             ValhallaRoutingRepository(
@@ -136,7 +145,8 @@ class AppContainer(application: Application) {
         providers = listOf(
             BackendPlaceRepository(
                 endpointUrl = BuildConfig.PLACES_GATEWAY_URL,
-                publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+                publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                clientId = backendClientId,
                 localeTagProvider = localizationPrefs::currentLocaleTag,
             ),
             OverpassPlaceRepository(
@@ -154,7 +164,8 @@ class AppContainer(application: Application) {
             communityReportsRepository,
             HereTrafficRoadIntelligenceRepository(
                 endpointUrl = BuildConfig.TRAFFIC_INCIDENTS_GATEWAY_URL,
-                publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+                publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                clientId = backendClientId,
                 localeTagProvider = localizationPrefs::currentLocaleTag,
             ),
             DefaultRoadIntelligenceRepository(
@@ -170,7 +181,8 @@ class AppContainer(application: Application) {
      */
     val laneGuidanceRepository: LaneGuidanceRepository = BackendLaneGuidanceRepository(
         endpointUrl = BuildConfig.LANE_GUIDANCE_GATEWAY_URL,
-        publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+        publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                clientId = backendClientId,
     )
 
     /**
@@ -204,7 +216,8 @@ class AppContainer(application: Application) {
         context = application,
         neuralRepository = BackendNeuralVoiceRepository(
             endpointUrl = BuildConfig.VOICE_GATEWAY_URL,
-            publishableKey = BuildConfig.GEOCODING_PUBLISHABLE_KEY,
+            publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
+                clientId = backendClientId,
         ),
         fallback = androidTtsFallback,
     ).apply {
