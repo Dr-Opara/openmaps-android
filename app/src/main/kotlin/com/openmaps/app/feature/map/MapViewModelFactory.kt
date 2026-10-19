@@ -21,6 +21,7 @@ fun mapViewModelFactory(container: AppContainer): ViewModelProvider.Factory = vi
             voiceGuidanceEngine = container.voiceGuidanceEngine,
             voiceGuidancePrefs = container.voiceGuidancePrefs,
             localizationPrefs = container.localizationPrefs,
+            reliabilityReporter = container.reliabilityReporter,
         )
     }
 }

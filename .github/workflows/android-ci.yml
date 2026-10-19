@@ -40,6 +40,11 @@ jobs:
         shell: pwsh
         run: ./scripts/production-backend-gateway-acceptance.ps1
 
+      - name: Reliability observability acceptance
+        if: ${{ hashFiles('scripts/production-reliability-acceptance.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/production-reliability-acceptance.ps1
+
       - name: Worldwide localization acceptance
         if: ${{ hashFiles('scripts/production-localization-acceptance.ps1') != '' }}
         shell: pwsh

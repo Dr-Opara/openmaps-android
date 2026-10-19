@@ -22,6 +22,11 @@ import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.navigation.NavigationSession
 import com.openmaps.app.core.navigation.OffRouteDecision
 import com.openmaps.app.core.navigation.RouteProgress
+import com.openmaps.app.core.reliability.NoopReliabilityReporter
+import com.openmaps.app.core.reliability.ReliabilityEvent
+import com.openmaps.app.core.reliability.ReliabilityEventName
+import com.openmaps.app.core.reliability.ReliabilityOutcome
+import com.openmaps.app.core.reliability.ReliabilityReporter
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PlaceCategoryMapper
@@ -109,6 +114,7 @@ class MapViewModel(
     private val voiceGuidancePrefs: VoiceGuidancePrefs? = null,
     /** Phase 7 locale/unit preferences; null in pure ViewModel tests. */
     private val localizationPrefs: LocalizationPrefs? = null,
+    private val reliabilityReporter: ReliabilityReporter = NoopReliabilityReporter,
     private val fixTimeoutMillis: Long = DEFAULT_FIX_TIMEOUT_MILLIS,
 ) : ViewModel() {
 
@@ -148,6 +154,25 @@ class MapViewModel(
     private var autoCenterHandled = false
     private var userHasMovedCamera = false
     private var autoPromptEmitted = false
+    private var routeRequestStartedAtMillis: Long? = null
+
+    private fun recordReliability(
+        name: ReliabilityEventName,
+        outcome: ReliabilityOutcome = ReliabilityOutcome.Info,
+        reason: String? = null,
+        durationMillis: Long? = null,
+        metadata: Map<String, String> = emptyMap(),
+    ) {
+        reliabilityReporter.record(
+            ReliabilityEvent(
+                name = name,
+                outcome = outcome,
+                reason = reason,
+                durationMillis = durationMillis,
+                metadata = metadata,
+            ),
+        )
+    }
 
     /**
      * Invoked after a reroute replaces the route. Phase 7 anchors and Phase 8 arrows are both
@@ -588,11 +613,20 @@ class MapViewModel(
         val originCoordinate = originOverride?.let { Coordinate(it.latitude, it.longitude) }
             ?: Coordinate(deviceOrigin!!.latitude, deviceOrigin.longitude)
         _uiState.update { it.copy(routeState = RouteState.Loading) }
+        routeRequestStartedAtMillis = System.currentTimeMillis()
+        recordReliability(ReliabilityEventName.RouteRequest)
         routeJob = viewModelScope.launch {
             routingRepository.route(
                 origin = originCoordinate,
                 destination = Coordinate(destination.latitude, destination.longitude),
             ).onSuccess { route ->
+                recordReliability(
+                    ReliabilityEventName.RouteReady,
+                    ReliabilityOutcome.Success,
+                    durationMillis = routeRequestStartedAtMillis?.let { System.currentTimeMillis() - it },
+                    metadata = mapOf("trafficAware" to route.isTrafficAware.toString()),
+                )
+                routeRequestStartedAtMillis = null
                 _uiState.update {
                     it.copy(
                         routeState = RouteState.Ready(route),
@@ -605,6 +639,13 @@ class MapViewModel(
                 fetchPlacesAlongRoute(route)
                 fetchRoadEventsAlongRoute(route)
             }.onFailure { cause ->
+                recordReliability(
+                    ReliabilityEventName.RouteFailed,
+                    ReliabilityOutcome.Error,
+                    reason = cause::class.java.simpleName,
+                    durationMillis = routeRequestStartedAtMillis?.let { System.currentTimeMillis() - it },
+                )
+                routeRequestStartedAtMillis = null
                 _uiState.update { it.copy(routeState = RouteState.Error(cause.toRouteError())) }
             }
         }
@@ -1306,10 +1347,20 @@ class MapViewModel(
         val route = (state.routeState as? RouteState.Ready)?.route
         if (route == null) return
         if (state.currentLocation == null) {
+            recordReliability(
+                ReliabilityEventName.NavigationStartFailed,
+                ReliabilityOutcome.Error,
+                reason = "location_unavailable",
+            )
             _uiState.update { it.copy(navigationState = NavigationState.Error(NavigationError.LocationUnavailable)) }
             return
         }
         if (route.maneuvers.isEmpty()) {
+            recordReliability(
+                ReliabilityEventName.NavigationStartFailed,
+                ReliabilityOutcome.Error,
+                reason = "route_unavailable",
+            )
             _uiState.update { it.copy(navigationState = NavigationState.Error(NavigationError.RouteUnavailable)) }
             return
         }
@@ -1354,6 +1405,11 @@ class MapViewModel(
             )
         }
         if (seeded != null) {
+            recordReliability(
+                ReliabilityEventName.NavigationStarted,
+                ReliabilityOutcome.Success,
+                metadata = mapOf("mode" to requestedMode.name.lowercase()),
+            )
             followCameraWith(seeded)
             publishRouteProgress(seeded)
         }
@@ -1559,6 +1615,9 @@ class MapViewModel(
 
     /** Explicit red Exit action: end the trip and return to Discover/Home, not Route Preview. */
     fun endNavigationToHome() {
+        if (_uiState.value.isNavigating) {
+            recordReliability(ReliabilityEventName.NavigationEnded, ReliabilityOutcome.Info, reason = "exit_to_home")
+        }
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
@@ -1599,6 +1658,9 @@ class MapViewModel(
 
     /** Ends the trip and returns the map to plain route browsing. Never touches the route itself. */
     fun stopNavigation() {
+        if (_uiState.value.isNavigating) {
+            recordReliability(ReliabilityEventName.NavigationEnded, ReliabilityOutcome.Info, reason = "stopped")
+        }
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
@@ -1647,6 +1709,7 @@ class MapViewModel(
             // muted overlay would suggest there is still road ahead to drive.
             _routeProgressView.value = null
             _uiState.update { it.copy(navigationState = NavigationState.Arrived(progress)) }
+            recordReliability(ReliabilityEventName.Arrived, ReliabilityOutcome.Success)
             voiceGuidanceEngine.speak(VoiceEvent.Arrived)
             viewModelScope.launch {
                 delay(ARRIVAL_RETURN_HOME_DELAY_MILLIS)
@@ -1669,12 +1732,14 @@ class MapViewModel(
                 followCameraWith(progress)
             }
             OffRouteDecision.OffRouteConfirmed -> {
+                recordReliability(ReliabilityEventName.OffRouteConfirmed, ReliabilityOutcome.Degraded)
                 // Flagged but not rerouting yet: hold the route and keep tracking. Still follow,
                 // so the driver keeps seeing where they are relative to it.
                 _uiState.update { it.copy(navigationState = NavigationState.OffRoute(withOffRouteFlag(progress, true))) }
                 followCameraWith(progress)
             }
             OffRouteDecision.TriggerReroute -> {
+                recordReliability(ReliabilityEventName.RerouteTriggered, ReliabilityOutcome.Degraded)
                 _uiState.update { it.copy(navigationState = NavigationState.Rerouting) }
                 voiceGuidanceEngine.speak(VoiceEvent.Rerouting)
                 requestReroute(location)
@@ -1821,6 +1886,7 @@ class MapViewModel(
         routeJob = viewModelScope.launch {
             routingRepository.route(origin.toCoordinate(), Coordinate(destination.latitude, destination.longitude))
                 .onSuccess { route ->
+                    recordReliability(ReliabilityEventName.RerouteSucceeded, ReliabilityOutcome.Success)
                     rerouteInFlight = false
                     session = NavigationSession(route)
                     laneGuidanceJob?.cancel()
@@ -1867,6 +1933,7 @@ class MapViewModel(
                     recomputeEnvironment()
                 }
                 .onFailure {
+                    recordReliability(ReliabilityEventName.RerouteFailed, ReliabilityOutcome.Error)
                     rerouteInFlight = false
                     // Not a dead end: the old route is still valid and still displayed, so return
                     // to tracking against it and surface a one-time notice instead of an error.

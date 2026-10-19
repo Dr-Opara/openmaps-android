@@ -24,6 +24,7 @@ fun liveViewModelFactory(container: AppContainer): ViewModelProvider.Factory = v
             cameraEngine = CameraXRearEngine() as RearCameraEngine,
             // Phase 6: ARCore engine (support checked on start, never at construction).
             spatialEngine = container.spatialLocalizationEngine,
+            reliabilityReporter = container.reliabilityReporter,
         )
     }
 }
