@@ -23,7 +23,7 @@ Add-Result "Foreground promotion" ($service.Contains("ServiceCompat.startForegro
 Add-Result "User-visible notification" ($service.Contains("setOngoing(true)") -and $service.Contains("setContentIntent(openApp)")) "persistent navigation notification"
 Add-Result "Background nav keeps GPS" ($vm.Contains("backgroundNavigationActive") -and $vm.Contains("isAppVisible || backgroundNavigationActive")) "navigation-aware location collection"
 Add-Result "Process recovery bounded" ($recovery.Contains("DEFAULT_MAX_AGE_MILLIS = 6 * 60 * 60 * 1000L")) "6-hour local recovery TTL"
-Add-Result "Recovery returns to Map" ($vm.Contains("reason = \"process_recovery\"") -and $vm.Contains("selectedMapMode = MapMode.Map")) "safe map-mode recovery"
+Add-Result "Recovery returns to Map" ($vm.Contains('reason = "process_recovery"') -and $vm.Contains("selectedMapMode = MapMode.Map")) "safe map-mode recovery"
 Add-Result "Trip-share token encrypted" ($shareRecovery.Contains("AndroidKeyStore") -and $shareRecovery.Contains("AES/GCM/NoPadding")) "Keystore AES-GCM"
 Add-Result "Trip-share recovery expires" ($shareRecovery.Contains("session.expiresAtMillis <= nowMillis")) "expiry enforced"
 Add-Result "Background lifecycle regression test" ($tests.Contains("backgrounding_duringActiveNavigation_keepsLocationUpdates_untilTripStops")) "unit coverage"
