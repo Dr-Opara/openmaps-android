@@ -183,6 +183,10 @@
     <string name="nav_action_share">Share</string>
     <string name="nav_action_reroute">Reroute</string>
     <string name="nav_exit">EXIT</string>
+    <string name="navigation_service_channel">Active navigation</string>
+    <string name="navigation_service_channel_description">Keeps location and navigation active while the screen is locked or OpenMaps is in the background.</string>
+    <string name="navigation_service_title">OpenMaps navigation</string>
+    <string name="navigation_service_body">Navigation is active</string>
     <string name="nav_exit_confirm_title">End navigation?</string>
     <string name="nav_exit_confirm_body">Your active trip will stop and OpenMaps will return to Discover.</string>
     <string name="nav_exit_continue">Continue trip</string>
