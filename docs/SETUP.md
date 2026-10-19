@@ -468,3 +468,39 @@ Production localization acceptance:
 ```
 
 The existing Places and neural-voice production acceptance suites also carry locale-specific requests, including Arabic/Hebrew voice synthesis.
+
+
+## Production release signing
+
+OpenMaps does not commit a release keystore, alias, or password. The Android build reads production
+signing material only from Gradle properties, environment variables, or git-ignored
+`local.properties`.
+
+Required values:
+
+- `OPENMAPS_RELEASE_STORE_FILE` — path to the production keystore, relative to the repository root
+  or an absolute path supported by the build environment.
+- `OPENMAPS_RELEASE_STORE_PASSWORD`
+- `OPENMAPS_RELEASE_KEY_ALIAS`
+- `OPENMAPS_RELEASE_KEY_PASSWORD`
+
+Before producing a release artifact, run:
+
+```powershell
+.\gradlew.bat verifyReleaseSigningConfiguration
+.\gradlew.bat bundleRelease
+```
+
+or on a Unix CI runner:
+
+```bash
+./gradlew verifyReleaseSigningConfiguration bundleRelease
+```
+
+The verification task fails if any value is missing or the configured keystore file does not exist.
+Signing passwords are never written to BuildConfig, Android resources, the manifest, or source
+control.
+
+The production keystore and its passwords must be provisioned through the release owner's secure
+credential store/CI secret manager. Do not place them in GitHub source, chat transcripts, screenshots,
+or committed Gradle files.
