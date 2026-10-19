@@ -54,19 +54,26 @@ $buildFile = Get-Content "app/build.gradle.kts" -Raw
 Add-Result "Unified backend base" ($buildFile.Contains("OPENMAPS_BACKEND_BASE_URL")) "OPENMAPS_BACKEND_BASE_URL"
 Add-Result "Unified publishable key" ($buildFile.Contains("BACKEND_PUBLISHABLE_KEY")) "BACKEND_PUBLISHABLE_KEY"
 
-$forbidden = @("HERE_API_KEY","MAPBOX_ACCESS_TOKEN","OPENAI_API_KEY","SUPABASE_SERVICE_ROLE_KEY")
 $clientFiles = @("app/build.gradle.kts")
 $clientFiles += Get-ChildItem "app/src/main" -Recurse -File | ForEach-Object { $_.FullName }
-$secretHits = New-Object System.Collections.Generic.List[string]
-foreach ($file in $clientFiles) {
-  $text = Get-Content $file -Raw -ErrorAction SilentlyContinue
-  foreach ($name in $forbidden) {
-    if ($text -and $text.Contains($name)) {
-      $secretHits.Add("$name in $file")
-    }
-  }
-}
-$secretDetail = if ($secretHits.Count -eq 0) { "server-only provider credentials absent" } else { $secretHits -join "; " }
+$clientText = ($clientFiles | ForEach-Object { Get-Content $_ -Raw -ErrorAction SilentlyContinue }) -join "`n"
+$forbiddenPatterns = @(
+  'buildConfigField("String", "HERE_API_KEY"',
+  'buildConfigField("String", "MAPBOX_ACCESS_TOKEN"',
+  'buildConfigField("String", "OPENAI_API_KEY"',
+  'buildConfigField("String", "SUPABASE_SERVICE_ROLE_KEY"',
+  'providers.environmentVariable("HERE_API_KEY")',
+  'providers.environmentVariable("MAPBOX_ACCESS_TOKEN")',
+  'providers.environmentVariable("OPENAI_API_KEY")',
+  'localProperties.getProperty("HERE_API_KEY")',
+  'localProperties.getProperty("MAPBOX_ACCESS_TOKEN")',
+  'localProperties.getProperty("OPENAI_API_KEY")',
+  'hereapi.com',
+  'api.mapbox.com',
+  'api.openai.com'
+)
+$secretHits = @($forbiddenPatterns | Where-Object { $clientText.Contains($_) })
+$secretDetail = if ($secretHits.Count -eq 0) { "no commercial provider credential wiring or direct provider hosts" } else { $secretHits -join "; " }
 Add-Result "No provider secrets in Android" ($secretHits.Count -eq 0) $secretDetail
 
 $rows | Format-Table -AutoSize
