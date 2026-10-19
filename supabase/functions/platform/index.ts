@@ -59,6 +59,7 @@ Deno.serve((req: Request) => {
         tripSharing: true,
         communityReports: true,
         neuralVoice: true,
+        reliabilityTelemetry: true,
       },
       providerReadiness: {
         commercialNavigation: Boolean(Deno.env.get("HERE_API_KEY")?.trim()),
