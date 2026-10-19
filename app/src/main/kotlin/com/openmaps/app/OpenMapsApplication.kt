@@ -57,7 +57,7 @@ import com.openmaps.app.reliability.AndroidCrashRecorder
 import com.openmaps.app.reliability.BackendReliabilityReporter
 import com.openmaps.app.core.navigation.NavigationForegroundController
 import com.openmaps.app.core.navigation.NavigationRecoveryStore
-import com.openmaps.app.core.navigation.SharedPreferencesNavigationRecoveryStore
+import com.openmaps.app.core.navigation.EncryptedNavigationRecoveryStore
 import com.openmaps.app.service.AndroidNavigationForegroundController
 
 /** Minimal manual dependency container (no DI framework needed at this size). */
@@ -70,7 +70,7 @@ class AppContainer(application: Application) {
     val navigationForegroundController: NavigationForegroundController =
         AndroidNavigationForegroundController(application)
     val navigationRecoveryStore: NavigationRecoveryStore =
-        SharedPreferencesNavigationRecoveryStore(application)
+        EncryptedNavigationRecoveryStore(application)
 
     /**
      * Stable anonymous per-install backend identity. It is sent only to the OpenMaps gateway,
