@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
@@ -809,6 +810,7 @@ fun LiveSafetyWarningDialog(
     onConfirmLive: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val uriHandler = LocalUriHandler.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -835,6 +837,25 @@ fun LiveSafetyWarningDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     color = OpenMapsColors.TextSecondary,
                 )
+                Text(
+                    text = stringResource(R.string.live_arcore_disclosure),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OpenMapsColors.TextSecondary,
+                )
+                Text(
+                    text = stringResource(R.string.live_geospatial_disclosure),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OpenMapsColors.TextSecondary,
+                )
+                TextButton(
+                    onClick = {
+                        uriHandler.openUri(
+                            "https://support.google.com/ar?p=how-google-play-services-for-ar-handles-your-data",
+                        )
+                    },
+                ) {
+                    Text(stringResource(R.string.live_geospatial_learn_more))
+                }
             }
         },
         confirmButton = {
