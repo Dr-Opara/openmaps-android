@@ -327,4 +327,8 @@
     <string name="route_use_action">Use</string>
     <string name="lane_use_lane">USE LANE</string>
     <string name="route_degraded_cached">Using a saved route. Live traffic, closures and ETA updates may be unavailable until connectivity returns.</string>
+    <string name="navigation_service_channel">Active navigation</string>
+    <string name="navigation_service_channel_description">Keeps location and navigation active while the screen is locked or OpenMaps is in the background.</string>
+    <string name="navigation_service_title">OpenMaps navigation</string>
+    <string name="navigation_service_body">Navigation is active</string>
 </resources>
