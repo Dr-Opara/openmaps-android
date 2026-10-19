@@ -43,6 +43,66 @@ function authorized(req: Request): boolean {
   }
 }
 
+function supabaseUrl(): string | null {
+  return Deno.env.get("SUPABASE_URL")?.trim() || null;
+}
+
+function serviceRoleKey(): string | null {
+  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim() || null;
+}
+
+async function adminFetch(path: string, init: RequestInit = {}): Promise<Response | null> {
+  const base = supabaseUrl();
+  const key = serviceRoleKey();
+  if (!base || !key) return null;
+  const headers = new Headers(init.headers);
+  headers.set("apikey", key);
+  headers.set("authorization", "Bearer " + key);
+  if (!headers.has("content-type") && init.body) headers.set("content-type", "application/json");
+  return fetch(base + path, { ...init, headers });
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function clientAddress(req: Request): string {
+  return req.headers.get("cf-connecting-ip")?.trim()
+    || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || "unknown";
+}
+
+async function clientIdentityHash(req: Request): Promise<string> {
+  const installId = req.headers.get("x-openmaps-client-id")?.trim();
+  if (installId && /^[A-Za-z0-9._:-]{8,128}$/.test(installId)) {
+    return sha256Hex("install|" + installId);
+  }
+  return sha256Hex("network|" + clientAddress(req));
+}
+
+async function consumeRateLimit(req: Request): Promise<boolean> {
+  try {
+    const now = new Date();
+    now.setSeconds(0, 0);
+    const response = await adminFetch("/rest/v1/rpc/consume_navigation_rate_limit", {
+      method: "POST",
+      body: JSON.stringify({
+        p_client_hash: await clientIdentityHash(req),
+        p_endpoint: "reverse-geocode",
+        p_bucket_start: now.toISOString(),
+        p_limit: 60,
+      }),
+    });
+    if (!response || !response.ok) return true;
+    return (await response.json()) === true;
+  } catch {
+    return true;
+  }
+}
+
 function firstNonBlank(obj: Record<string, unknown> | undefined, keys: string[]): string | null {
   if (!obj) return null;
   for (const key of keys) {
@@ -147,6 +207,7 @@ async function reverseNominatim(latitude: number, longitude: number, localeTag: 
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (!authorized(req)) return json({ error: "unauthorized" }, 401);
+  if (!(await consumeRateLimit(req))) return json({ error: "rate_limited" }, 429);
 
   let body: ReverseRequest;
   try {
