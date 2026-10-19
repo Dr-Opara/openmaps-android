@@ -21,6 +21,8 @@ import com.openmaps.app.core.localization.LocalizationPrefs
 import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.navigation.NavigationSession
 import com.openmaps.app.core.navigation.OffRouteDecision
+import com.openmaps.app.core.navigation.NavigationForegroundController
+import com.openmaps.app.core.navigation.NoopNavigationForegroundController
 import com.openmaps.app.core.navigation.RouteProgress
 import com.openmaps.app.core.reliability.NoopReliabilityReporter
 import com.openmaps.app.core.reliability.ReliabilityEvent
@@ -115,6 +117,7 @@ class MapViewModel(
     /** Phase 7 locale/unit preferences; null in pure ViewModel tests. */
     private val localizationPrefs: LocalizationPrefs? = null,
     private val reliabilityReporter: ReliabilityReporter = NoopReliabilityReporter,
+    private val navigationForegroundController: NavigationForegroundController = NoopNavigationForegroundController,
     private val fixTimeoutMillis: Long = DEFAULT_FIX_TIMEOUT_MILLIS,
 ) : ViewModel() {
 
