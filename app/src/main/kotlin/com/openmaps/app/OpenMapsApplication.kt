@@ -87,7 +87,7 @@ class AppContainer(application: Application) {
     val reverseGeocodingRepository: ReverseGeocodingRepository = BackendReverseGeocodingRepository(
         endpointUrl = BuildConfig.REVERSE_GEOCODING_GATEWAY_URL,
         publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
-                clientId = backendClientId,
+        clientId = backendClientId,
     )
     val recentSearchStore: RecentSearchStore = SharedPreferencesRecentSearchStore(application)
 
@@ -103,7 +103,7 @@ class AppContainer(application: Application) {
     val tripShareRepository: TripShareRepository = BackendTripShareRepository(
         endpointUrl = BuildConfig.TRIP_SHARE_GATEWAY_URL,
         publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
-                clientId = backendClientId,
+        clientId = backendClientId,
     )
 
     /**
@@ -182,7 +182,7 @@ class AppContainer(application: Application) {
     val laneGuidanceRepository: LaneGuidanceRepository = BackendLaneGuidanceRepository(
         endpointUrl = BuildConfig.LANE_GUIDANCE_GATEWAY_URL,
         publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
-                clientId = backendClientId,
+        clientId = backendClientId,
     )
 
     /**
@@ -217,7 +217,7 @@ class AppContainer(application: Application) {
         neuralRepository = BackendNeuralVoiceRepository(
             endpointUrl = BuildConfig.VOICE_GATEWAY_URL,
             publishableKey = BuildConfig.BACKEND_PUBLISHABLE_KEY,
-                clientId = backendClientId,
+        clientId = backendClientId,
         ),
         fallback = androidTtsFallback,
     ).apply {
