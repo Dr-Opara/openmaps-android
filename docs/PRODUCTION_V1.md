@@ -425,3 +425,29 @@ Phase 9 release gates:
 - All prior production acceptance suites remain green.
 - Deployed `reliability` and `platform` functions exactly match the PR source.
 - No merge occurs while any production acceptance gate is red.
+
+## Production implementation Phase 11: Privacy & Security Hardening
+
+Implemented on `feature/privacy-security-hardening-v1`:
+
+- Android explicitly blocks cleartext network traffic and uses a dedicated network-security
+  configuration that trusts the system certificate store only.
+- The existing Live safety acknowledgement now includes Google's required ARCore disclosure and the
+  Geospatial sensor-data notice at activation time, plus the required Learn More destination.
+- Settings permanently exposes the same ARCore/Geospatial disclosure and the OpenMaps retention
+  summary so privacy information remains accessible after activation.
+- Operational telemetry retention is capped at 30 days.
+- Search/navigation rate-limit buckets are retained for at most 2 days.
+- Expired search/places caches are cleaned daily.
+- Finished/expired trip-share sessions are removed after a short post-session window instead of
+  becoming a persistent location-history store.
+- Expired community reports are removed after a short operational grace period.
+- Supabase Cron runs `cleanup_openmaps_retention()` daily; the function is executable by
+  `service_role` only.
+- The retention function itself is `SECURITY INVOKER`, and no new public privileged function was
+  introduced.
+- CI now includes a Privacy/Security acceptance gate covering TLS-only networking, ARCore disclosure,
+  retention policy, cleanup scheduling and Android secret wiring.
+
+Supabase security advisors report no high/critical findings. Existing
+`rls_enabled_no_policy` INFO findings are intentional for service-role-only operational tables.

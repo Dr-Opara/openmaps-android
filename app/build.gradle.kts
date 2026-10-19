@@ -140,9 +140,49 @@ val backendPublishableKey = providers.gradleProperty("OPENMAPS_BACKEND_PUBLISHAB
     .orElse(localProperties.getProperty("OPENMAPS_BACKEND_PUBLISHABLE_KEY") ?: legacyGeocodingPublishableKey)
     .getOrElse(legacyGeocodingPublishableKey)
 
+
+/**
+ * Release signing is configured only from local/CI secrets. Nothing from this block is emitted into
+ * BuildConfig, resources, the manifest or source control.
+ *
+ * Resolution order for every value: Gradle property -> environment variable -> local.properties.
+ */
+fun secretSetting(name: String): String =
+    providers.gradleProperty(name)
+        .orElse(providers.environmentVariable(name))
+        .orElse(localProperties.getProperty(name) ?: "")
+        .getOrElse("")
+        .trim()
+
+val releaseStoreFilePath = secretSetting("OPENMAPS_RELEASE_STORE_FILE")
+val releaseStorePassword = secretSetting("OPENMAPS_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = secretSetting("OPENMAPS_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = secretSetting("OPENMAPS_RELEASE_KEY_PASSWORD")
+val releaseSigningConfigured =
+    releaseStoreFilePath.isNotBlank() &&
+        releaseStorePassword.isNotBlank() &&
+        releaseKeyAlias.isNotBlank() &&
+        releaseKeyPassword.isNotBlank() &&
+        rootProject.file(releaseStoreFilePath).exists()
+
 android {
     namespace = "com.openmaps.app"
     compileSdk = 35
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFilePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.openmaps.app"
@@ -174,6 +214,9 @@ android {
 
     buildTypes {
         release {
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -205,6 +248,19 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
+    }
+}
+
+tasks.register("verifyReleaseSigningConfiguration") {
+    group = "verification"
+    description = "Fails unless all production release-signing secrets are configured and the keystore exists."
+    doLast {
+        check(releaseSigningConfigured) {
+            "Release signing is not configured. Provide OPENMAPS_RELEASE_STORE_FILE, " +
+                "OPENMAPS_RELEASE_STORE_PASSWORD, OPENMAPS_RELEASE_KEY_ALIAS and " +
+                "OPENMAPS_RELEASE_KEY_PASSWORD through Gradle properties, environment variables, " +
+                "or git-ignored local.properties."
+        }
     }
 }
 

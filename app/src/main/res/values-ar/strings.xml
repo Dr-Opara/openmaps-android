@@ -288,4 +288,13 @@
     <string name="route_alternate_fallback">مسار بديل</string>
     <string name="route_use_action">استخدام</string>
     <string name="lane_use_lane">استخدم هذا المسار</string>
+
+    <string name="live_arcore_disclosure">يعمل هذا التطبيق باستخدام خدمات Google Play للواقع المعزز (ARCore)، التي تقدمها Google وتخضع لسياسة خصوصية Google.</string>
+    <string name="live_geospatial_disclosure">لتشغيل هذه الجلسة، ستعالج Google بيانات المستشعرات (مثل الكاميرا والموقع).</string>
+    <string name="live_geospatial_learn_more">مزيد من المعلومات حول خصوصية ARCore</string>
+    <string name="settings_section_privacy">الخصوصية والبيانات</string>
+    <string name="settings_privacy_location">تتم معالجة موقع التنقل لحساب المسارات وإرشاد Live. لا يحتفظ OpenMaps بسجل موقع التنقل العادي كمخطط زمني للحساب.</string>
+    <string name="settings_privacy_trip_share">تحتفظ مشاركة الرحلة المباشرة بالموقع المشترك النشط فقط أثناء نشاط الجلسة. يتم حذف الجلسات المنتهية أو منتهية الصلاحية بعد فترة احتفاظ قصيرة.</string>
+    <string name="settings_privacy_telemetry">يتم تقليل بيانات القياس التشغيلي والاحتفاظ بها لمدة تصل إلى 30 يومًا. تستبعد تقارير الأعطال رسائل الاستثناء والإحداثيات والوجهات والعناوين ونص البحث.</string>
+    <string name="settings_privacy_arcore">يستخدم Live AR خدمات Google Play للواقع المعزز (ARCore). عند تفعيل Geospatial، تعالج Google بيانات المستشعرات مثل الكاميرا والموقع.</string>
 </resources>
