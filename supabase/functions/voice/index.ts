@@ -222,26 +222,42 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const response = await fetch("https://api.openai.com/v1/audio/speech", {
-      method: "POST",
-      headers: {
-        "authorization": "Bearer " + apiKey,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini-tts",
-        voice: "cedar",
-        input: text,
-        instructions: instructionsFor(language),
-        response_format: "wav",
-        speed: 1.04,
-      }),
-      // Multilingual neural speech can legitimately exceed 5s; keep a bounded timeout without
-      // turning normal provider latency into a false service outage.
-      signal: AbortSignal.timeout(12000),
+    const speechBody = JSON.stringify({
+      model: "gpt-4o-mini-tts",
+      voice: "cedar",
+      input: text,
+      instructions: instructionsFor(language),
+      response_format: "wav",
+      speed: 1.04,
     });
 
-    if (!response.ok) {
+    let response: Response | null = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      response = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: {
+          "authorization": "Bearer " + apiKey,
+          "content-type": "application/json",
+        },
+        body: speechBody,
+        // Multilingual neural speech can legitimately exceed 5s; keep a bounded timeout without
+        // turning normal provider latency into a false service outage.
+        signal: AbortSignal.timeout(12000),
+      });
+
+      if (response.ok) break;
+      const retryable = response.status === 429 || response.status >= 500;
+      if (!retryable || attempt === 1) {
+        console.warn("voice_provider_error", { language, status: response.status, attempt: attempt + 1 });
+        void telemetry(language, "error", startedAt);
+        return json({ error: "neural_voice_unavailable" }, 503);
+      }
+
+      console.warn("voice_provider_retry", { language, status: response.status, attempt: attempt + 1 });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    if (!response?.ok) {
       void telemetry(language, "error", startedAt);
       return json({ error: "neural_voice_unavailable" }, 503);
     }
