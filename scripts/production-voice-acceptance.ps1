@@ -19,12 +19,30 @@ $cases = @(
 $rows = New-Object System.Collections.Generic.List[object]
 $failures = New-Object System.Collections.Generic.List[string]
 
+function Invoke-VoiceWithRetry {
+  param([string]$Body, [string]$OutFile)
+
+  for ($attempt = 1; $attempt -le 3; $attempt++) {
+    try {
+      Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+      Invoke-WebRequest -Method Post -Uri $Endpoint -Headers @{ apikey = $PublishableKey } -ContentType "application/json" -Body $Body -OutFile $OutFile | Out-Null
+      return
+    } catch {
+      $status = 0
+      try { $status = [int]$_.Exception.Response.StatusCode } catch { }
+      $transient = $status -eq 429 -or $status -ge 500 -or $status -eq 0
+      if (-not $transient -or $attempt -ge 3) { throw }
+      Start-Sleep -Seconds (2 * $attempt)
+    }
+  }
+}
+
 foreach ($case in $cases) {
   $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("openmaps-voice-" + [Guid]::NewGuid().ToString("N") + ".wav")
   try {
     $started = Get-Date
     $body = @{ text = $case.Text; language = $case.Language } | ConvertTo-Json
-    Invoke-WebRequest -Method Post -Uri $Endpoint -Headers @{ apikey = $PublishableKey } -ContentType "application/json" -Body $body -OutFile $temp | Out-Null
+    Invoke-VoiceWithRetry -Body $body -OutFile $temp
     $latency = [int]((Get-Date) - $started).TotalMilliseconds
     $bytes = if (Test-Path $temp) { (Get-Item $temp).Length } else { 0 }
     $ok = $bytes -gt 1000
