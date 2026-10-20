@@ -54,7 +54,7 @@ object WikimediaDestinationPhotos {
             val info = page.optJSONArray("imageinfo")?.optJSONObject(0) ?: continue
             val metadata = info.optJSONObject("extmetadata") ?: continue
             val license = metadata.optJSONObject("LicenseShortName")?.optString("value").orEmpty()
-            if (!(license.startsWith("CC BY") || license == "CC0" || license == "Public domain")) continue
+            if (!(license.startsWith("CC BY ") || license.startsWith("CC BY-SA ") || license == "CC0" || license == "Public domain")) continue
             val imageUrl = info.optString("thumburl").ifBlank { info.optString("url") }
             val pageUrl = info.optString("descriptionurl")
             val fileHost = runCatching { URL(imageUrl).host }.getOrNull()
