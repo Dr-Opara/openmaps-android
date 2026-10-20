@@ -1,6 +1,12 @@
 package com.openmaps.app.feature.map
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +19,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
@@ -23,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openmaps.app.core.designsystem.OpenMapsWordmark
 import com.openmaps.app.map.CartographyMode
+import com.openmaps.app.map.BasemapStyle
+import com.openmaps.app.map.MapEvent
 import com.openmaps.app.map.MapEngine
 import com.openmaps.app.map.MapLibreHost
 import com.openmaps.app.map.MapLibreMapEngine
@@ -58,6 +68,9 @@ fun MapScreen(
     val engine: MapEngine = remember(viewModel, styleProvider) {
         MapLibreMapEngine(styleProvider = styleProvider, initialCamera = viewModel.uiState.value.cameraState)
     }
+    var selectedBasemap by rememberSaveable { mutableStateOf(BasemapStyle.Standard) }
+    val satelliteAvailable = styleProvider.resolve(BasemapStyle.Satellite) != null
+    LaunchedEffect(engine, selectedBasemap) { engine.setBasemapStyle(selectedBasemap) }
     val useNightMap = isSystemInDarkTheme()
     LaunchedEffect(engine, state.isNavigating, useNightMap) {
         engine.setCartographyMode(
@@ -99,7 +112,13 @@ fun MapScreen(
             userLocation = userLocationFlow,
             destination = destinationFlow,
             route = routeFlow,
-            onEvent = viewModel::onMapEvent,
+            onEvent = { event ->
+                // Fall back to the always-available standard map if satellite style loading fails.
+                if (event is MapEvent.StyleFailed && selectedBasemap == BasemapStyle.Satellite) {
+                    selectedBasemap = BasemapStyle.Standard
+                }
+                viewModel.onMapEvent(event)
+            },
             modifier = Modifier.fillMaxSize(),
             routeProgress = routeProgressFlow,
             places = placesFlow,
@@ -164,6 +183,33 @@ fun MapScreen(
                     navigationState = state.navigationState,
                     followSuspended = state.navigationFollowSuspended,
                 )
+            }
+            if (satelliteAvailable) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    Row(
+                        modifier = Modifier.background(Color(0xEE17243A), RoundedCornerShape(20.dp))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        BasemapStyle.entries.forEach { choice ->
+                            Text(
+                                text = if (choice == BasemapStyle.Standard) "Standard" else "Satellite",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White,
+                                modifier = Modifier
+                                    .background(
+                                        if (selectedBasemap == choice) Color(0xFF2F7BFF) else Color.Transparent,
+                                        RoundedCornerShape(16.dp),
+                                    )
+                                    .clickable { selectedBasemap = choice }
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                            )
+                        }
+                    }
+                }
             }
             RoadAlertBanner(
                 roadState = state.roadIntelligenceState,
