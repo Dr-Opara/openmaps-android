@@ -162,20 +162,6 @@ fun DestinationDetailsSheet(
         }
 
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-            photo?.let { licensed ->
-                Text(
-                    "Photo: ${licensed.attribution} · ${licensed.license} · Wikimedia Commons",
-                    modifier = Modifier.clickable {
-                        runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.commonsPage)))
-                        }
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OpenMapsColors.TextSecondary,
-                    maxLines = 2,
-                )
-                Spacer(Modifier.height(6.dp))
-            }
             Text(
                 text = destination.name.ifBlank { destination.displayName },
                 style = MaterialTheme.typography.headlineSmall,
@@ -184,6 +170,20 @@ fun DestinationDetailsSheet(
                 overflow = TextOverflow.Ellipsis,
             )
 
+            photo?.let { licensed ->
+                Text(
+                    "Photo: ${licensed.attribution} · ${licensed.license} · Wikimedia Commons",
+                    modifier = Modifier.padding(top = 6.dp).clickable {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.commonsPage)))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OpenMapsColors.TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             destination.category?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     text = it.replace('_', ' '),

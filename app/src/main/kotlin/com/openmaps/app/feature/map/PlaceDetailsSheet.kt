@@ -6,7 +6,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,7 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -45,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -255,6 +258,7 @@ fun PlaceDetailsSheet(
     onDirections: () -> Unit,
     onStart: () -> Unit,
     onDismiss: () -> Unit,
+    onShare: () -> Unit = {},
     modifier: Modifier = Modifier,
     isFavorite: Boolean = false,
     onToggleFavorite: () -> Unit = {},
@@ -282,28 +286,26 @@ fun PlaceDetailsSheet(
             onFailure = { nearbyStatus = "error" },
         )
     }
-    LaunchedEffect(place.id) { photo = runCatching { WikimediaDestinationPhotos.forPlace(place.name) }.getOrNull() }
+    // A Wikimedia image for a chain name alone can depict a different store on another
+    // continent. Only show it when its file title also matches the locality of this POI.
+    LaunchedEffect(place.id, place.address) {
+        val locality = WikimediaDestinationPhotos.localityFromAddress(place.address)
+        photo = if (locality == null) null else
+            runCatching { WikimediaDestinationPhotos.forPlace(place.name, locality) }.getOrNull()
+    }
     val context = LocalContext.current
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .surfaceCard(GlassShapes.Card),
+            .heightIn(max = (LocalConfiguration.current.screenHeightDp.dp - 235.dp).coerceAtLeast(280.dp))
+            .surfaceCard(GlassShapes.Card)
+            .verticalScroll(rememberScrollState()),
     ) {
         // Hero image, or a clean category placeholder when no real image exists. Never a fabricated
         // photo: no wired provider (Overpass/OSM) supplies imagery today. Mockup: full-bleed, flush
         // with the card's top corners, not inset.
         PlaceHeroImage(place = place, onDismiss = onDismiss, photo = photo)
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-            photo?.let { licensed ->
-                Text(
-                    "Photo: ${licensed.attribution} · ${licensed.license} · Wikimedia Commons",
-                    modifier = Modifier.clickable {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.commonsPage))) }
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OpenMapsColors.TextSecondary,
-                )
-            }
             Text(
                 text = place.name,
                 style = MaterialTheme.typography.headlineSmall,
@@ -335,74 +337,92 @@ fun PlaceDetailsSheet(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
+            photo?.let { licensed ->
+                // Attribution remains visible and links to the original license/author page,
+                // but can never crowd out the business name at the top of the card.
+                Text(
+                    "Photo: ${licensed.attribution} · ${licensed.license} · Wikimedia Commons",
+                    modifier = Modifier
+                        .padding(top = 7.dp)
+                        .clickable {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.commonsPage))) }
+                        },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OpenMapsColors.TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Spacer(Modifier.height(14.dp))
-            // Mockup action row: Directions (solid blue) / Start / Save (both a lighter blue fill,
-            // not outlined). Save is rendered but permanently disabled — there is no account system
-            // yet, so the visual action is preserved while never pretending to persist anything.
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            // Match Destination Details: two equal-width rows allow full labels on phones.
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 Button(
                     onClick = onDirections,
                     shape = GlassShapes.Pill,
-                    modifier = Modifier.weight(1.25f).heightIn(min = 46.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowForward,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = -90f },
+                        modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = -90f },
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(7.dp))
                     Text(
                         text = stringResource(R.string.destination_directions_action),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = Color.White,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Button(
                     onClick = onStart,
                     shape = GlassShapes.Pill,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.14f),
                         contentColor = OpenMapsColors.ElectricBlueFilled,
                     ),
-                    modifier = Modifier.weight(0.95f).heightIn(min = 46.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 ) {
-                    Icon(
-                        Icons.Filled.PlayArrow,
-                        contentDescription = null,
-                        tint = OpenMapsColors.ElectricBlueFilled,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(7.dp))
                     Text(
                         text = stringResource(R.string.nav_start),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Button(
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
                     onClick = onToggleFavorite,
                     shape = GlassShapes.Pill,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.14f),
-                        contentColor = OpenMapsColors.ElectricBlueFilled,
-                    ),
-                    modifier = Modifier.weight(0.9f).heightIn(min = 46.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
                 ) {
-                    Icon(Icons.Filled.Star, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(painterResource(R.drawable.ic_bookmark), contentDescription = null, modifier = Modifier.size(17.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
                         if (isFavorite) "Saved" else stringResource(R.string.place_save_action),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                OutlinedButton(
+                    onClick = onShare,
+                    shape = GlassShapes.Pill,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.place_share_action),
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
                     )
                 }
             }
