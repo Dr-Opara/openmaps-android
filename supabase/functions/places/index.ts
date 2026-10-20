@@ -309,6 +309,7 @@ async function browseHere(
   categories: PlaceCategory[],
   apiKey: string,
   localeTag: string | null,
+  maxResults = 60,
 ) {
   const ids = Array.from(new Set(categories.flatMap((c) => HERE_CATEGORY_IDS[c] ?? [])));
   if (ids.length === 0) return [];
@@ -317,7 +318,7 @@ async function browseHere(
     at: center.latitude + "," + center.longitude,
     in: "circle:" + center.latitude + "," + center.longitude + ";r=" + Math.round(radiusMeters),
     categories: ids.join(","),
-    limit: "60",
+    limit: String(maxResults),
     apiKey,
   });
 
@@ -533,7 +534,10 @@ Deno.serve(async (req: Request) => {
     return json({ provider: "here", capability: "available", places: [] });
   }
 
-  const radiusMeters = Math.min(8000, Math.max(250, Number(body.radiusMeters) || 1500));
+  // A focused Discover category can request up to 20 miles. Route/corridor queries remain capped
+  // by their Android caller at 8 km. Do not expand the expensive public OSM fallback this far.
+  const radiusMeters = Math.min(32_187, Math.max(250, Number(body.radiusMeters) || 1500));
+  const extendedDiscovery = radiusMeters > 8_000;
   const apiKey = Deno.env.get("HERE_API_KEY")?.trim() || null;
   const localeTag = normalizeLocaleTag(body.localeTag);
 
@@ -557,18 +561,40 @@ Deno.serve(async (req: Request) => {
       providers: cached.providers,
       capability: "available",
       cacheHit: true,
+      searchRadiusMeters: radiusMeters,
       places: cached.places,
     });
   }
 
+  // The 20-mile tier uses HERE alone. A 32 km, many-category query against free public
+  // Overpass mirrors is resource-heavy and prone to timeouts. An unavailable commercial
+  // provider must be an explicit failure, never a falsely "complete" 3 km OSM response.
   const herePromise = apiKey
-    ? browseHere(body.center, radiusMeters, categories, apiKey, localeTag)
+    ? browseHere(body.center, radiusMeters, categories, apiKey, localeTag, extendedDiscovery ? 100 : 60)
     : Promise.reject(new Error("HERE_NOT_CONFIGURED"));
 
   const [hereResult, osmResult] = await Promise.allSettled([
     herePromise,
-    browseOsm(body.center, radiusMeters, categories, localeTag),
+    extendedDiscovery
+      ? Promise.reject(new Error("OSM_EXTENDED_SEARCH_DISABLED"))
+      : browseOsm(body.center, radiusMeters, categories, localeTag),
   ]);
+
+  if (extendedDiscovery && hereResult.status !== "fulfilled") {
+    const providerError = String(hereResult.reason);
+    const rateLimited = providerError.includes("RATE_LIMITED");
+    void writePlacesTelemetry({
+      categories,
+      radiusMeters,
+      resultCount: 0,
+      providers: [],
+      latencyMs: Math.round(performance.now() - startedAt),
+      outcome: "error",
+      fallbackUsed: false,
+      usedCache: false,
+    });
+    return json({ error: rateLimited ? "rate_limited" : "extended_radius_unavailable", providers: ["here"] }, rateLimited ? 429 : 503);
+  }
 
   const herePlaces = hereResult.status === "fulfilled" ? hereResult.value : [];
   const osmPlaces = osmResult.status === "fulfilled" ? osmResult.value : [];
@@ -599,12 +625,15 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const places = mergeDeduplicate(herePlaces, osmPlaces);
+  // HERE Browse orders its bounded set by distance from the actual selected search center.
+  // These are the nearest results found within 20 miles, not an exhaustive inventory of
+  // every business in a 3,200 sq. km area.
+  const places = extendedDiscovery ? herePlaces : mergeDeduplicate(herePlaces, osmPlaces);
   const providers = [
     ...(hereResult.status === "fulfilled" ? ["here"] : []),
     ...(osmResult.status === "fulfilled" ? ["osm"] : []),
   ];
-  const fallbackUsed = hereResult.status !== "fulfilled" || herePlaces.length === 0;
+  const fallbackUsed = !extendedDiscovery && (hereResult.status !== "fulfilled" || herePlaces.length === 0);
   void writePlacesTelemetry({
     categories,
     radiusMeters,
@@ -620,6 +649,7 @@ Deno.serve(async (req: Request) => {
     provider: herePlaces.length > 0 && osmPlaces.length > 0 ? "here+osm" : herePlaces.length > 0 ? "here" : "osm",
     providers,
     capability: "available",
+    searchRadiusMeters: radiusMeters,
     places,
   });
 });
