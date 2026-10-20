@@ -22,7 +22,7 @@ data class LicensedDestinationPhoto(
 
 object WikimediaDestinationPhotos {
     suspend fun forPlace(name: String): LicensedDestinationPhoto? = withContext(Dispatchers.IO) {
-        val queryName = name.trim().take(140)
+        val queryName = name.replace(Regex("\\([^)]*\\)"), "").trim().take(140)
         if (queryName.length < 5) return@withContext null
         val query = URLEncoder.encode("\"$queryName\"", "UTF-8")
         val endpoint = "https://commons.wikimedia.org/w/api.php?action=query&generator=search" +
