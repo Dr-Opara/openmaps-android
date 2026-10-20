@@ -78,6 +78,8 @@ fun SearchScreen(
     modifier: Modifier = Modifier,
     /** Set when the home screen's mic was tapped: start capture as soon as this screen appears. */
     autoStartVoiceSearch: Boolean = false,
+    /** Navigation shortcut shows the automatically resolved origin above destination entry. */
+    showCurrentLocationOrigin: Boolean = false,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val focusRequester = remember { FocusRequester() }
@@ -117,6 +119,19 @@ fun SearchScreen(
                 .imePadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
+        if (showCurrentLocationOrigin) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.LocationOn, contentDescription = null, tint = OpenMapsColors.ElectricBlueFilled)
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("From", style = MaterialTheme.typography.labelSmall, color = OpenMapsColors.TextSecondary)
+                    Text("Your current location", style = MaterialTheme.typography.titleSmall, color = OpenMapsColors.TextPrimary)
+                }
+            }
+        }
         // Mockup: one borderless search pill, no second close button beside it — the system back
         // gesture/button (always available) is how this screen is left, same as [onBack] already
         // wired for it.
