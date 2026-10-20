@@ -151,7 +151,7 @@ fun NearbyExploreSheet(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    items(places.take(8), key = { it.id }) { place ->
+                    items(places.take(if (extendedDiscovery == ExtendedDiscoveryStatus.Complete) 40 else 8), key = { it.id }) { place ->
                         NearbyPlaceCard(place = place, onDetails = { onDetails(place) }, onNavigate = { onNavigate(place) })
                     }
                 }
