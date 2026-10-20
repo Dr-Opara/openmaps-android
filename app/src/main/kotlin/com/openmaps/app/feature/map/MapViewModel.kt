@@ -753,13 +753,21 @@ class MapViewModel(
     // region Contextual places (Phase 9)
 
     /**
-     * User-facing category toggles (see "User controls" in ARCHITECTURE.md). Deliberately
-     * client-side only: the repository is always queried for every supported category (see
-     * [fetchPlaces]), so toggling a filter is instant and never triggers a new network request.
+     * Filter already-loaded places immediately. A category that is absent from the previous result
+     * also needs its own network query: the automatic nearby fetch is radius-limited and may have
+     * returned only other categories (or an empty result).
      */
     fun onCategoryFilterChanged(categories: Set<PlaceCategory>) {
         _uiState.update { it.copy(placeCategoryFilters = categories) }
         recomputeVisiblePlaces()
+        if (categories.isEmpty()) return
+        val state = _uiState.value
+        if (state.isNavigating) return // route discovery is driven by the route itself
+        val loadedCategories = (state.placesState as? PlacesState.Ready)?.places
+            ?.mapTo(mutableSetOf()) { it.category }.orEmpty()
+        if (!loadedCategories.containsAll(categories)) {
+            state.currentLocation?.let { fetchNearbyPlacesAt(it, categories, showLoading = true) }
+        }
     }
 
     /** A place marker (Map) or label (Live) was selected for the compact details sheet. */
@@ -830,10 +838,14 @@ class MapViewModel(
      * The actual nearby-places request, factored out of [maybeFetchNearbyPlaces] so
      * [onExploreRequested] can force one immediately on a cold open without duplicating the query.
      */
-    private fun fetchNearbyPlacesAt(location: UserLocation, categories: Set<PlaceCategory>) {
+    private fun fetchNearbyPlacesAt(
+        location: UserLocation,
+        categories: Set<PlaceCategory>,
+        showLoading: Boolean = false,
+    ) {
         lastPlacesFetchLocation = location
         val center = Coordinate(location.latitude, location.longitude)
-        fetchPlaces(categories) {
+        fetchPlaces(categories, showLoading = showLoading) {
             adaptiveNearby(center, categories)
         }
     }
@@ -931,9 +943,15 @@ class MapViewModel(
      */
     fun onExploreCategoryClicked(category: PlaceCategory) {
         _uiState.update { it.copy(placeCategoryFilters = setOf(category), isExploreOpen = true) }
-        val location = _uiState.value.currentLocation
-        if (location != null && _uiState.value.placesState !is PlacesState.Ready) {
-            fetchNearbyPlacesAt(location, setOf(category))
+        // Changing the filter must update visible results even when the repository is already Ready.
+        recomputeVisiblePlaces()
+        val state = _uiState.value
+        val hasMatchingPlace = (state.placesState as? PlacesState.Ready)?.places
+            ?.any { it.category == category } == true
+        // "Ready" for restaurants must never suppress a gas-station query (or vice versa).
+        // Also override an in-flight broad-category fetch when a tile is explicitly selected.
+        if (!state.isNavigating && !hasMatchingPlace) {
+            state.currentLocation?.let { fetchNearbyPlacesAt(it, setOf(category), showLoading = true) }
         }
     }
 
@@ -1030,10 +1048,15 @@ class MapViewModel(
      */
     private fun fetchPlaces(
         categories: Set<PlaceCategory>,
+        showLoading: Boolean = false,
         request: suspend () -> Result<PlaceQueryResult>,
     ) {
         placesJob?.cancel()
-        if (_uiState.value.placesState !is PlacesState.Ready) {
+        // Keep an earlier answer only if it actually contains one of the requested categories.
+        // Otherwise a failed targeted query must show a provider error, not "No nearby ... found".
+        val previousReady = (_uiState.value.placesState as? PlacesState.Ready)
+            ?.takeIf { ready -> ready.places.any { it.category in categories } }
+        if (showLoading || _uiState.value.placesState !is PlacesState.Ready) {
             _uiState.update { it.copy(placesState = PlacesState.Loading(categories)) }
         }
         placesJob = viewModelScope.launch {
@@ -1054,8 +1077,13 @@ class MapViewModel(
                 }
                 .onFailure { cause ->
                     _uiState.update {
-                        if (it.placesState is PlacesState.Ready) it else it.copy(placesState = PlacesState.Error(cause.toPlacesError()))
+                        when {
+                            it.placesState is PlacesState.Ready -> it
+                            previousReady != null -> it.copy(placesState = previousReady)
+                            else -> it.copy(placesState = PlacesState.Error(cause.toPlacesError()))
+                        }
                     }
+                    recomputeVisiblePlaces()
                 }
         }
     }
