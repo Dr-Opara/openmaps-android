@@ -9,6 +9,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +42,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +55,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -486,6 +494,9 @@ fun BottomPanel(
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    var discoverExpanded by remember { mutableStateOf(false) }
+    var dragDistance by remember { mutableFloatStateOf(0f) }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -493,15 +504,35 @@ fun BottomPanel(
             .padding(horizontal = 18.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // Drag only from the handle so category taps and scrolling do not fight sheet gestures.
         Box(
             Modifier
-                .width(36.dp)
-                .height(4.dp)
-                .clip(CircleShape)
-                .drawBehind { drawRect(OpenMapsColors.SurfaceBorder) },
-        )
-        Spacer(Modifier.height(10.dp))
+                .fillMaxWidth()
+                .height(24.dp)
+                .pointerInput(destination) {
+                    detectVerticalDragGestures(
+                        onDragStart = { dragDistance = 0f },
+                        onVerticalDrag = { change, amount ->
+                            change.consume()
+                            dragDistance += amount
+                        },
+                        onDragEnd = {
+                            if (dragDistance < -35f) discoverExpanded = true
+                            if (dragDistance > 35f) discoverExpanded = false
+                        },
+                    )
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.width(36.dp).height(4.dp).clip(CircleShape)
+                .background(OpenMapsColors.SurfaceBorder))
+        }
         if (destination == null) {
+            Box(
+                modifier = if (discoverExpanded) Modifier.height(screenHeight * 0.68f)
+                    else Modifier.heightIn(max = screenHeight * 0.40f),
+            ) {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
             HomeDiscoveryPanel(
                 currentLocation = currentLocation,
                 nearbyPlaces = nearbyPlaces,
@@ -511,6 +542,8 @@ fun BottomPanel(
                 onRecentSelected = onRecentSelected,
                 onPlaceSelected = onPlaceSelected,
             )
+            }
+            }
         } else {
             Text(
                 text = stringResource(R.string.route_preview_title),

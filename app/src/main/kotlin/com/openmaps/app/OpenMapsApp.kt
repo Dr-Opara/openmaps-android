@@ -102,6 +102,7 @@ private fun AppShell(container: AppContainer) {
 
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
     var searchPurpose by rememberSaveable { mutableStateOf(SearchPurpose.NewDestination) }
+    var quickNavigate by rememberSaveable { mutableStateOf(false) }
     // Bumped to ask the search screen to start voice capture as soon as it appears. An incrementing
     // counter rather than a boolean so tapping the home mic twice still re-arms the recognizer.
     var voiceSearchRequest by rememberSaveable { mutableIntStateOf(0) }
@@ -223,6 +224,7 @@ private fun AppShell(container: AppContainer) {
                 )
             },
             onSearchClick = {
+                quickNavigate = false
                 searchPurpose = SearchPurpose.NewDestination
                 overlay = Overlay.Search
             },
@@ -231,7 +233,13 @@ private fun AppShell(container: AppContainer) {
                 overlay = Overlay.Search
             },
             onRouteDestinationClick = {
+                quickNavigate = false
                 searchPurpose = SearchPurpose.RouteDestination
+                overlay = Overlay.Search
+            },
+            onQuickNavigationClick = {
+                quickNavigate = true
+                searchPurpose = SearchPurpose.NewDestination
                 overlay = Overlay.Search
             },
             // Same real launcher as inside the search screen: the home mic and the search-screen mic
@@ -305,6 +313,7 @@ private fun AppShell(container: AppContainer) {
                     viewModel.onExploreCategoryClicked(category)
                 },
                 autoStartVoiceSearch = voiceSearchRequest > 0,
+                showCurrentLocationOrigin = quickNavigate,
             )
         }
 
