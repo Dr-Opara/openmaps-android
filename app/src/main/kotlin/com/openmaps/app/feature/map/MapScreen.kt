@@ -293,6 +293,7 @@ fun MapScreen(
                 state.isExploreOpen -> NearbyExploreSheet(
                     placesState = state.placesState,
                     places = state.visiblePlaces,
+                    extendedDiscovery = state.extendedDiscovery,
                     selectedCategories = state.placeCategoryFilters,
                     onCategoriesChanged = viewModel::onCategoryFilterChanged,
                     currentLocation = state.currentLocation,
