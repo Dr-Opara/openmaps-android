@@ -89,7 +89,8 @@ private fun AppShell(container: AppContainer) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val liveState by liveViewModel.uiState.collectAsStateWithLifecycle()
     val searchState by searchViewModel.uiState.collectAsStateWithLifecycle()
-    val favoriteStore = remember(container) { LocalFavoriteStore(LocalContext.current) }
+    val favoritesContext = LocalContext.current
+    val favoriteStore = remember(container, favoritesContext) { LocalFavoriteStore(favoritesContext) }
     var favorites by remember(container) { mutableStateOf(favoriteStore.load()) }
 
     // Production search: continuously keep the geocoder's ranking bias aligned with the latest
