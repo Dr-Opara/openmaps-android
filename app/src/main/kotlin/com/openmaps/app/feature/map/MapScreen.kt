@@ -250,6 +250,7 @@ fun MapScreen(
                 // compact presentation, not a second destination summary competing for attention.
                 selectedPlace != null -> PlaceDetailsSheet(
                     place = selectedPlace,
+                    placesRepository = placesRepository,
                     nearbyPlaces = state.visiblePlaces,
                     isFavorite = favoriteDestinations.any { it.id == selectedPlace.id },
                     onToggleFavorite = { onToggleFavorite(selectedPlace.toSavedSearchResult()) },
