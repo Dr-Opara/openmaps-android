@@ -29,6 +29,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -53,6 +55,7 @@ import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
+import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.places.RouteCorridor
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.ManeuverType
@@ -71,6 +74,10 @@ fun DestinationDetailsSheet(
     currentLocation: UserLocation?,
     routeState: RouteState = RouteState.Idle,
     nearbyPlaces: List<Place> = emptyList(),
+    placesRepository: PlaceRepository,
+    isFavorite: Boolean = false,
+    onToggleFavorite: () -> Unit,
+    onSelectNearby: (Place) -> Unit,
     onDirections: () -> Unit,
     onStart: () -> Unit,
     onShare: () -> Unit,
@@ -78,6 +85,26 @@ fun DestinationDetailsSheet(
     modifier: Modifier = Modifier,
 ) {
     var tab by rememberSaveable(destination.id) { mutableStateOf(DestinationDetailsTab.Overview) }
+    var destinationNearby by androidx.compose.runtime.remember(destination.id) { mutableStateOf<List<Place>>(emptyList()) }
+    var nearbyStatus by androidx.compose.runtime.remember(destination.id) { mutableStateOf("loading") }
+    // Search around the DESTINATION, not the user's device GPS. Refetch per destination.
+    LaunchedEffect(destination.id, destination.latitude, destination.longitude, placesRepository) {
+        nearbyStatus = "loading"
+        val result = placesRepository.nearbyPlaces(
+            Coordinate(destination.latitude, destination.longitude),
+            3_000.0,
+            PlaceCategory.entries.toSet(),
+        )
+        result.fold(
+            onSuccess = {
+                destinationNearby = it.places.filter { place ->
+                    place.id != destination.id && place.name != destination.name
+                }
+                nearbyStatus = "ready"
+            },
+            onFailure = { nearbyStatus = "error" },
+        )
+    }
 
     Column(
         modifier = modifier
@@ -205,15 +232,14 @@ fun DestinationDetailsSheet(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 OutlinedButton(
-                    onClick = {},
-                    enabled = false,
+                    onClick = onToggleFavorite,
                     shape = GlassShapes.Pill,
                     modifier = Modifier.weight(1f).heightIn(min = 44.dp),
                 ) {
                     Icon(painterResource(R.drawable.ic_bookmark), contentDescription = null, modifier = Modifier.size(17.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        stringResource(R.string.place_save_action),
+                        if (isFavorite) "Saved" else stringResource(R.string.place_save_action),
                         style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
                     )
@@ -300,11 +326,28 @@ fun DestinationDetailsSheet(
                     style = MaterialTheme.typography.bodyMedium,
                     color = OpenMapsColors.TextSecondary,
                 )
-                DestinationDetailsTab.Nearby -> Text(
-                    stringResource(R.string.place_nearby_unavailable),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
-                )
+                DestinationDetailsTab.Nearby -> {
+                    when (nearbyStatus) {
+                        "loading" -> Text("Finding places near this destination…", color = OpenMapsColors.TextSecondary)
+                        "error" -> Text("Nearby places are temporarily unavailable.", color = OpenMapsColors.TextSecondary)
+                        else -> if (destinationNearby.isEmpty()) {
+                            Text("No nearby places returned for this destination.", color = OpenMapsColors.TextSecondary)
+                        } else {
+                            destinationNearby.take(8).forEach { place ->
+                                TextButton(onClick = { onSelectNearby(place) }, modifier = Modifier.fillMaxWidth()) {
+                                    Column(Modifier.fillMaxWidth()) {
+                                        Text(place.name, color = OpenMapsColors.TextPrimary, maxLines = 1)
+                                        Text(
+                                            place.category.name + (place.distanceMeters?.let { " · %.1f mi".format(Locale.US, it / 1609.344) } ?: ""),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = OpenMapsColors.TextSecondary,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
