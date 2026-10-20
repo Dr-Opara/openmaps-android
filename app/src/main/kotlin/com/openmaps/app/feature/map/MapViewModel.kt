@@ -759,15 +759,16 @@ class MapViewModel(
      * returned only other categories (or an empty result).
      */
     fun onCategoryFilterChanged(categories: Set<PlaceCategory>) {
-        _uiState.update { it.copy(placeCategoryFilters = categories) }
+        extendedPlacesJob?.cancel()
+        _uiState.update { it.copy(placeCategoryFilters = categories, extendedDiscovery = ExtendedDiscoveryStatus.Idle) }
         recomputeVisiblePlaces()
         if (categories.isEmpty()) return
         val state = _uiState.value
         if (state.isNavigating) return // route discovery is driven by the route itself
         val loadedCategories = (state.placesState as? PlacesState.Ready)?.places
             ?.mapTo(mutableSetOf()) { it.category }.orEmpty()
-        if (!loadedCategories.containsAll(categories)) {
-            state.currentLocation?.let { fetchNearbyPlacesAt(it, categories, showLoading = true) }
+        if (categories.size == 1 || !loadedCategories.containsAll(categories)) {
+            state.currentLocation?.let { fetchNearbyPlacesAt(it, categories, showLoading = true, extended = categories.size == 1) }
         }
     }
 
@@ -1004,14 +1005,15 @@ class MapViewModel(
      * rather than the whole taxonomy — tapping "Gas" must not issue a 26-selector query.
      */
     fun onCategoryChipToggled(category: PlaceCategory) {
+        extendedPlacesJob?.cancel()
         val current = _uiState.value.placeCategoryFilters
         val next = if (category in current) current - category else current + category
-        _uiState.update { it.copy(placeCategoryFilters = next) }
+        _uiState.update { it.copy(placeCategoryFilters = next, extendedDiscovery = ExtendedDiscoveryStatus.Idle) }
         recomputeVisiblePlaces()
 
         if (next.isEmpty()) return // nothing selected: pure filtering, nothing to search for
         if (_uiState.value.isNavigating) return // route drives places while navigating
-        _uiState.value.currentLocation?.let { fetchNearbyPlacesAt(it, next) }
+        _uiState.value.currentLocation?.let { fetchNearbyPlacesAt(it, next, extended = next.size == 1 && _uiState.value.isExploreOpen) }
     }
 
     /**
