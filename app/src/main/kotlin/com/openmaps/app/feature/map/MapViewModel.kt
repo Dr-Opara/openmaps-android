@@ -207,6 +207,7 @@ class MapViewModel(
     // region Contextual places (Phase 9)
 
     private var placesJob: Job? = null
+    private var extendedPlacesJob: Job? = null
 
     /** Where the last *nearby* (not along-route) fetch was centered, for the move-threshold check. */
     private var lastPlacesFetchLocation: UserLocation? = null
@@ -842,11 +843,55 @@ class MapViewModel(
         location: UserLocation,
         categories: Set<PlaceCategory>,
         showLoading: Boolean = false,
+        extended: Boolean = false,
     ) {
+        extendedPlacesJob?.cancel()
+        _uiState.update { it.copy(extendedDiscovery = ExtendedDiscoveryStatus.Idle) }
         lastPlacesFetchLocation = location
         val center = Coordinate(location.latitude, location.longitude)
         fetchPlaces(categories, showLoading = showLoading) {
             adaptiveNearby(center, categories)
+        }
+        if (extended && categories.size == 1) {
+            extendedPlacesJob = viewModelScope.launch {
+                // Let the normal local request settle first, preserving the responsive near-you UX.
+                placesJob?.join()
+                val state = _uiState.value
+                if (!state.isExploreOpen || state.isNavigating ||
+                    state.placeCategoryFilters != categories ||
+                    state.currentLocation == null
+                ) return@launch
+                val local = (state.placesState as? PlacesState.Ready)?.places.orEmpty()
+                _uiState.update { it.copy(extendedDiscovery = ExtendedDiscoveryStatus.Searching) }
+                val wide = placesRepository.nearbyPlaces(center, DISCOVERY_RADIUS_METERS, categories)
+                wide.fold(
+                    onSuccess = { result ->
+                        // Search returns up to 100 nearest results, not every business in the circle.
+                        // Preserve local places when the extended provider returns fewer.
+                        val combined = (local + result.places).distinctBy { it.id }
+                        _uiState.update {
+                            if (it.isExploreOpen && it.placeCategoryFilters == categories && !it.isNavigating)
+                                it.copy(
+                                    placesState = PlacesState.Ready(
+                                        places = combined,
+                                        fromCache = result.isCached,
+                                        stale = result.source == PlaceSource.StaleCache,
+                                    ),
+                                    extendedDiscovery = ExtendedDiscoveryStatus.Complete,
+                                )
+                            else it
+                        }
+                        recomputeVisiblePlaces()
+                    },
+                    onFailure = {
+                        _uiState.update { current ->
+                            if (current.isExploreOpen && current.placeCategoryFilters == categories)
+                                current.copy(extendedDiscovery = ExtendedDiscoveryStatus.Unavailable)
+                            else current
+                        }
+                    },
+                )
+            }
         }
     }
 
@@ -930,7 +975,8 @@ class MapViewModel(
     }
 
     fun onExploreDismissed() {
-        _uiState.update { it.copy(isExploreOpen = false) }
+        extendedPlacesJob?.cancel()
+        _uiState.update { it.copy(isExploreOpen = false, extendedDiscovery = ExtendedDiscoveryStatus.Idle) }
     }
 
     /**
@@ -946,12 +992,10 @@ class MapViewModel(
         // Changing the filter must update visible results even when the repository is already Ready.
         recomputeVisiblePlaces()
         val state = _uiState.value
-        val hasMatchingPlace = (state.placesState as? PlacesState.Ready)?.places
-            ?.any { it.category == category } == true
         // "Ready" for restaurants must never suppress a gas-station query (or vice versa).
         // Also override an in-flight broad-category fetch when a tile is explicitly selected.
-        if (!state.isNavigating && !hasMatchingPlace) {
-            state.currentLocation?.let { fetchNearbyPlacesAt(it, setOf(category), showLoading = true) }
+        if (!state.isNavigating) {
+            state.currentLocation?.let { fetchNearbyPlacesAt(it, setOf(category), showLoading = true, extended = true) }
         }
     }
 
@@ -2360,6 +2404,7 @@ class MapViewModel(
          */
         const val NEARBY_RADIUS_METERS_PRIMARY = 1_200.0
         const val NEARBY_RADIUS_METERS_MAX = 3_000.0
+        const val DISCOVERY_RADIUS_METERS = 32_187.0
         const val NEARBY_RADIUS_GROWTH = 2.0
 
         /** Bounded: at most two widening attempts, then the request ends. No unbounded search. */
