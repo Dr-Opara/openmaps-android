@@ -66,6 +66,8 @@ import com.openmaps.app.core.geocoding.LicensedDestinationPhoto
 import com.openmaps.app.core.geocoding.WikimediaDestinationPhotos
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
+import com.openmaps.app.core.places.PlaceRepository
+import com.openmaps.app.core.routing.Coordinate
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -259,10 +261,27 @@ fun PlaceDetailsSheet(
     /** The same ranked/capped list already driving the map markers (`MapUiState.visiblePlaces`) —
      * reused for the Nearby tab rather than a second fetch/ranking concept. */
     nearbyPlaces: List<Place> = emptyList(),
+    placesRepository: PlaceRepository,
     onSelectNearbyPlace: (Place) -> Unit = {},
 ) {
     var tab by rememberSaveable(place.id) { mutableStateOf(PlaceDetailsTab.Overview) }
     var photo by remember(place.id) { mutableStateOf<LicensedDestinationPhoto?>(null) }
+    var destinationNearby by remember(place.id) { mutableStateOf<List<Place>>(emptyList()) }
+    var nearbyStatus by remember(place.id) { mutableStateOf("loading") }
+    LaunchedEffect(place.id, place.latitude, place.longitude, placesRepository) {
+        nearbyStatus = "loading"
+        placesRepository.nearbyPlaces(
+            Coordinate(place.latitude, place.longitude),
+            3_000.0,
+            PlaceCategory.entries.toSet(),
+        ).fold(
+            onSuccess = {
+                destinationNearby = it.places.filter { result -> result.id != place.id }
+                nearbyStatus = "ready"
+            },
+            onFailure = { nearbyStatus = "error" },
+        )
+    }
     LaunchedEffect(place.id) { photo = WikimediaDestinationPhotos.forPlace(place.name) }
     val context = LocalContext.current
     Column(
@@ -413,11 +432,15 @@ fun PlaceDetailsSheet(
                         )
                     }
                 }
-                PlaceDetailsTab.Nearby -> NearbyTabContent(
-                    place = place,
-                    nearbyPlaces = nearbyPlaces,
-                    onSelect = onSelectNearbyPlace,
-                )
+                PlaceDetailsTab.Nearby -> when (nearbyStatus) {
+                    "loading" -> UnavailableTabContent("Finding places around this destination…")
+                    "error" -> UnavailableTabContent("Nearby places are temporarily unavailable.")
+                    else -> NearbyTabContent(
+                        place = place,
+                        nearbyPlaces = destinationNearby,
+                        onSelect = onSelectNearbyPlace,
+                    )
+                }
             }
         }
     }
