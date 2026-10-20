@@ -1,5 +1,8 @@
 package com.openmaps.app.feature.map
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +39,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -49,6 +55,8 @@ import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
+import com.openmaps.app.core.geocoding.LicensedDestinationPhoto
+import com.openmaps.app.core.geocoding.WikimediaDestinationPhotos
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
@@ -85,6 +93,11 @@ fun DestinationDetailsSheet(
     modifier: Modifier = Modifier,
 ) {
     var tab by rememberSaveable(destination.id) { mutableStateOf(DestinationDetailsTab.Overview) }
+    var photo by androidx.compose.runtime.remember(destination.id) { mutableStateOf<LicensedDestinationPhoto?>(null) }
+    LaunchedEffect(destination.id) {
+        photo = WikimediaDestinationPhotos.forPlace(destination.name.ifBlank { destination.displayName })
+    }
+    val context = LocalContext.current
     var destinationNearby by androidx.compose.runtime.remember(destination.id) { mutableStateOf<List<Place>>(emptyList()) }
     var nearbyStatus by androidx.compose.runtime.remember(destination.id) { mutableStateOf("loading") }
     // Search around the DESTINATION, not the user's device GPS. Refetch per destination.
@@ -117,12 +130,21 @@ fun DestinationDetailsSheet(
                 .height(118.dp)
                 .background(OpenMapsColors.SurfaceMuted),
         ) {
-            Icon(
-                Icons.Filled.Place,
-                contentDescription = null,
-                tint = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.32f),
-                modifier = Modifier.size(54.dp).align(Alignment.Center),
-            )
+            if (photo != null) {
+                Image(
+                    bitmap = photo!!.bitmap.asImageBitmap(),
+                    contentDescription = "Photo of ${destination.name}",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.matchParentSize(),
+                )
+            } else {
+                Icon(
+                    Icons.Filled.Place,
+                    contentDescription = null,
+                    tint = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.32f),
+                    modifier = Modifier.size(54.dp).align(Alignment.Center),
+                )
+            }
             IconButton(
                 onClick = onDismiss,
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
@@ -140,6 +162,20 @@ fun DestinationDetailsSheet(
         }
 
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            photo?.let { licensed ->
+                Text(
+                    "Photo: ${licensed.attribution} · ${licensed.license} · Wikimedia Commons",
+                    modifier = Modifier.clickable {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.commonsPage)))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OpenMapsColors.TextSecondary,
+                    maxLines = 2,
+                )
+                Spacer(Modifier.height(6.dp))
+            }
             Text(
                 text = destination.name.ifBlank { destination.displayName },
                 style = MaterialTheme.typography.headlineSmall,
@@ -321,11 +357,26 @@ fun DestinationDetailsSheet(
                     style = MaterialTheme.typography.bodyMedium,
                     color = OpenMapsColors.TextSecondary,
                 )
-                DestinationDetailsTab.Photos -> Text(
-                    stringResource(R.string.place_photos_unavailable),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
-                )
+                DestinationDetailsTab.Photos -> {
+                    if (photo == null) {
+                        Text("No verified, licensed photo available for this destination yet.", color = OpenMapsColors.TextSecondary)
+                    } else {
+                        Image(
+                            bitmap = photo!!.bitmap.asImageBitmap(),
+                            contentDescription = "Destination photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxWidth().height(170.dp),
+                        )
+                        Text(
+                            "View photo license and attribution on Wikimedia Commons",
+                            modifier = Modifier.clickable {
+                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(photo!!.commonsPage))) }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OpenMapsColors.ElectricBlueFilled,
+                        )
+                    }
+                }
                 DestinationDetailsTab.Nearby -> {
                     when (nearbyStatus) {
                         "loading" -> Text("Finding places near this destination…", color = OpenMapsColors.TextSecondary)
