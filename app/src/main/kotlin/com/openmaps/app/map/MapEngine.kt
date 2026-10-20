@@ -66,6 +66,9 @@ interface MapEngine {
     /** Apply OpenMaps-owned browsing/navigation and day/night cartography without recreating the map. */
     fun setCartographyMode(mode: CartographyMode)
 
+    /** Optional imagery switch; implementations without satellite support keep standard. */
+    fun setBasemapStyle(style: BasemapStyle) = Unit
+
     /**
      * Mark the first [RouteProgressView.traveledShapeIndex] points of the current route as already
      * driven, so the renderer can draw them differently from the road still ahead. Null clears the
