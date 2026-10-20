@@ -22,6 +22,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openmaps.app.core.designsystem.OpenMapsWordmark
+import com.openmaps.app.core.places.PlaceRepository
+import com.openmaps.app.core.places.Place
+import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.map.CartographyMode
 import com.openmaps.app.map.MapEngine
 import com.openmaps.app.map.MapLibreHost
@@ -41,7 +44,10 @@ import kotlinx.coroutines.flow.map
 fun MapScreen(
     viewModel: MapViewModel,
     styleProvider: MapStyleProvider,
-    recentDestinations: List<com.openmaps.app.core.geocoding.SearchResult> = emptyList(),
+    recentDestinations: List<SearchResult> = emptyList(),
+    favoriteDestinations: List<SearchResult> = emptyList(),
+    placesRepository: PlaceRepository,
+    onToggleFavorite: (SearchResult) -> Unit,
     onShareDestination: (com.openmaps.app.core.geocoding.SearchResult) -> Unit = {},
     onSearchClick: () -> Unit,
     onRouteOriginClick: () -> Unit = {},
@@ -244,7 +250,10 @@ fun MapScreen(
                 // compact presentation, not a second destination summary competing for attention.
                 selectedPlace != null -> PlaceDetailsSheet(
                     place = selectedPlace,
+                    placesRepository = placesRepository,
                     nearbyPlaces = state.visiblePlaces,
+                    isFavorite = favoriteDestinations.any { it.id == selectedPlace.id },
+                    onToggleFavorite = { onToggleFavorite(selectedPlace.toSavedSearchResult()) },
                     onDirections = { viewModel.onDirectionsRequestedForPlace(selectedPlace) },
                     onStart = { viewModel.onStartFromPlace(selectedPlace) },
                     onSelectNearbyPlace = viewModel::onPlaceSelected,
@@ -261,6 +270,10 @@ fun MapScreen(
                         currentLocation = state.currentLocation,
                         routeState = state.routeState,
                         nearbyPlaces = state.visiblePlaces,
+                        placesRepository = placesRepository,
+                        isFavorite = favoriteDestinations.any { it.id == destination.id },
+                        onToggleFavorite = { onToggleFavorite(destination) },
+                        onSelectNearby = { place -> viewModel.onDestinationSelected(place.toSavedSearchResult()) },
                         onDirections = viewModel::onDirectionsRequested,
                         // Early Start never skips Route Preview: with no route yet it computes one
                         // and lands there, where the real Start lives.
@@ -297,6 +310,7 @@ fun MapScreen(
                         currentLocation = state.currentLocation,
                         nearbyPlaces = state.visiblePlaces,
                         recentDestinations = recentDestinations,
+                        favoriteDestinations = favoriteDestinations,
                         onRecentSelected = viewModel::onDestinationSelected,
                         onPlaceSelected = viewModel::onPlaceSelected,
                         onClearDestination = viewModel::onDestinationCleared,
@@ -324,3 +338,14 @@ fun MapScreen(
         }
     }
 }
+
+/** Reuse the single destination model for guest favorites and nearby selections. */
+private fun Place.toSavedSearchResult(): SearchResult = SearchResult(
+    id = id,
+    name = name,
+    displayName = name,
+    latitude = latitude,
+    longitude = longitude,
+    category = category.name,
+    address = address,
+)

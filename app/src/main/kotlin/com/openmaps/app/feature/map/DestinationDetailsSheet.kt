@@ -1,5 +1,8 @@
 package com.openmaps.app.feature.map
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,11 +32,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -47,12 +55,15 @@ import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
+import com.openmaps.app.core.geocoding.LicensedDestinationPhoto
+import com.openmaps.app.core.geocoding.WikimediaDestinationPhotos
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.localization.NavigationUnits
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
+import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.places.RouteCorridor
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.ManeuverType
@@ -71,6 +82,10 @@ fun DestinationDetailsSheet(
     currentLocation: UserLocation?,
     routeState: RouteState = RouteState.Idle,
     nearbyPlaces: List<Place> = emptyList(),
+    placesRepository: PlaceRepository,
+    isFavorite: Boolean = false,
+    onToggleFavorite: () -> Unit,
+    onSelectNearby: (Place) -> Unit,
     onDirections: () -> Unit,
     onStart: () -> Unit,
     onShare: () -> Unit,
@@ -78,6 +93,31 @@ fun DestinationDetailsSheet(
     modifier: Modifier = Modifier,
 ) {
     var tab by rememberSaveable(destination.id) { mutableStateOf(DestinationDetailsTab.Overview) }
+    var photo by androidx.compose.runtime.remember(destination.id) { mutableStateOf<LicensedDestinationPhoto?>(null) }
+    LaunchedEffect(destination.id) {
+        photo = runCatching { WikimediaDestinationPhotos.forPlace(destination.name.ifBlank { destination.displayName }) }.getOrNull()
+    }
+    val context = LocalContext.current
+    var destinationNearby by androidx.compose.runtime.remember(destination.id) { mutableStateOf<List<Place>>(emptyList()) }
+    var nearbyStatus by androidx.compose.runtime.remember(destination.id) { mutableStateOf("loading") }
+    // Search around the DESTINATION, not the user's device GPS. Refetch per destination.
+    LaunchedEffect(destination.id, destination.latitude, destination.longitude, placesRepository) {
+        nearbyStatus = "loading"
+        val result = placesRepository.nearbyPlaces(
+            Coordinate(destination.latitude, destination.longitude),
+            3_000.0,
+            PlaceCategory.entries.toSet(),
+        )
+        result.fold(
+            onSuccess = {
+                destinationNearby = it.places.filter { place ->
+                    place.id != destination.id && place.name != destination.name
+                }
+                nearbyStatus = "ready"
+            },
+            onFailure = { nearbyStatus = "error" },
+        )
+    }
 
     Column(
         modifier = modifier
@@ -90,12 +130,21 @@ fun DestinationDetailsSheet(
                 .height(118.dp)
                 .background(OpenMapsColors.SurfaceMuted),
         ) {
-            Icon(
-                Icons.Filled.Place,
-                contentDescription = null,
-                tint = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.32f),
-                modifier = Modifier.size(54.dp).align(Alignment.Center),
-            )
+            if (photo != null) {
+                Image(
+                    bitmap = photo!!.bitmap.asImageBitmap(),
+                    contentDescription = "Photo of ${destination.name}",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.matchParentSize(),
+                )
+            } else {
+                Icon(
+                    Icons.Filled.Place,
+                    contentDescription = null,
+                    tint = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.32f),
+                    modifier = Modifier.size(54.dp).align(Alignment.Center),
+                )
+            }
             IconButton(
                 onClick = onDismiss,
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
@@ -113,6 +162,20 @@ fun DestinationDetailsSheet(
         }
 
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            photo?.let { licensed ->
+                Text(
+                    "Photo: ${licensed.attribution} · ${licensed.license} · Wikimedia Commons",
+                    modifier = Modifier.clickable {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.commonsPage)))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OpenMapsColors.TextSecondary,
+                    maxLines = 2,
+                )
+                Spacer(Modifier.height(6.dp))
+            }
             Text(
                 text = destination.name.ifBlank { destination.displayName },
                 style = MaterialTheme.typography.headlineSmall,
@@ -205,15 +268,14 @@ fun DestinationDetailsSheet(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 OutlinedButton(
-                    onClick = {},
-                    enabled = false,
+                    onClick = onToggleFavorite,
                     shape = GlassShapes.Pill,
                     modifier = Modifier.weight(1f).heightIn(min = 44.dp),
                 ) {
                     Icon(painterResource(R.drawable.ic_bookmark), contentDescription = null, modifier = Modifier.size(17.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        stringResource(R.string.place_save_action),
+                        if (isFavorite) "Saved" else stringResource(R.string.place_save_action),
                         style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
                     )
@@ -295,16 +357,48 @@ fun DestinationDetailsSheet(
                     style = MaterialTheme.typography.bodyMedium,
                     color = OpenMapsColors.TextSecondary,
                 )
-                DestinationDetailsTab.Photos -> Text(
-                    stringResource(R.string.place_photos_unavailable),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
-                )
-                DestinationDetailsTab.Nearby -> Text(
-                    stringResource(R.string.place_nearby_unavailable),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
-                )
+                DestinationDetailsTab.Photos -> {
+                    if (photo == null) {
+                        Text("No verified, licensed photo available for this destination yet.", color = OpenMapsColors.TextSecondary)
+                    } else {
+                        Image(
+                            bitmap = photo!!.bitmap.asImageBitmap(),
+                            contentDescription = "Destination photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxWidth().height(170.dp),
+                        )
+                        Text(
+                            "View photo license and attribution on Wikimedia Commons",
+                            modifier = Modifier.clickable {
+                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(photo!!.commonsPage))) }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OpenMapsColors.ElectricBlueFilled,
+                        )
+                    }
+                }
+                DestinationDetailsTab.Nearby -> {
+                    when (nearbyStatus) {
+                        "loading" -> Text("Finding places near this destination…", color = OpenMapsColors.TextSecondary)
+                        "error" -> Text("Nearby places are temporarily unavailable.", color = OpenMapsColors.TextSecondary)
+                        else -> if (destinationNearby.isEmpty()) {
+                            Text("No nearby places returned for this destination.", color = OpenMapsColors.TextSecondary)
+                        } else {
+                            destinationNearby.take(8).forEach { place ->
+                                TextButton(onClick = { onSelectNearby(place) }, modifier = Modifier.fillMaxWidth()) {
+                                    Column(Modifier.fillMaxWidth()) {
+                                        Text(place.name, color = OpenMapsColors.TextPrimary, maxLines = 1)
+                                        Text(
+                                            place.category.name + (place.distanceMeters?.let { " · %.1f mi".format(Locale.US, it / 1609.344) } ?: ""),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = OpenMapsColors.TextSecondary,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

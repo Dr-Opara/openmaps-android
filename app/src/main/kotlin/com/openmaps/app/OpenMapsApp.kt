@@ -36,6 +36,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.openmaps.app.core.geocoding.LocalFavoriteStore
 import com.openmaps.app.core.camera.CameraPermissions
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.location.LocationPermissions
@@ -88,6 +89,9 @@ private fun AppShell(container: AppContainer) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val liveState by liveViewModel.uiState.collectAsStateWithLifecycle()
     val searchState by searchViewModel.uiState.collectAsStateWithLifecycle()
+    val favoritesContext = LocalContext.current
+    val favoriteStore = remember(container, favoritesContext) { LocalFavoriteStore(favoritesContext) }
+    var favorites by remember(container) { mutableStateOf(favoriteStore.load()) }
 
     // Production search: continuously keep the geocoder's ranking bias aligned with the latest
     // device location. This never restricts worldwide search; it only helps ambiguous/local queries
@@ -211,6 +215,9 @@ private fun AppShell(container: AppContainer) {
             viewModel = viewModel,
             styleProvider = container.mapStyleProvider,
             recentDestinations = searchState.recentSearches,
+            favoriteDestinations = favorites,
+            placesRepository = container.placesRepository,
+            onToggleFavorite = { destination -> favorites = favoriteStore.toggle(destination) },
             onShareDestination = { destination ->
                 context.shareText(
                     title = destination.name.ifBlank { context.getString(R.string.share_destination_title) },

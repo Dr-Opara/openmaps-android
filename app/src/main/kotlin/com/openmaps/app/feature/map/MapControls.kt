@@ -475,6 +475,7 @@ fun BottomPanel(
     currentLocation: UserLocation? = null,
     nearbyPlaces: List<Place> = emptyList(),
     recentDestinations: List<SearchResult> = emptyList(),
+    favoriteDestinations: List<SearchResult> = emptyList(),
     onRecentSelected: (SearchResult) -> Unit = {},
     onPlaceSelected: (Place) -> Unit = {},
     onClearDestination: () -> Unit,
@@ -537,6 +538,7 @@ fun BottomPanel(
                 currentLocation = currentLocation,
                 nearbyPlaces = nearbyPlaces,
                 recentDestinations = recentDestinations,
+                favoriteDestinations = favoriteDestinations,
                 onExploreClicked = onExploreClicked,
                 onExploreCategoryClicked = onExploreCategoryClicked,
                 onRecentSelected = onRecentSelected,
@@ -579,6 +581,7 @@ private fun HomeDiscoveryPanel(
     currentLocation: UserLocation?,
     nearbyPlaces: List<Place>,
     recentDestinations: List<SearchResult>,
+    favoriteDestinations: List<SearchResult>,
     onExploreClicked: () -> Unit,
     onExploreCategoryClicked: (PlaceCategory) -> Unit,
     onRecentSelected: (SearchResult) -> Unit,
@@ -680,6 +683,37 @@ private fun HomeDiscoveryPanel(
                             color = OpenMapsColors.TextSecondary,
                         )
                     }
+                }
+            }
+        }
+
+        if (favoriteDestinations.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            HomeSectionHeader(
+                title = "Saved places",
+                subtitle = "Your favorites are stored on this device",
+            )
+            favoriteDestinations.take(5).forEach { favorite ->
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .clickable { onRecentSelected(favorite) }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_bookmark),
+                        contentDescription = null,
+                        tint = OpenMapsColors.ElectricBlueFilled,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(9.dp))
+                    Text(
+                        text = favorite.name.ifBlank { favorite.displayName },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OpenMapsColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }

@@ -1752,19 +1752,64 @@ class MapViewModelTest {
     }
 
     @Test
-    fun onExploreCategoryClicked_doesNotRefetch_whenPlacesAreAlreadyReady() = runTest(dispatcher) {
+    fun onExploreCategoryClicked_refetchesWhenLoadedPlacesLackSelectedCategory() = runTest(dispatcher) {
         startWithPermission()
-        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
-        val fetchesAfterFirst = placesRepository.nearbyCenters.size
-        assertTrue("precondition: a nearby fetch already ran", fetchesAfterFirst > 0)
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        val before = placesRepository.nearbyCenters.size
+        assertTrue(before > 0) // initial broad search returned only a restaurant
 
-        viewModel.onExploreCategoryClicked(PlaceCategory.Parking)
-
-        assertEquals(
-            "a tile must not trigger a redundant fetch when places are already loaded",
-            fetchesAfterFirst,
-            placesRepository.nearbyCenters.size,
+        placesRepository.nearbyResult = Result.success(
+            PlaceQueryResult(listOf(testPlace("gas", PlaceCategory.Gas)), PlaceSource.Network),
         )
+        viewModel.onExploreCategoryClicked(PlaceCategory.Gas)
+
+        assertTrue(placesRepository.nearbyCenters.size > before)
+        assertEquals(setOf(PlaceCategory.Gas), placesRepository.nearbyCategoryCalls.last())
+        assertEquals(listOf("gas"), viewModel.uiState.value.visiblePlaces.map { it.id })
+    }
+
+    @Test
+    fun onExploreCategoryClicked_doesNotRefetchWhenCategoryAlreadyLoaded() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        val before = placesRepository.nearbyCenters.size
+
+        viewModel.onExploreCategoryClicked(PlaceCategory.Restaurant)
+
+        assertEquals(before, placesRepository.nearbyCenters.size)
+        assertEquals(listOf("default"), viewModel.uiState.value.visiblePlaces.map { it.id })
+    }
+
+    @Test
+    fun onExploreCategoryClicked_emptyResultRefetchesAndReportsProviderFailure() = runTest(dispatcher) {
+        placesRepository.nearbyResult = Result.success(PlaceQueryResult(emptyList(), PlaceSource.Network))
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        assertTrue(viewModel.uiState.value.placesState is PlacesState.Ready)
+        val before = placesRepository.nearbyCenters.size
+
+        placesRepository.nearbyResult = Result.failure(PlaceException.NoNetwork)
+        viewModel.onExploreCategoryClicked(PlaceCategory.Restaurant)
+
+        assertTrue(placesRepository.nearbyCenters.size > before)
+        assertTrue(viewModel.uiState.value.placesState is PlacesState.Error)
+        assertTrue(viewModel.uiState.value.visiblePlaces.isEmpty())
+    }
+
+    @Test
+    fun onCategoryFilterChanged_missingCategoryRequestsTargetedPlaces() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        val before = placesRepository.nearbyCenters.size
+
+        placesRepository.nearbyResult = Result.success(
+            PlaceQueryResult(listOf(testPlace("gas", PlaceCategory.Gas)), PlaceSource.Network),
+        )
+        viewModel.onCategoryFilterChanged(setOf(PlaceCategory.Gas))
+
+        assertTrue(placesRepository.nearbyCenters.size > before)
+        assertEquals(setOf(PlaceCategory.Gas), placesRepository.nearbyCategoryCalls.last())
+        assertEquals(listOf("gas"), viewModel.uiState.value.visiblePlaces.map { it.id })
     }
 
     /** "Steps" only ever reveals an already-computed route; it must never request one. */
