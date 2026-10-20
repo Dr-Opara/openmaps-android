@@ -282,7 +282,7 @@ fun PlaceDetailsSheet(
             onFailure = { nearbyStatus = "error" },
         )
     }
-    LaunchedEffect(place.id) { photo = WikimediaDestinationPhotos.forPlace(place.name) }
+    LaunchedEffect(place.id) { photo = runCatching { WikimediaDestinationPhotos.forPlace(place.name) }.getOrNull() }
     val context = LocalContext.current
     Column(
         modifier = modifier
