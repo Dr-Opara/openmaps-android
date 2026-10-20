@@ -245,6 +245,8 @@ fun PlaceDetailsSheet(
     onStart: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    isFavorite: Boolean = false,
+    onToggleFavorite: () -> Unit = {},
     /** The same ranked/capped list already driving the map markers (`MapUiState.visiblePlaces`) —
      * reused for the Nearby tab rather than a second fetch/ranking concept. */
     nearbyPlaces: List<Place> = emptyList(),
@@ -345,21 +347,18 @@ fun PlaceDetailsSheet(
                     )
                 }
                 Button(
-                    onClick = {},
-                    enabled = false,
+                    onClick = onToggleFavorite,
                     shape = GlassShapes.Pill,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.14f),
                         contentColor = OpenMapsColors.ElectricBlueFilled,
-                        disabledContainerColor = OpenMapsColors.ElectricBlueFilled.copy(alpha = 0.14f),
-                        disabledContentColor = OpenMapsColors.ElectricBlueFilled,
                     ),
                     modifier = Modifier.weight(0.9f).heightIn(min = 46.dp),
                 ) {
                     Icon(Icons.Filled.Star, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        stringResource(R.string.place_save_action),
+                        if (isFavorite) "Saved" else stringResource(R.string.place_save_action),
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
