@@ -80,6 +80,8 @@ class MapLibreMapEngine(
     private var mapView: MapView? = null
     private var map: MapLibreMap? = null
     private var styleLoaded = false
+    private var basemapStyle: BasemapStyle = BasemapStyle.Standard
+    private var styleRequestGeneration = 0
     private var pendingMove: MapCommand.MoveCamera? = null
     private var userLocation: UserLocation? = null
     private var destination: SearchResult? = null
@@ -174,14 +176,17 @@ class MapLibreMapEngine(
 
     private fun loadStyle(readyMap: MapLibreMap) {
         styleLoaded = false
+        val generation = ++styleRequestGeneration
+        val source = styleProvider.resolve(basemapStyle) ?: styleProvider.resolve()
         val builder = Style.Builder()
-        when (val source = styleProvider.resolve()) {
+        when (source) {
             is MapStyleSource.Url -> builder.fromUri(source.url)
             is MapStyleSource.InlineJson -> builder.fromJson(source.json)
         }
         readyMap.setStyle(builder) { style ->
+            if (generation != styleRequestGeneration) return@setStyle
             styleLoaded = true
-            applyCartography(style)
+            if (basemapStyle == BasemapStyle.Standard) applyCartography(style)
             _events.tryEmit(MapEvent.StyleLoaded)
             syncUserLocation()
             syncDestination()
@@ -516,12 +521,19 @@ class MapLibreMapEngine(
         syncRoadEvents()
     }
 
+    override fun setBasemapStyle(style: BasemapStyle) {
+        val selected = if (style == BasemapStyle.Satellite && styleProvider.resolve(style) == null) BasemapStyle.Standard else style
+        if (basemapStyle == selected) return
+        basemapStyle = selected
+        map?.let(::loadStyle)
+    }
+
     override fun setCartographyMode(mode: CartographyMode) {
         if (cartographyMode == mode) return
         cartographyMode = mode
         val style = map?.style ?: return
         if (!styleLoaded) return
-        applyCartography(style)
+        if (basemapStyle == BasemapStyle.Standard) applyCartography(style)
     }
 
     private fun applyCartography(style: Style) {
