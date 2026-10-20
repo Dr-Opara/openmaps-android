@@ -76,6 +76,9 @@ class ARArrowPipeline(
     /** True once [onSurfaceCreated] has run; before that there is no GL context to draw with. */
     private var glReady = false
 
+    @Volatile private var viewportWidthPx: Int = 0
+    @Volatile private var viewportHeightPx: Int = 0
+
     // region Inputs (main thread)
 
     /**
@@ -110,6 +113,8 @@ class ARArrowPipeline(
         anchoredPoints: List<AnchoredRoutePoint> = emptyList(),
         cameraTransform: WorldTransform? = null,
     ) {
+        this.viewportWidthPx = viewportWidthPx
+        this.viewportHeightPx = viewportHeightPx
         // Nothing to draw without a usable pose *and* a route. Bail early and clear, so a stale set
         // can never linger after the trip ends or the route is replaced.
         if (!isNavigating || route == null || pose == null || spatialState !is SpatialLocalizationState.Tracking) {
@@ -214,7 +219,7 @@ class ARArrowPipeline(
 
     override fun drawFrame(alpha: Float) {
         if (!glReady) return
-        renderer.draw(current, alpha)
+        renderer.draw(current, alpha, viewportWidthPx, viewportHeightPx)
     }
 
     // endregion
