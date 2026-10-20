@@ -1839,6 +1839,31 @@ class MapViewModelTest {
     }
 
     @Test
+    fun categoryFilterInExplore_autoExtendsSingleCategoryTo20Miles() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        viewModel.onExploreRequested()
+
+        viewModel.onCategoryFilterChanged(setOf(PlaceCategory.Gas))
+
+        assertEquals(setOf(PlaceCategory.Gas), placesRepository.nearbyCategoryCalls.last())
+        assertEquals(MapViewModel.DISCOVERY_RADIUS_METERS, placesRepository.nearbyRadii.last(), 0.01)
+        assertEquals(ExtendedDiscoveryStatus.Complete, viewModel.uiState.value.extendedDiscovery)
+    }
+
+    @Test
+    fun dismissingExplore_clearsExtendedDiscoveryStatus() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        viewModel.onExploreCategoryClicked(PlaceCategory.Restaurant)
+
+        assertEquals(ExtendedDiscoveryStatus.Complete, viewModel.uiState.value.extendedDiscovery)
+        viewModel.onExploreDismissed()
+
+        assertEquals(ExtendedDiscoveryStatus.Idle, viewModel.uiState.value.extendedDiscovery)
+    }
+
+    @Test
     fun onCategoryFilterChanged_missingCategoryRequestsTargetedPlaces() = runTest(dispatcher) {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
