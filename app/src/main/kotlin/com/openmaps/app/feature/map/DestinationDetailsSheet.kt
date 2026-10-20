@@ -95,7 +95,7 @@ fun DestinationDetailsSheet(
     var tab by rememberSaveable(destination.id) { mutableStateOf(DestinationDetailsTab.Overview) }
     var photo by androidx.compose.runtime.remember(destination.id) { mutableStateOf<LicensedDestinationPhoto?>(null) }
     LaunchedEffect(destination.id) {
-        photo = WikimediaDestinationPhotos.forPlace(destination.name.ifBlank { destination.displayName })
+        photo = runCatching { WikimediaDestinationPhotos.forPlace(destination.name.ifBlank { destination.displayName }) }.getOrNull()
     }
     val context = LocalContext.current
     var destinationNearby by androidx.compose.runtime.remember(destination.id) { mutableStateOf<List<Place>>(emptyList()) }
