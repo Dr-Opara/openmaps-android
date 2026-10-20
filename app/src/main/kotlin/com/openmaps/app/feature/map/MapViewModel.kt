@@ -767,8 +767,8 @@ class MapViewModel(
         if (state.isNavigating) return // route discovery is driven by the route itself
         val loadedCategories = (state.placesState as? PlacesState.Ready)?.places
             ?.mapTo(mutableSetOf()) { it.category }.orEmpty()
-        if (categories.size == 1 || !loadedCategories.containsAll(categories)) {
-            state.currentLocation?.let { fetchNearbyPlacesAt(it, categories, showLoading = true, extended = categories.size == 1) }
+        if ((categories.size == 1 && state.isExploreOpen) || !loadedCategories.containsAll(categories)) {
+            state.currentLocation?.let { fetchNearbyPlacesAt(it, categories, showLoading = true, extended = categories.size == 1 && state.isExploreOpen) }
         }
     }
 
