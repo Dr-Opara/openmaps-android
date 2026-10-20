@@ -66,6 +66,8 @@ data class MapUiState(
     val navigationFollowSuspended: Boolean = false,
     /** Lifecycle of the current contextual-places fetch (Phase 9). See [PlacesState]. */
     val placesState: PlacesState = PlacesState.Idle,
+    /** Extended 20-mile discovery is asynchronous; never mistake local results for full coverage. */
+    val extendedDiscovery: ExtendedDiscoveryStatus = ExtendedDiscoveryStatus.Idle,
     /** Which categories the user wants surfaced. All supported categories are shown by default. */
     val placeCategoryFilters: Set<PlaceCategory> = PlaceCategoryMapper.supportedCategories,
     /** The place shown in the compact details sheet, or null when none is selected. */
@@ -232,3 +234,6 @@ sealed interface MapUiEvent {
      */
     data object RerouteFailed : MapUiEvent
 }
+
+/** State of the automatic commercial-provider 20-mile search for a selected Discover category. */
+enum class ExtendedDiscoveryStatus { Idle, Searching, Complete, Unavailable }
