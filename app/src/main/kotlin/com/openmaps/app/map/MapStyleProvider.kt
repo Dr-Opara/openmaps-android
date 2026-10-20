@@ -1,5 +1,8 @@
 package com.openmaps.app.map
 
+/** Map imagery choice; independent of Map vs Live and navigation state. */
+enum class BasemapStyle { Standard, Satellite }
+
 /**
  * Where the basemap comes from. The Map screen and the engine depend only on this
  * abstraction, so moving to PMTiles / Protomaps / self-hosted vector tiles later is a
@@ -41,5 +44,15 @@ sealed interface MapStyleSource {
 }
 
 fun interface MapStyleProvider {
+    /** Standard vector basemap, always present and used by offline route corridor caching. */
     fun resolve(): MapStyleSource
+
+    /**
+     * Satellite is opt-in and can be unavailable on developer-only or custom providers.
+     * Null means hide the control; never silently use unlicensed imagery.
+     */
+    fun resolve(style: BasemapStyle): MapStyleSource? = when (style) {
+        BasemapStyle.Standard -> resolve()
+        BasemapStyle.Satellite -> null
+    }
 }

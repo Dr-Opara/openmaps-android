@@ -8,6 +8,11 @@ import com.openmaps.app.BuildConfig
  * self-hosted provider later; nothing else in the app needs to change.
  */
 class BuildConfigMapStyleProvider : MapStyleProvider {
+    override fun resolve(style: BasemapStyle): MapStyleSource? = when (style) {
+        BasemapStyle.Standard -> resolve()
+        BasemapStyle.Satellite -> StadiaSatelliteStyle.fromStandard(resolve())
+    }
+
     override fun resolve(): MapStyleSource = MapStyleSource.Url(
         url = BuildConfig.MAP_STYLE_URL,
         name = BuildConfig.MAP_STYLE_NAME,
