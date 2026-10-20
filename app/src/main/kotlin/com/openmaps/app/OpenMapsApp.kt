@@ -234,6 +234,10 @@ private fun AppShell(container: AppContainer) {
                 searchPurpose = SearchPurpose.RouteDestination
                 overlay = Overlay.Search
             },
+            onQuickNavigationClick = {
+                searchPurpose = SearchPurpose.NewDestination
+                overlay = Overlay.Search
+            },
             // Same real launcher as inside the search screen: the home mic and the search-screen mic
             // are one feature, not two.
             onVoiceSearchClick = {
