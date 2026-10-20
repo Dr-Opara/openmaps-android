@@ -46,6 +46,8 @@ fun MapScreen(
     onSearchClick: () -> Unit,
     onRouteOriginClick: () -> Unit = {},
     onRouteDestinationClick: () -> Unit = {},
+    /** Quick navigation always uses the live device location as its default origin. */
+    onQuickNavigationClick: () -> Unit = {},
     /** Opens the search screen straight into voice mode. Null hides the mic rather than showing a dead icon. */
     onVoiceSearchClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit,
@@ -197,11 +199,11 @@ fun MapScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 CompassButton(bearing = viewModel.compassBearing, onClick = viewModel::onCompassClicked)
-                // Mockup stacks the two circular map controls: white recenter above the filled blue
-                // navigation action.
+                // Separate actions: recenter moves the map; Navigate opens destination entry
+                // with the device's current location as the default origin.
                 RecenterButton(hasLocation = state.currentLocation != null, onClick = viewModel::onRecenterClicked)
                 NavigationActionButton(
-                    onClick = viewModel::onNavigationActionClicked,
+                    onClick = onQuickNavigationClick,
                     modifier = Modifier.align(Alignment.End),
                 )
             }
