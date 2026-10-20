@@ -1769,15 +1769,57 @@ class MapViewModelTest {
     }
 
     @Test
-    fun onExploreCategoryClicked_doesNotRefetchWhenCategoryAlreadyLoaded() = runTest(dispatcher) {
+    fun onExploreCategoryClicked_alwaysSearches20MilesEvenWhenLocalCategoryLoaded() = runTest(dispatcher) {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
         val before = placesRepository.nearbyCenters.size
 
         viewModel.onExploreCategoryClicked(PlaceCategory.Restaurant)
 
-        assertEquals(before, placesRepository.nearbyCenters.size)
+        assertTrue(placesRepository.nearbyCenters.size > before)
+        assertEquals(
+            MapViewModel.DISCOVERY_RADIUS_METERS,
+            placesRepository.nearbyRadii.last(),
+            0.01,
+        )
+        assertEquals(setOf(PlaceCategory.Restaurant), placesRepository.nearbyCategoryCalls.last())
+        assertEquals(ExtendedDiscoveryStatus.Complete, viewModel.uiState.value.extendedDiscovery)
         assertEquals(listOf("default"), viewModel.uiState.value.visiblePlaces.map { it.id })
+    }
+
+    @Test
+    fun auto20MileSearch_failurePreservesNearbyResultsAndReportsUnavailable() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        placesRepository.failWideQuery = true
+
+        viewModel.onExploreCategoryClicked(PlaceCategory.Restaurant)
+
+        assertEquals(MapViewModel.DISCOVERY_RADIUS_METERS, placesRepository.nearbyRadii.last(), 0.01)
+        assertEquals(ExtendedDiscoveryStatus.Unavailable, viewModel.uiState.value.extendedDiscovery)
+        assertEquals(listOf("default"), viewModel.uiState.value.visiblePlaces.map { it.id })
+    }
+
+    @Test
+    fun auto20MileSearch_usesNewPlacesFromWideRadius() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        placesRepository.wideQueryResult = Result.success(
+            PlaceQueryResult(listOf(testPlace("wide", PlaceCategory.Restaurant)), PlaceSource.Network),
+        )
+
+        viewModel.onExploreCategoryClicked(PlaceCategory.Restaurant)
+
+        assertEquals(ExtendedDiscoveryStatus.Complete, viewModel.uiState.value.extendedDiscovery)
+        assertEquals(setOf("default", "wide"), viewModel.uiState.value.visiblePlaces.map { it.id }.toSet())
+    }
+
+    @Test
+    fun auto20MileSearch_onlyRunsWhenAnExplicitCategorySelected() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(40.0, -74.0)))
+        assertTrue(placesRepository.nearbyRadii.all { it <= MapViewModel.NEARBY_RADIUS_METERS_MAX })
+        assertEquals(ExtendedDiscoveryStatus.Idle, viewModel.uiState.value.extendedDiscovery)
     }
 
     @Test
@@ -2103,6 +2145,8 @@ class MapViewModelTest {
             ),
         )
         var alongRouteResult: Result<List<Place>> = Result.success(emptyList())
+        var failWideQuery = false
+        var wideQueryResult: Result<PlaceQueryResult>? = null
         val nearbyCenters = mutableListOf<Coordinate>()
 
         /** Every requested radius, so adaptive expansion is directly observable in tests. */
@@ -2120,7 +2164,10 @@ class MapViewModelTest {
             nearbyCenters += center
             nearbyRadii += radiusMeters
             nearbyCategoryCalls += categories
-            return nearbyResult
+            return if (radiusMeters >= MapViewModel.DISCOVERY_RADIUS_METERS) {
+                if (failWideQuery) Result.failure(PlaceException.NoNetwork)
+                else wideQueryResult ?: nearbyResult
+            } else nearbyResult
         }
 
         override suspend fun placesAlongRoute(
