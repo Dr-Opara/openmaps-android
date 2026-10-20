@@ -21,13 +21,22 @@ data class LicensedDestinationPhoto(
 )
 
 object WikimediaDestinationPhotos {
-    suspend fun forPlace(name: String): LicensedDestinationPhoto? = withContext(Dispatchers.IO) {
+    /** Returns a conservative locality token; chain-name photos without a location are omitted. */
+    fun localityFromAddress(address: String?): String? {
+        val parts = address?.split(",")?.map { it.trim() }.orEmpty()
+        if (parts.size < 2) return null
+        // US street address, city, state. This is intentionally a heuristic: a bad match
+        // must result in no photo, rather than one from an unrelated store.
+        return parts[parts.size - 2].takeIf { it.length >= 4 }
+    }
+
+    suspend fun forPlace(name: String, locality: String? = null): LicensedDestinationPhoto? = withContext(Dispatchers.IO) {
         val queryName = name.replace(Regex("\\([^)]*\\)"), "").trim().take(140)
         if (queryName.length < 5) return@withContext null
         val query = URLEncoder.encode("\"$queryName\"", "UTF-8")
         val endpoint = "https://commons.wikimedia.org/w/api.php?action=query&generator=search" +
             "&gsrsearch=$query&gsrnamespace=6&gsrlimit=15&prop=imageinfo" +
-            "&iiprop=url%7Cextmetadata&iiurlwidth=960&format=json"
+            "&iiprop=url%7Csize%7Cextmetadata&iiurlwidth=960&format=json"
         val conn = URL(endpoint).openConnection() as HttpURLConnection
         conn.connectTimeout = 5_000
         conn.readTimeout = 7_000
@@ -51,10 +60,15 @@ object WikimediaDestinationPhotos {
             val title = page.optString("title").lowercase(Locale.ROOT).replace('_',' ')
             // A strong destination-specific name match is required, not just generic place terms.
             if (!normalizedName.all { title.contains(it) }) continue
+            if (locality != null && !title.contains(locality.lowercase(Locale.ROOT))) continue
             val info = page.optJSONArray("imageinfo")?.optJSONObject(0) ?: continue
             val metadata = info.optJSONObject("extmetadata") ?: continue
             val license = metadata.optJSONObject("LicenseShortName")?.optString("value").orEmpty()
             if (!(license.startsWith("CC BY ") || license.startsWith("CC BY-SA ") || license == "CC0" || license == "Public domain")) continue
+            // Never stretch tiny/low-resolution Commons thumbnails across a full-width hero.
+            val width = info.optInt("width", 0)
+            val height = info.optInt("height", 0)
+            if (width < 960 || height < 480) continue
             val imageUrl = info.optString("thumburl").ifBlank { info.optString("url") }
             val pageUrl = info.optString("descriptionurl")
             val fileHost = runCatching { URL(imageUrl).host }.getOrNull()

@@ -1,12 +1,17 @@
 package com.openmaps.app.feature.map
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -17,11 +22,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openmaps.app.core.designsystem.OpenMapsWordmark
+import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.geocoding.SearchResult
@@ -72,7 +80,8 @@ fun MapScreen(
             when {
                 state.isNavigating && useNightMap -> CartographyMode.NavigationNight
                 state.isNavigating -> CartographyMode.NavigationDay
-                useNightMap -> CartographyMode.BrowseNight
+                // Browse and Route Preview share one consistent daytime base map.
+                // Night cartography remains available while actively navigating.
                 else -> CartographyMode.BrowseDay
             },
         )
@@ -120,6 +129,15 @@ fun MapScreen(
             MapUnavailableOverlay(onRetry = viewModel::onRetryMap, modifier = Modifier.fillMaxSize())
         }
 
+        // Give the system clock/icons a legible backing over labels and dark map tiles.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
+                .background(OpenMapsColors.Navy950.copy(alpha = 0.90f)),
+        )
+
         // Map-first home: branding left, Map/Live toggle right, then one dominant destination search
         // field. Nearby categories live in the bottom Explore sheet instead of permanently covering
         // the map.
@@ -135,7 +153,12 @@ fun MapScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                OpenMapsWordmark(Modifier.padding(start = 4.dp))
+                // A stable light capsule protects navy/blue branding over any map tile.
+                OpenMapsWordmark(
+                    Modifier
+                        .background(Color.White.copy(alpha = 0.96f), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 10.dp, vertical = 9.dp),
+                )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     MapModeToggle(selected = state.selectedMapMode, onSelected = viewModel::onModeSelected)
                     MapSettingsButton(onClick = onSettingsClick)
@@ -199,19 +222,21 @@ fun MapScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(
-                modifier = Modifier.align(Alignment.End),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                CompassButton(bearing = viewModel.compassBearing, onClick = viewModel::onCompassClicked)
-                // Separate actions: recenter moves the map; Navigate opens destination entry
-                // with the device's current location as the default origin.
-                RecenterButton(hasLocation = state.currentLocation != null, onClick = viewModel::onRecenterClicked)
-                NavigationActionButton(
-                    onClick = onQuickNavigationClick,
+            // Floating map buttons belong to the uncovered home map, not a tall details sheet.
+            // Hiding them also prevents their cumulative height from pushing cards over search.
+            if (shouldShowFloatingMapActions(state)) {
+                Column(
                     modifier = Modifier.align(Alignment.End),
-                )
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CompassButton(bearing = viewModel.compassBearing, onClick = viewModel::onCompassClicked)
+                    RecenterButton(hasLocation = state.currentLocation != null, onClick = viewModel::onRecenterClicked)
+                    NavigationActionButton(
+                        onClick = onQuickNavigationClick,
+                        modifier = Modifier.align(Alignment.End),
+                    )
+                }
             }
             state.locationPrompt?.let { prompt ->
                 LocationPromptCard(
@@ -256,6 +281,7 @@ fun MapScreen(
                     onToggleFavorite = { onToggleFavorite(selectedPlace.toSavedSearchResult()) },
                     onDirections = { viewModel.onDirectionsRequestedForPlace(selectedPlace) },
                     onStart = { viewModel.onStartFromPlace(selectedPlace) },
+                    onShare = { onShareDestination(selectedPlace.toSavedSearchResult()) },
                     onSelectNearbyPlace = viewModel::onPlaceSelected,
                     onDismiss = viewModel::onPlaceDetailsDismissed,
                 )
@@ -349,3 +375,8 @@ private fun Place.toSavedSearchResult(): SearchResult = SearchResult(
     category = category.name,
     address = address,
 )
+
+/** Map-level shortcuts are never rendered over details, Discover, Route Preview or guidance. */
+internal fun shouldShowFloatingMapActions(state: MapUiState): Boolean =
+    state.selectedDestination == null && state.selectedPlace == null &&
+        !state.isExploreOpen && !state.isShowingSteps && !state.isNavigating
