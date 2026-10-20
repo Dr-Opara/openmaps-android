@@ -1,5 +1,8 @@
 package com.openmaps.app.feature.map
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -32,12 +35,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -55,6 +62,8 @@ import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.localization.NavigationUnits
+import com.openmaps.app.core.geocoding.LicensedDestinationPhoto
+import com.openmaps.app.core.geocoding.WikimediaDestinationPhotos
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import java.util.Locale
@@ -253,6 +262,9 @@ fun PlaceDetailsSheet(
     onSelectNearbyPlace: (Place) -> Unit = {},
 ) {
     var tab by rememberSaveable(place.id) { mutableStateOf(PlaceDetailsTab.Overview) }
+    var photo by remember(place.id) { mutableStateOf<LicensedDestinationPhoto?>(null) }
+    LaunchedEffect(place.id) { photo = WikimediaDestinationPhotos.forPlace(place.name) }
+    val context = LocalContext.current
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -261,8 +273,18 @@ fun PlaceDetailsSheet(
         // Hero image, or a clean category placeholder when no real image exists. Never a fabricated
         // photo: no wired provider (Overpass/OSM) supplies imagery today. Mockup: full-bleed, flush
         // with the card's top corners, not inset.
-        PlaceHeroImage(place = place, onDismiss = onDismiss)
+        PlaceHeroImage(place = place, onDismiss = onDismiss, photo = photo)
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            photo?.let { licensed ->
+                Text(
+                    "Photo: ${licensed.attribution} · ${licensed.license} · Wikimedia Commons",
+                    modifier = Modifier.clickable {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.commonsPage))) }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OpenMapsColors.TextSecondary,
+                )
+            }
             Text(
                 text = place.name,
                 style = MaterialTheme.typography.headlineSmall,
@@ -371,7 +393,26 @@ fun PlaceDetailsSheet(
             when (tab) {
                 PlaceDetailsTab.Overview -> OverviewTabContent(place)
                 PlaceDetailsTab.Reviews -> UnavailableTabContent(stringResource(R.string.place_reviews_unavailable))
-                PlaceDetailsTab.Photos -> UnavailableTabContent(stringResource(R.string.place_photos_unavailable))
+                PlaceDetailsTab.Photos -> if (photo == null) {
+                    UnavailableTabContent("No verified, licensed photo available for this place yet.")
+                } else {
+                    Column {
+                        Image(
+                            bitmap = photo!!.bitmap.asImageBitmap(),
+                            contentDescription = "Photo of ${place.name}",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxWidth().height(170.dp),
+                        )
+                        Text(
+                            "Open image license and attribution on Wikimedia Commons",
+                            modifier = Modifier.clickable {
+                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(photo!!.commonsPage))) }
+                            },
+                            color = OpenMapsColors.ElectricBlueFilled,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
                 PlaceDetailsTab.Nearby -> NearbyTabContent(
                     place = place,
                     nearbyPlaces = nearbyPlaces,
@@ -392,7 +433,7 @@ fun PlaceDetailsSheet(
  * codebase's rule is that a control never renders unless it does something real.
  */
 @Composable
-private fun PlaceHeroImage(place: Place, onDismiss: () -> Unit) {
+private fun PlaceHeroImage(place: Place, onDismiss: () -> Unit, photo: LicensedDestinationPhoto?) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -401,12 +442,21 @@ private fun PlaceHeroImage(place: Place, onDismiss: () -> Unit) {
             .background(place.category.markerColor().copy(alpha = 0.18f)),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            painter = painterResource(place.category.iconRes()),
-            contentDescription = null,
-            tint = place.category.markerColor(),
-            modifier = Modifier.size(44.dp),
-        )
+        if (photo != null) {
+            Image(
+                bitmap = photo.bitmap.asImageBitmap(),
+                contentDescription = "Photo of ${place.name}",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize(),
+            )
+        } else {
+            Icon(
+                painter = painterResource(place.category.iconRes()),
+                contentDescription = null,
+                tint = place.category.markerColor(),
+                modifier = Modifier.size(44.dp),
+            )
+        }
         IconButton(
             onClick = onDismiss,
             modifier = Modifier
