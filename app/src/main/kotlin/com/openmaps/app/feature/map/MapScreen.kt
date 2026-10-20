@@ -46,6 +46,8 @@ fun MapScreen(
     onSearchClick: () -> Unit,
     onRouteOriginClick: () -> Unit = {},
     onRouteDestinationClick: () -> Unit = {},
+    /** Quick navigation always uses the live device location as its default origin. */
+    onQuickNavigationClick: () -> Unit = {},
     /** Opens the search screen straight into voice mode. Null hides the mic rather than showing a dead icon. */
     onVoiceSearchClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit,
@@ -201,7 +203,7 @@ fun MapScreen(
                 // with the device's current location as the default origin.
                 RecenterButton(hasLocation = state.currentLocation != null, onClick = viewModel::onRecenterClicked)
                 NavigationActionButton(
-                    onClick = onRouteDestinationClick,
+                    onClick = onQuickNavigationClick,
                     modifier = Modifier.align(Alignment.End),
                 )
             }
