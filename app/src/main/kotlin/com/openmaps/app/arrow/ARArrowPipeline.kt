@@ -217,8 +217,11 @@ class ARArrowPipeline(
         glReady = true
     }
 
+    override fun hasDrawableContent(): Boolean =
+        glReady && current.isNotEmpty() && viewportWidthPx > 0 && viewportHeightPx > 0
+
     override fun drawFrame(alpha: Float) {
-        if (!glReady) return
+        if (!hasDrawableContent()) return
         renderer.draw(current, alpha, viewportWidthPx, viewportHeightPx)
     }
 
