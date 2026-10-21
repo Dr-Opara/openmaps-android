@@ -42,6 +42,7 @@ fun OpenMapsMark(modifier: Modifier = Modifier) {
 fun OpenMapsWordmark(
     modifier: Modifier = Modifier,
     onLight: Boolean = true,
+    large: Boolean = false,
 ) {
     // One label for the whole mark, read once rather than as three fragments.
     val label = stringResource(R.string.app_name)
@@ -51,18 +52,18 @@ fun OpenMapsWordmark(
     ) {
         OpenMapsMark(
             Modifier
-                .height(20.dp)
-                .width(15.dp),
+                .height(if (large) 27.dp else 20.dp)
+                .width(if (large) 21.dp else 15.dp),
         )
         Spacer(Modifier.width(8.dp))
         Text(
             text = stringResource(R.string.brand_open),
-            style = MaterialTheme.typography.labelLarge,
+            style = if (large) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge,
             color = if (onLight) OpenMapsColors.TextPrimary else OpenMapsColors.TextOnDark,
         )
         Text(
             text = stringResource(R.string.brand_maps),
-            style = MaterialTheme.typography.labelLarge,
+            style = if (large) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge,
             color = OpenMapsColors.ElectricBlue,
         )
     }
