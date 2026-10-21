@@ -252,138 +252,108 @@ fun LiveScreen(
             return@Box
         }
 
-        when (val hud = hudState) {
-            LiveHudState.Idle -> Unit
-
-            is LiveHudState.Maneuver -> {
-                LiveManeuverHud(
-                    hud = hud,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(top = 64.dp, start = 14.dp, end = 14.dp),
-                )
-                // The mockup stacks a compact "Then" pill directly beneath the maneuver card.
-                hud.nextInstruction?.let { then ->
-                    LiveNextManeuverHud(
-                        nextInstruction = then,
-                        nextManeuverType = hud.nextManeuverType,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .statusBarsPadding()
-                            .padding(top = 150.dp, start = 14.dp, end = 14.dp),
-                    )
-                }
-            }
-
-            is LiveHudState.Rerouting -> LiveStatusHud(
-                title = stringResource(R.string.live_rerouting),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 72.dp, start = 16.dp, end = 16.dp),
-            )
-
-            is LiveHudState.OffRoute -> LiveStatusHud(
-                title = stringResource(R.string.live_off_route),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 72.dp, start = 16.dp, end = 16.dp),
-            )
-
-            is LiveHudState.Arrived -> {
-                LiveArrivedHud(
-                    destinationName = hud.destinationName,
-                    onBackToMap = { onModeSelected(MapMode.Map) },
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 40.dp),
-                )
-            }
-        }
-
-        // Bottom trip summary: present for every navigating state except arrival, which has its own
-        // call to action instead. `summaryBottomPadding` is shared with the speed block above it so
-        // the two always stay stacked rather than overlapping.
-        val summaryHud = hudState
-        val summaryBottomPadding = if (summaryHud is LiveHudState.Maneuver) 16.dp else 96.dp
-        if (summaryHud is LiveHudState.Maneuver) {
-            LiveDrivingActions(
-                voiceEnabled = voiceEnabled,
-                driverReportStatus = driverReportStatus,
-                tripShareStatus = tripShareStatus,
-                onVoiceMuteToggled = onVoiceMuteToggled,
-                onReport = onReport,
-                onShareTrip = onShareTrip,
-                onDismissExternalStatus = onDismissExternalStatus,
-                onReroute = onReroute,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(start = 16.dp, end = 16.dp, bottom = summaryBottomPadding + 86.dp),
-            )
-            LiveTripSummary(
-                hud = summaryHud,
-                roadIntelligenceState = roadIntelligenceState,
-                onExitNavigation = onExitNavigation,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(start = 16.dp, end = 16.dp, bottom = summaryBottomPadding),
-            )
-        }
-
-        // Localization status (Phase 6). Collected here (not passed down) so the Live HUD does not
-        // recompose on every navigation tick. Debug diagnostics are strictly opt-in and only
-        // compiled into debug builds.
+        // One content-sized top stack: the main maneuver, its following instruction and
+        // optional alert must never use independent absolute offsets. Those offsets caused
+        // the "Then" pill to collide with the turn banner on real devices and large text.
         val spatialState by viewModel.spatialLocalization.state
             .collectAsState(initial = SpatialLocalizationState.Idle)
         val localizationStatus = remember(spatialState) { LiveLocalizationStatusMapper.of(spatialState) }
-
-        if (localizationStatus != LiveLocalizationStatus.None) {
-            LocalizationChip(
-                status = localizationStatus,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = if (isNavigating) 202.dp else 96.dp, start = 16.dp, end = 16.dp),
-            )
-        }
-
-        // Phase 10: road intelligence. Hazards sit under the maneuver card; speed has its own
-        // lower-left block so the mockup's eyeline is respected.
-        LiveRoadAlertHud(
-            roadState = roadIntelligenceState,
-            onCommunityConfirm = onCommunityReportConfirm,
-            onCommunityDismiss = onCommunityReportDismiss,
+        Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(top = if (isNavigating) 246.dp else 230.dp, start = 16.dp, end = 16.dp),
-        )
+                .padding(top = 64.dp, start = 14.dp, end = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            when (val hud = hudState) {
+                is LiveHudState.Maneuver -> {
+                    LiveManeuverHud(hud = hud, modifier = Modifier.fillMaxWidth())
+                    hud.nextInstruction?.let { then ->
+                        LiveNextManeuverHud(
+                            nextInstruction = then,
+                            nextManeuverType = hud.nextManeuverType,
+                        )
+                    }
+                }
+                LiveHudState.Rerouting -> LiveStatusHud(
+                    title = stringResource(R.string.live_rerouting),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                is LiveHudState.OffRoute -> LiveStatusHud(
+                    title = stringResource(R.string.live_off_route),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                else -> Unit
+            }
+            if (localizationStatus != LiveLocalizationStatus.None) {
+                LocalizationChip(status = localizationStatus)
+            }
+            if (isNavigating) {
+                LiveRoadAlertHud(
+                    roadState = roadIntelligenceState,
+                    onCommunityConfirm = onCommunityReportConfirm,
+                    onCommunityDismiss = onCommunityReportDismiss,
+                )
+            }
+        }
 
-        // Mockup: current speed + posted limit, lower-left, above the trip card.
-        LiveSpeedBlock(
-            currentSpeedMetersPerSecond = roadIntelligenceState.currentSpeedMetersPerSecond,
-            speedLimitAlert = roadIntelligenceState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull(),
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .navigationBarsPadding()
-                .padding(start = 16.dp, bottom = summaryBottomPadding + 148.dp),
-        )
-
-        // Mockup: mic + map floating circles down the right edge, mirroring the speed block's
-        // height on the opposite corner. Only while actively navigating — see LiveTopBar's doc
-        // comment for why the header's own controls step aside for this instead of stacking both.
-        if (isNavigating && summaryHud is LiveHudState.Maneuver) {
-            LiveSideControls(
+        if (hudState is LiveHudState.Arrived) {
+            LiveArrivedHud(
+                destinationName = hudState.destinationName,
                 onBackToMap = { onModeSelected(MapMode.Map) },
-                voiceEnabled = voiceEnabled,
-                onVoiceMuteToggled = onVoiceMuteToggled,
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
+                    .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(end = 16.dp, bottom = summaryBottomPadding + 140.dp),
+                    .padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
             )
+        }
+
+        // Keep speed, side controls, driving actions and trip summary in a single content-sized
+        // bottom stack. The old independently bottom-aligned rows assumed a fixed trip-card
+        // height, so action labels were obscured when Claude's redesigned summary grew.
+        if (hudState is LiveHudState.Maneuver) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    LiveSpeedBlock(
+                        currentSpeedMetersPerSecond = roadIntelligenceState.currentSpeedMetersPerSecond,
+                        speedLimitAlert = roadIntelligenceState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull(),
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (isNavigating) {
+                        LiveSideControls(
+                            onBackToMap = { onModeSelected(MapMode.Map) },
+                            voiceEnabled = voiceEnabled,
+                            onVoiceMuteToggled = onVoiceMuteToggled,
+                        )
+                    }
+                }
+                LiveDrivingActions(
+                    voiceEnabled = voiceEnabled,
+                    driverReportStatus = driverReportStatus,
+                    tripShareStatus = tripShareStatus,
+                    onVoiceMuteToggled = onVoiceMuteToggled,
+                    onReport = onReport,
+                    onShareTrip = onShareTrip,
+                    onDismissExternalStatus = onDismissExternalStatus,
+                    onReroute = onReroute,
+                )
+                LiveTripSummary(
+                    hud = hudState,
+                    roadIntelligenceState = roadIntelligenceState,
+                    onExitNavigation = onExitNavigation,
+                )
+            }
         }
     }
 }
