@@ -114,7 +114,9 @@ fun MapModeToggle(
             .padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        MapMode.entries.forEach { mode ->
+        // Display order only (not MapMode's declaration order): the reference always shows
+        // "Live | Map", in both Map and Live, regardless of which segment is selected.
+        listOf(MapMode.Live, MapMode.Map).forEach { mode ->
             val isSelected = mode == selected
             Box(
                 modifier = Modifier
