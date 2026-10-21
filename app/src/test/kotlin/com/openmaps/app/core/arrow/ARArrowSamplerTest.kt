@@ -317,12 +317,17 @@ class ARArrowSamplerTest {
     // region Quality gating
 
     @Test
-    fun quality_goodAndFairDrawArrows_butPoorAndBelowDoNot() {
+    fun quality_goodFairAndPoorDrawArrows_butAcquiringAndBelowDoNot() {
         val geometry = straightGeometry()
         assertTrue(sampler.sample(geometry, progress(), LocalizationQuality.Good).isNotEmpty())
         assertTrue(sampler.sample(geometry, progress(), LocalizationQuality.Fair).isNotEmpty())
-        // Poor and worse: we cannot promise the arrows are in the right place, so show none.
-        assertTrue(sampler.sample(geometry, progress(), LocalizationQuality.Poor).isEmpty())
+        // Poor is a usable fix ("you are here"), not "no fix" — the sampler must still produce
+        // candidate nodes so RouteAnchorManager's already-tracked anchors (created earlier under a
+        // good fix, and stable regardless of live Geospatial jitter) can keep being projected through
+        // a momentary Poor dip. See ARArrowConfig.minimumQuality's doc for the full reasoning; the
+        // *unanchored* fallback path still refuses Poor separately, in ARArrowPipeline.
+        assertTrue(sampler.sample(geometry, progress(), LocalizationQuality.Poor).isNotEmpty())
+        // Acquiring and worse: no usable fix exists yet at all.
         assertTrue(sampler.sample(geometry, progress(), LocalizationQuality.Acquiring).isEmpty())
         assertTrue(sampler.sample(geometry, progress(), LocalizationQuality.Unavailable).isEmpty())
     }

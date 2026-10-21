@@ -67,6 +67,7 @@
     <string name="live_then_label">ثم</string>
     <string name="live_speed_limit_label">الحد</string>
     <string name="live_status_destination">الوجهة</string>
+    <string name="live_ar_preview_label">معاينة الواقع المعزز — اختر وجهة للتنقل.</string>
     <string name="live_stat_remaining">متبقٍ</string>
     <string name="live_stat_to_arrive">حتى الوصول</string>
     <string name="live_stat_arrival">الوصول</string>

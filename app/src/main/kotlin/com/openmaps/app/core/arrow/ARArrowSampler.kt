@@ -34,10 +34,11 @@ class ARArrowSampler(
         isArrived: Boolean = false,
         remainingDistanceMeters: Double = Double.MAX_VALUE,
     ): List<ARArrowNode> {
-        // Arrival ends the path; Poor or worse means we cannot promise the arrows are in the right
-        // place, so drawing them would be worse than drawing none. `<=` because
-        // `minimumQuality` is documented as "at or below this, draw nothing" — a `<` here silently
-        // let Poor quality through.
+        // Arrival ends the path; below `minimumQuality` there is no usable fix at all (not merely an
+        // imprecise one), so there is nothing to sample against. `<=` because `minimumQuality` is
+        // documented as "at or below this, draw nothing" — a `<` here would silently let that floor
+        // through. See `ARArrowConfig.minimumQuality`'s doc for why this floor is deliberately looser
+        // than the unanchored-projection floor `ARArrowPipeline` applies separately.
         if (isArrived || progress == null) return emptyList()
         if (quality.ordinal <= config.minimumQuality.ordinal) return emptyList()
         if (geometry.size < 2) return emptyList()
