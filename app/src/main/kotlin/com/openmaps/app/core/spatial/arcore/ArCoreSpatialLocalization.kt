@@ -140,6 +140,9 @@ class ArCoreSpatialLocalization(
 
         /** Called every frame after the camera background. [alpha] is 0..1. */
         fun drawFrame(alpha: Float)
+
+        /** Renderer readiness is queried on the GL thread, not latched in a Compose side effect. */
+        fun hasDrawableContent(): Boolean = true
     }
 
     /** The GL surface Live hosts when [providesPreview]. */
@@ -550,9 +553,15 @@ class ArCoreSpatialLocalization(
                 renderer?.onSurfaceCreated()
             }
             renderer?.let {
-                GLES20.glEnable(GLES20.GL_BLEND)
-                it.drawFrame(overlayAlpha)
-                GLES20.glDisable(GLES20.GL_BLEND)
+                // An older Compose callback may have latched overlayAlpha=0 before the
+                // AR arrows were projected. Read drawable content on the GL thread each
+                // frame instead; never make nonempty arrows permanently invisible.
+                val visibleAlpha = if (it.hasDrawableContent()) 1f else 0f
+                if (visibleAlpha > 0f) {
+                    GLES20.glEnable(GLES20.GL_BLEND)
+                    it.drawFrame(visibleAlpha)
+                    GLES20.glDisable(GLES20.GL_BLEND)
+                }
             }
         }
 
