@@ -1,11 +1,5 @@
 package com.openmaps.app.feature.live
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -49,12 +43,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
@@ -288,8 +279,9 @@ fun LiveScreen(
                     title = stringResource(R.string.live_off_route),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                // Mode A: no active route yet. The label is paired with LiveArPreviewChevrons below
-                // (the demo graphic itself), never shown without it — see that composable's doc.
+                // No active route yet: a neutral text prompt only, never a directional graphic. Real
+                // AR guidance exists exclusively once navigation is active — see
+                // ARArrowPipeline.update, which gates every arrow on isNavigating and a tracked pose.
                 LiveHudState.Idle -> LiveArPreviewLabel(modifier = Modifier.fillMaxWidth())
                 is LiveHudState.Arrived -> Unit
             }
@@ -313,13 +305,6 @@ fun LiveScreen(
                     onCommunityDismiss = onCommunityReportDismiss,
                 )
             }
-        }
-
-        // Mode A: the demo chevron graphic (see LiveArPreviewChevrons' doc). Disappears the instant
-        // hudState leaves Idle — i.e. the moment real navigation starts — with no extra wiring, since
-        // hudState is recomputed fresh from NavigationState every recomposition.
-        if (hudState is LiveHudState.Idle) {
-            LiveArPreviewChevrons(modifier = Modifier.fillMaxSize())
         }
 
         // The reference screenshots' green current-street-name tag. A street applies to the whole
@@ -1432,91 +1417,13 @@ private fun LiveStatusHud(title: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * Mode A — Live opened with no active route. A clearly-labeled, deliberately screen-space demo of
- * the chevron style real navigation uses once a destination is chosen.
- *
- * **This must never be mistaken for guidance.** The chevrons here are fixed, symmetric, screen-space
- * shapes with no tie to route geometry, device pose, or ARCore tracking at all — unlike the real AR
- * arrows ([ARArrowPipeline]), which exist only when a route, a tracked pose and real sample nodes all
- * agree. Available regardless of ARCore/Geospatial availability (CameraX fallback included): a demo
- * of the *visual style* does not need a tracked pose, only a camera background, which Live always has
- * one way or another. The label is what keeps it honest — see [LiveArPreviewLabel].
- */
-@Composable
-private fun LiveArPreviewChevrons(modifier: Modifier = Modifier) {
-    // A slow opacity breathe, not a position change: motion toward the top of the screen would read
-    // as "go this way", which is exactly the instruction this preview must never imply.
-    val transition = rememberInfiniteTransition(label = "ar_preview_pulse")
-    val pulse by transition.animateFloat(
-        initialValue = 0.55f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "ar_preview_pulse",
-    )
-    Canvas(modifier = modifier) {
-        val centerX = size.width / 2f
-        val baseY = size.height * 0.78f
-        val spanY = size.height * 0.28f
-        for (i in 0 until AR_PREVIEW_CHEVRON_COUNT) {
-            val t = i / (AR_PREVIEW_CHEVRON_COUNT - 1).toFloat()
-            val y = baseY - t * spanY
-            val radius = AR_PREVIEW_BASE_RADIUS_PX * (1f - t * 0.4f)
-            drawDemoChevron(
-                centerX = centerX,
-                centerY = y,
-                radius = radius,
-                color = OpenMapsColors.ElectricBlue,
-                alpha = pulse * (1f - t * 0.35f),
-            )
-        }
-    }
-}
-
-/**
- * One demo chevron, drawn with the same open double-stroke silhouette [ARArrowVertexGeometry] uses
- * for the real GL-rendered arrows — so the *style* this previews is accurate — but as a plain Compose
- * stroke rather than a GL draw call, since this never needs to be anchored to anything.
- *
- * Draws the same glow-then-core two-pass [ARArrowRenderer.draw] uses for the real GL arrows (wider,
- * dim, additive-blended halo first; crisp full-brightness core on top), via Compose's
- * [BlendMode.Plus] rather than a GL blend func. The demo and the real arrows must look like the same
- * design language — only [LiveArPreviewLabel] is what is allowed to tell them apart.
- */
-private fun DrawScope.drawDemoChevron(centerX: Float, centerY: Float, radius: Float, color: Color, alpha: Float) {
-    val clampedAlpha = alpha.coerceIn(0f, 1f)
-    fun chevron(r: Float, tint: Color, thicknessFloor: Float, cap: StrokeCap, blendMode: BlendMode) {
-        val halfWidth = r * 1.16f
-        val tipY = centerY - r * 0.68f
-        val outerY = centerY + r * 0.58f
-        val thickness = (r * 0.38f).coerceAtLeast(thicknessFloor)
-        drawLine(tint, Offset(centerX - halfWidth, outerY), Offset(centerX, tipY), thickness, cap, blendMode = blendMode)
-        drawLine(tint, Offset(centerX + halfWidth, outerY), Offset(centerX, tipY), thickness, cap, blendMode = blendMode)
-    }
-    chevron(
-        r = radius * 2.1f,
-        tint = OpenMapsColors.Cyan.copy(alpha = clampedAlpha * 0.38f),
-        thicknessFloor = 6f,
-        cap = StrokeCap.Round,
-        blendMode = BlendMode.Plus,
-    )
-    chevron(
-        r = radius,
-        tint = color.copy(alpha = clampedAlpha),
-        thicknessFloor = 3f,
-        cap = StrokeCap.Round,
-        blendMode = DrawScope.DefaultBlendMode,
-    )
-}
-
-private const val AR_PREVIEW_CHEVRON_COUNT = 5
-private const val AR_PREVIEW_BASE_RADIUS_PX = 42f
-
-/**
- * The text banner that is the entire reason [LiveArPreviewChevrons] is allowed to exist: without it,
- * screen-space demo chevrons over a live camera feed would be indistinguishable from real guidance.
+ * No-route idle state (Live opened without a destination, or one chosen but navigation not yet
+ * started): a neutral text prompt only. Deliberately has no accompanying graphic of any kind —
+ * a decorative arrow with no tie to a route, device pose, or ARCore tracking would be
+ * indistinguishable from real guidance on a live camera feed. Real AR chevrons
+ * ([ARArrowPipeline]) exist exclusively once navigation is active: [ARArrowPipeline.update] bails
+ * and clears immediately unless `isNavigating` is true, a route and tracked pose both exist, and
+ * real sample nodes come out of the route geometry.
  */
 @Composable
 private fun LiveArPreviewLabel(modifier: Modifier = Modifier) {
