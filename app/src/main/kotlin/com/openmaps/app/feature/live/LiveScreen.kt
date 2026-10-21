@@ -242,11 +242,7 @@ fun LiveScreen(
         )
 
         LiveTopBar(
-            isNavigating = isNavigating,
-            onBackToMap = { onModeSelected(MapMode.Map) },
             onModeSelected = onModeSelected,
-            voiceEnabled = voiceEnabled,
-            onVoiceMuteToggled = onVoiceMuteToggled,
             modifier = Modifier.align(Alignment.TopCenter),
         )
 
@@ -382,20 +378,9 @@ fun LiveScreen(
                         )
                     }
                 }
-                LiveDrivingActions(
-                    voiceEnabled = voiceEnabled,
-                    driverReportStatus = driverReportStatus,
-                    tripShareStatus = tripShareStatus,
-                    onVoiceMuteToggled = onVoiceMuteToggled,
-                    onReport = onReport,
-                    onShareTrip = onShareTrip,
-                    onDismissExternalStatus = onDismissExternalStatus,
-                    onReroute = onReroute,
-                )
                 LiveTripSummary(
                     hud = hudState,
                     roadIntelligenceState = roadIntelligenceState,
-                    onExitNavigation = onExitNavigation,
                 )
             }
         }
@@ -517,7 +502,10 @@ private fun LiveRoadAlertHud(
     // Lane recommendations have their own dedicated panel above, so they stay visible
     // even when severe congestion or an incident is ranked first.
     val topAlert = roadState.activeAlerts.firstOrNull {
-        it !is RouteAlert.SpeedLimit && it !is RouteAlert.Lane
+        it !is RouteAlert.SpeedLimit &&
+            it !is RouteAlert.Lane &&
+            // Static/historical congestion is not a current traffic condition.
+            (it !is RouteAlert.Congestion || it.condition.isLive)
     } ?: return
 
     val measurementSystem = LocalMeasurementSystem.current
@@ -1166,13 +1154,11 @@ private fun CameraPermissionOrFailurePanel(
  */
 @Composable
 private fun LiveTopBar(
-    isNavigating: Boolean,
-    onBackToMap: () -> Unit,
     onModeSelected: (MapMode) -> Unit,
     modifier: Modifier = Modifier,
-    voiceEnabled: Boolean = true,
-    onVoiceMuteToggled: () -> Unit = {},
 ) {
+    // Approved Live reference has two header elements only: OpenMaps wordmark and Live/Map.
+    // Removing old speaker and close shortcuts also restores a readable wordmark on small phones.
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1181,25 +1167,12 @@ private fun LiveTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        // onLight = false: this sits over the dark camera feed, not a light card — the default
-        // dark-navy "Open" is otherwise unreadable here.
-        OpenMapsWordmark(modifier = Modifier.padding(start = 4.dp), onLight = false)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (!isNavigating) {
-                VoiceToggle(voiceEnabled = voiceEnabled, onToggle = onVoiceMuteToggled)
-                Spacer(Modifier.width(8.dp))
-            }
-            if (!isNavigating) {
-                IconButton(onClick = onBackToMap) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = stringResource(R.string.cd_back_to_map),
-                        tint = OpenMapsColors.TextOnDark,
-                    )
-                }
-            }
-            MapModeToggle(selected = MapMode.Live, onSelected = onModeSelected, transparent = true)
-        }
+        OpenMapsWordmark(
+            modifier = Modifier.padding(start = 4.dp),
+            onLight = false,
+            large = true,
+        )
+        MapModeToggle(selected = MapMode.Live, onSelected = onModeSelected, transparent = true)
     }
 }
 
@@ -1699,115 +1672,69 @@ private fun LiveDrivingAction(
 private fun LiveTripSummary(
     hud: LiveHudState.Maneuver,
     roadIntelligenceState: RoadIntelligenceState,
-    onExitNavigation: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var confirmExit by remember { mutableStateOf(false) }
     val measurementSystem = LocalMeasurementSystem.current
     val locale = LocalAppLocale.current
-    val congestion = roadIntelligenceState.activeAlerts.filterIsInstance<RouteAlert.Congestion>().firstOrNull()
+    // Only real provider-backed, live congestion may be called "traffic" on the camera.
+    val liveCongestion = roadIntelligenceState.activeAlerts
+        .filterIsInstance<RouteAlert.Congestion>()
+        .firstOrNull { it.condition.isLive }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.large)
+            .clip(RoundedCornerShape(24.dp))
             .background(Color(0xE6101C2B))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(24.dp))
+            .padding(horizontal = 12.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Box(Modifier.fillMaxWidth()) {
-            Box(
-                Modifier
-                    .align(Alignment.Center)
-                    .width(36.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(Color.White.copy(alpha = 0.3f)),
-            )
-            IconButton(
-                onClick = { confirmExit = true },
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .size(48.dp),
-            ) {
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = stringResource(R.string.nav_exit),
-                    tint = Color(0xFFFF6B6B),
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = formatLiveDuration(hud.remainingDurationSeconds),
-                style = MaterialTheme.typography.titleLarge,
-                color = Color.White,
-            )
-            Text(
-                text = formatLiveDistance(hud.remainingDistanceMeters),
-                style = MaterialTheme.typography.titleLarge,
-                color = Color.White,
-            )
-            Text(
-                text = ArrivalTimeFormatter.format(
+            listOf(
+                formatLiveDuration(hud.remainingDurationSeconds),
+                formatLiveDistance(hud.remainingDistanceMeters),
+                ArrivalTimeFormatter.format(
                     hud.remainingDurationSeconds,
                     System.currentTimeMillis(),
                     locale = locale,
                 ),
-                style = MaterialTheme.typography.titleLarge,
-                color = Color.White,
-            )
+            ).forEach { label ->
+                Text(
+                    text = label,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(
-                Modifier
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(if (congestion != null) OpenMapsColors.Warning else OpenMapsColors.ElectricBlue),
-            )
-            Text(
-                text = congestion?.let { RoadAlertPresentation.headline(it, measurementSystem, locale) }
-                    ?: hud.destinationName
-                    ?: stringResource(R.string.live_status_destination),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.75f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        liveCongestion?.let { congestion ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(OpenMapsColors.Warning),
+                )
+                Text(
+                    text = RoadAlertPresentation.headline(congestion, measurementSystem, locale),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-    }
-
-    if (confirmExit) {
-        AlertDialog(
-            onDismissRequest = { confirmExit = false },
-            title = { Text(stringResource(R.string.nav_exit_confirm_title)) },
-            text = { Text(stringResource(R.string.nav_exit_confirm_body)) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        confirmExit = false
-                        onExitNavigation()
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFC62828),
-                        contentColor = Color.White,
-                    ),
-                    shape = GlassShapes.Pill,
-                ) {
-                    Text(stringResource(R.string.nav_exit_end))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmExit = false }) {
-                    Text(stringResource(R.string.nav_exit_continue))
-                }
-            },
-        )
     }
 }
 
