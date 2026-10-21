@@ -1577,13 +1577,13 @@ private fun LiveTripSummary(
                 onClick = { confirmExit = true },
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .size(28.dp),
+                    .size(48.dp),
             ) {
                 Icon(
                     Icons.Filled.Close,
                     contentDescription = stringResource(R.string.nav_exit),
                     tint = Color(0xFFFF6B6B),
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
