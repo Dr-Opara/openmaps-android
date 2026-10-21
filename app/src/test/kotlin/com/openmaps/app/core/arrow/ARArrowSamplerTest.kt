@@ -141,6 +141,59 @@ class ARArrowSamplerTest {
     }
 
     @Test
+    fun sample_sparseLongSegmentEmitsMultipleArrowsAtCorrectIntervals() {
+        // Some routing providers return a single long straight segment. Sampling must not
+        // render just one chevron and leave the rest of the visible road without guidance.
+        val geometry = listOf(Coordinate(0.0, 0.0), Coordinate(0.0, 0.002))
+        val nodes = sampler.sample(geometry, progress(), LocalizationQuality.Good)
+
+        assertTrue("long segment should produce a sequence of arrows", nodes.size >= 6)
+        assertTrue(nodes.size <= ARArrowConfig().maxVisibleArrows)
+        assertTrue(nodes.all { it.distanceAheadMeters <= ARArrowConfig().maxDistanceAheadMeters })
+        assertTrue(nodes.zipWithNext().all { (a, b) ->
+            b.distanceAheadMeters > a.distanceAheadMeters &&
+                b.worldPosition.longitude > a.worldPosition.longitude
+        })
+        nodes.forEach { assertEquals(90.0, Math.toDegrees(it.headingRadians), 1.0) }
+    }
+
+    @Test
+    fun sample_sparseLeftTurnPlacesAndOrientsArrowsOnBothLegs() {
+        // Eastbound then northbound is a left turn; both long legs must contain chevrons.
+        val geometry = listOf(
+            Coordinate(0.0, 0.0),
+            Coordinate(0.0, 0.00035),
+            Coordinate(0.00035, 0.00035),
+        )
+        val nodes = sampler.sample(geometry, progress(distanceToNextManeuver = 20.0), LocalizationQuality.Good)
+
+        assertTrue("arrows missing on approach to left turn", nodes.any {
+            Math.toDegrees(it.headingRadians) in 80.0..100.0
+        })
+        assertTrue("arrows missing on outbound northbound leg", nodes.any {
+            Math.toDegrees(it.headingRadians) in -10.0..10.0
+        })
+    }
+
+    @Test
+    fun sample_sparseRightTurnPlacesAndOrientsArrowsOnBothLegs() {
+        // Northbound then eastbound is a right turn.
+        val geometry = listOf(
+            Coordinate(0.0, 0.0),
+            Coordinate(0.00035, 0.0),
+            Coordinate(0.00035, 0.00035),
+        )
+        val nodes = sampler.sample(geometry, progress(distanceToNextManeuver = 20.0), LocalizationQuality.Good)
+
+        assertTrue("arrows missing on approach to right turn", nodes.any {
+            Math.toDegrees(it.headingRadians) in -10.0..10.0
+        })
+        assertTrue("arrows missing on outbound eastbound leg", nodes.any {
+            Math.toDegrees(it.headingRadians) in 80.0..100.0
+        })
+    }
+
+    @Test
     fun sample_degenerateGeometryProducesNothingRatherThanCrashing() {
         // Real polyline data contains duplicate points; this must not divide by zero or throw.
         val duplicated = listOf(
@@ -148,7 +201,8 @@ class ARArrowSamplerTest {
             Coordinate(0.0, 0.0),
             Coordinate(0.0, 0.0001),
         )
-        assertTrue(sampler.sample(duplicated, progress(), LocalizationQuality.Good).isEmpty() || true)
+        val nodes = sampler.sample(duplicated, progress(), LocalizationQuality.Good)
+        assertEquals("duplicate vertex should not prevent placing the valid arrow", 1, nodes.size)
 
         // Fewer than two points cannot define a direction at all.
         assertTrue(sampler.sample(listOf(Coordinate(0.0, 0.0)), progress(), LocalizationQuality.Good).isEmpty())
