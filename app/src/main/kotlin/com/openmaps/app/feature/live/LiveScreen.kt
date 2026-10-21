@@ -1456,8 +1456,8 @@ private fun LiveTripSummary(
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Surface.copy(alpha = 0.92f))
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .background(Color(0xE6101C2B))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -1466,7 +1466,7 @@ private fun LiveTripSummary(
                 Text(
                     text = name,
                     style = MaterialTheme.typography.labelSmall,
-                    color = OpenMapsColors.TextSecondary,
+                    color = Color.White.copy(alpha = 0.65f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1479,17 +1479,17 @@ private fun LiveTripSummary(
                 Text(
                     text = formatLiveDuration(hud.remainingDurationSeconds),
                     style = MaterialTheme.typography.titleMedium,
-                    color = OpenMapsColors.TextPrimary,
+                    color = Color.White,
                 )
                 Text(
                     text = "  •  ",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = Color.White.copy(alpha = 0.7f),
                 )
                 Text(
                     text = formatLiveDistance(hud.remainingDistanceMeters),
                     style = MaterialTheme.typography.titleMedium,
-                    color = OpenMapsColors.TextPrimary,
+                    color = Color.White,
                 )
             }
             Text(
@@ -1502,7 +1502,7 @@ private fun LiveTripSummary(
                     ),
                 ),
                 style = MaterialTheme.typography.labelSmall,
-                color = OpenMapsColors.TextSecondary,
+                color = Color.White.copy(alpha = 0.72f),
             )
         }
 
