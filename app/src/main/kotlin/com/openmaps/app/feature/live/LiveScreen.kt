@@ -494,11 +494,35 @@ private fun LiveSpeedBlock(
     val speedUnit = NavigationUnits.speedUnitLabel(measurementSystem, locale)
     if (speedValue == null && limitValue == null) return
 
-    Row(
+    Column(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Bottom,
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
+        // Reference #1: regulatory posted-speed sign ABOVE the circular current-speed dial,
+        // both left-aligned. Never fill either instrument with invented measurements.
+        if (limitValue != null) {
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(2.dp, OpenMapsColors.Navy900, RoundedCornerShape(8.dp))
+                    .background(Color.White)
+                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = stringResource(R.string.live_speed_limit_label),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OpenMapsColors.Navy900,
+                )
+                Text(
+                    text = limitValue,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = OpenMapsColors.Navy900,
+                    maxLines = 1,
+                )
+            }
+        }
         if (speedValue != null && currentSpeedMetersPerSecond != null) {
             val arcFraction = speedArcFraction(
                 speedMetersPerSecond = currentSpeedMetersPerSecond,
@@ -542,27 +566,6 @@ private fun LiveSpeedBlock(
                         maxLines = 1,
                     )
                 }
-            }
-        }
-        if (limitValue != null) {
-            Column(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.White)
-                    .padding(horizontal = 9.dp, vertical = 7.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = stringResource(R.string.live_speed_limit_label),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OpenMapsColors.Navy900,
-                )
-                Text(
-                    text = limitValue,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = OpenMapsColors.Navy900,
-                    maxLines = 1,
-                )
             }
         }
     }
