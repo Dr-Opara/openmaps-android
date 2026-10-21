@@ -2,6 +2,7 @@ package com.openmaps.app.feature.live
 
 import android.media.AudioManager
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +52,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -479,6 +482,12 @@ private fun LiveRoadAlertHud(
  * device reports a reading, and the limit chip appears only when Phase 10 actually resolved a posted
  * limit. A speed reading never grows an invented limit, and a limit never implies a speed reading.
  */
+/**
+ * Original-design instruments: a circular speed dial and a separate posted-limit sign.
+ * GPS speed and posted limits remain independent provider-backed values: if either is absent,
+ * its instrument is absent. The ring tracks speed across a fixed design scale (120 mph / 200 km/h),
+ * never an invented percentage of the legal limit.
+ */
 @Composable
 private fun LiveSpeedBlock(
     currentSpeedMetersPerSecond: Float?,
@@ -501,31 +510,62 @@ private fun LiveSpeedBlock(
     val speedUnit = NavigationUnits.speedUnitLabel(measurementSystem, locale)
     if (speedValue == null && limitValue == null) return
 
-    // Mockup: two adjacent rounded-square blocks, not one stacked pill — current speed (dark,
-    // white number over a small "mph" caption) beside the posted limit as a road-sign-style white
-    // card (black number under "LIMIT"). Independently real: see the class doc.
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Bottom,
     ) {
-        speedValue?.let {
-            Column(
+        if (speedValue != null && currentSpeedMetersPerSecond != null) {
+            val arcFraction = speedArcFraction(
+                speedMetersPerSecond = currentSpeedMetersPerSecond,
+                measurementIsMph = speedUnit.contains("mph", ignoreCase = true),
+            )
+            Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(OpenMapsColors.Navy950.copy(alpha = 0.78f))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xE3101B2B)),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(text = it, style = MaterialTheme.typography.headlineSmall, color = Color.White)
-                Text(text = speedUnit, style = MaterialTheme.typography.labelSmall, color = OpenMapsColors.TextOnDarkSecondary)
+                Canvas(modifier = Modifier.fillMaxSize().padding(5.dp)) {
+                    val stroke = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
+                    drawArc(
+                        color = Color.White.copy(alpha = 0.2f),
+                        startAngle = 132f,
+                        sweepAngle = 276f,
+                        useCenter = false,
+                        style = stroke,
+                    )
+                    drawArc(
+                        color = OpenMapsColors.ElectricBlueFilled,
+                        startAngle = 132f,
+                        sweepAngle = 276f * arcFraction,
+                        useCenter = false,
+                        style = stroke,
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = speedValue,
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = speedUnit,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.8f),
+                        maxLines = 1,
+                    )
+                }
             }
         }
-        limitValue?.let {
+        if (limitValue != null) {
             Column(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(Color.White)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 9.dp, vertical = 7.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
@@ -533,12 +573,24 @@ private fun LiveSpeedBlock(
                     style = MaterialTheme.typography.labelSmall,
                     color = OpenMapsColors.Navy900,
                 )
-                Text(text = it, style = MaterialTheme.typography.headlineSmall, color = OpenMapsColors.Navy900)
+                Text(
+                    text = limitValue,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = OpenMapsColors.Navy900,
+                    maxLines = 1,
+                )
             }
         }
     }
 }
 
+/** Pure, bounded dial geometry used by Live speed UI and JVM regression tests. */
+internal fun speedArcFraction(speedMetersPerSecond: Float, measurementIsMph: Boolean): Float {
+    if (!speedMetersPerSecond.isFinite()) return 0f
+    val converted = speedMetersPerSecond.coerceAtLeast(0f) *
+        (if (measurementIsMph) 2.2369363f else 3.6f)
+    return (converted / if (measurementIsMph) 120f else 200f).coerceIn(0f, 1f)
+}
 
 @Composable
 private fun LiveCompactPill(text: String, background: Color, foreground: Color, modifier: Modifier = Modifier) {
