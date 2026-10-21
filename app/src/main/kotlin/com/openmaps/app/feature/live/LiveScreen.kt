@@ -1124,38 +1124,47 @@ private fun VoiceToggle(
  */
 @Composable
 private fun LiveManeuverHud(hud: LiveHudState.Maneuver, modifier: Modifier = Modifier) {
-    Column(
+    // Original OpenMaps Live reference: large cobalt maneuver tile, dominant distance,
+    // readable full instruction and a dark, translucent rounded container.
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Navy950.copy(alpha = 0.50f))
-            .padding(horizontal = 18.dp, vertical = 14.dp),
+            .clip(RoundedCornerShape(26.dp))
+            .background(Color(0xE60B1928))
+            .padding(horizontal = 14.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // Mockup: a large white maneuver arrow, the distance and instruction beside it.
-        Icon(
+        Box(
+            modifier = Modifier
+                .size(72.dp)
+                .clip(RoundedCornerShape(19.dp))
+                .background(OpenMapsColors.ElectricBlueFilled),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
                 Icons.AutoMirrored.Filled.ArrowForward,
                 contentDescription = null,
                 tint = Color.White,
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(49.dp)
                     .graphicsLayer { rotationZ = hud.type.arrowRotationDegrees },
             )
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.live_turn_in_format, formatLiveDistance(hud.distanceToManeuverMeters)),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = OpenMapsColors.TextOnDarkSecondary,
-                )
-                Text(
-                    text = hud.instruction,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = formatLiveDistance(hud.distanceToManeuverMeters),
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White,
+                maxLines = 1,
+            )
+            Text(
+                text = hud.instruction,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White.copy(alpha = 0.91f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -1447,8 +1456,8 @@ private fun LiveTripSummary(
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Surface.copy(alpha = 0.92f))
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .background(Color(0xE6101C2B))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -1457,7 +1466,7 @@ private fun LiveTripSummary(
                 Text(
                     text = name,
                     style = MaterialTheme.typography.labelSmall,
-                    color = OpenMapsColors.TextSecondary,
+                    color = Color.White.copy(alpha = 0.65f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1470,17 +1479,17 @@ private fun LiveTripSummary(
                 Text(
                     text = formatLiveDuration(hud.remainingDurationSeconds),
                     style = MaterialTheme.typography.titleMedium,
-                    color = OpenMapsColors.TextPrimary,
+                    color = Color.White,
                 )
                 Text(
                     text = "  •  ",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = Color.White.copy(alpha = 0.7f),
                 )
                 Text(
                     text = formatLiveDistance(hud.remainingDistanceMeters),
                     style = MaterialTheme.typography.titleMedium,
-                    color = OpenMapsColors.TextPrimary,
+                    color = Color.White,
                 )
             }
             Text(
@@ -1493,7 +1502,7 @@ private fun LiveTripSummary(
                     ),
                 ),
                 style = MaterialTheme.typography.labelSmall,
-                color = OpenMapsColors.TextSecondary,
+                color = Color.White.copy(alpha = 0.72f),
             )
         }
 
