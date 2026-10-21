@@ -1,6 +1,12 @@
 package com.openmaps.app.feature.live
 
 import android.media.AudioManager
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -48,23 +54,30 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.openmaps.app.BuildConfig
 import com.openmaps.app.anchor.ArCoreAnchorBackend
 import com.openmaps.app.arrow.ARArrowPipeline
 import com.openmaps.app.core.anchor.RouteAnchorManager
+import com.openmaps.app.core.arrow.ArPipelineDiagnostics
+import com.openmaps.app.core.arrow.ArPipelineSnapshot
+import com.openmaps.app.core.arrow.ArPreviewProvider
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization
@@ -252,140 +265,198 @@ fun LiveScreen(
             return@Box
         }
 
-        when (val hud = hudState) {
-            LiveHudState.Idle -> Unit
-
-            is LiveHudState.Maneuver -> {
-                LiveManeuverHud(
-                    hud = hud,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(top = 64.dp, start = 14.dp, end = 14.dp),
-                )
-                // The mockup stacks a compact "Then" pill directly beneath the maneuver card.
-                hud.nextInstruction?.let { then ->
-                    LiveNextManeuverHud(
-                        nextInstruction = then,
-                        nextManeuverType = hud.nextManeuverType,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .statusBarsPadding()
-                            .padding(top = 150.dp, start = 14.dp, end = 14.dp),
-                    )
-                }
-            }
-
-            is LiveHudState.Rerouting -> LiveStatusHud(
-                title = stringResource(R.string.live_rerouting),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 72.dp, start = 16.dp, end = 16.dp),
-            )
-
-            is LiveHudState.OffRoute -> LiveStatusHud(
-                title = stringResource(R.string.live_off_route),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 72.dp, start = 16.dp, end = 16.dp),
-            )
-
-            is LiveHudState.Arrived -> {
-                LiveArrivedHud(
-                    destinationName = hud.destinationName,
-                    onBackToMap = { onModeSelected(MapMode.Map) },
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 40.dp),
-                )
-            }
-        }
-
-        // Bottom trip summary: present for every navigating state except arrival, which has its own
-        // call to action instead. `summaryBottomPadding` is shared with the speed block above it so
-        // the two always stay stacked rather than overlapping.
-        val summaryHud = hudState
-        val summaryBottomPadding = if (summaryHud is LiveHudState.Maneuver) 16.dp else 96.dp
-        if (summaryHud is LiveHudState.Maneuver) {
-            LiveDrivingActions(
-                voiceEnabled = voiceEnabled,
-                driverReportStatus = driverReportStatus,
-                tripShareStatus = tripShareStatus,
-                onVoiceMuteToggled = onVoiceMuteToggled,
-                onReport = onReport,
-                onShareTrip = onShareTrip,
-                onDismissExternalStatus = onDismissExternalStatus,
-                onReroute = onReroute,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(start = 16.dp, end = 16.dp, bottom = summaryBottomPadding + 86.dp),
-            )
-            LiveTripSummary(
-                hud = summaryHud,
-                roadIntelligenceState = roadIntelligenceState,
-                onExitNavigation = onExitNavigation,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(start = 16.dp, end = 16.dp, bottom = summaryBottomPadding),
-            )
-        }
-
-        // Localization status (Phase 6). Collected here (not passed down) so the Live HUD does not
-        // recompose on every navigation tick. Debug diagnostics are strictly opt-in and only
-        // compiled into debug builds.
+        // One content-sized top stack: the main maneuver, its following instruction and
+        // optional alert must never use independent absolute offsets. Those offsets caused
+        // the "Then" pill to collide with the turn banner on real devices and large text.
         val spatialState by viewModel.spatialLocalization.state
             .collectAsState(initial = SpatialLocalizationState.Idle)
         val localizationStatus = remember(spatialState) { LiveLocalizationStatusMapper.of(spatialState) }
-
-        if (localizationStatus != LiveLocalizationStatus.None) {
-            LocalizationChip(
-                status = localizationStatus,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = if (isNavigating) 202.dp else 96.dp, start = 16.dp, end = 16.dp),
-            )
-        }
-
-        // Phase 10: road intelligence. Hazards sit under the maneuver card; speed has its own
-        // lower-left block so the mockup's eyeline is respected.
-        LiveRoadAlertHud(
-            roadState = roadIntelligenceState,
-            onCommunityConfirm = onCommunityReportConfirm,
-            onCommunityDismiss = onCommunityReportDismiss,
+        LiveArDiagnosticsOverlay(
+            previewProvider = previewProvider,
+            spatialState = spatialState,
+            hasRoute = route != null,
+            isNavigating = isNavigating,
+            arrowPipeline = viewModel.arrowPipeline,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(start = 8.dp, top = 8.dp),
+        )
+        Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(top = if (isNavigating) 246.dp else 230.dp, start = 16.dp, end = 16.dp),
-        )
+                .padding(top = 64.dp, start = 14.dp, end = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            when (val hud = hudState) {
+                is LiveHudState.Maneuver -> {
+                    LiveManeuverHud(hud = hud, modifier = Modifier.fillMaxWidth())
+                    hud.nextInstruction?.let { then ->
+                        LiveNextManeuverHud(
+                            nextInstruction = then,
+                            nextManeuverType = hud.nextManeuverType,
+                        )
+                    }
+                }
+                LiveHudState.Rerouting -> LiveStatusHud(
+                    title = stringResource(R.string.live_rerouting),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                is LiveHudState.OffRoute -> LiveStatusHud(
+                    title = stringResource(R.string.live_off_route),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // Mode A: no active route yet. The label is paired with LiveArPreviewChevrons below
+                // (the demo graphic itself), never shown without it — see that composable's doc.
+                LiveHudState.Idle -> LiveArPreviewLabel(modifier = Modifier.fillMaxWidth())
+                is LiveHudState.Arrived -> Unit
+            }
+            if (localizationStatus != LiveLocalizationStatus.None) {
+                LocalizationChip(status = localizationStatus)
+            }
+            if (isNavigating) {
+                // Highway navigation must not lose lane recommendations when a hazard is
+                // ranked above the lane alert. Show real lane guidance independently,
+                // then show the highest non-lane hazard/traffic message if available.
+                roadIntelligenceState.laneGuidance?.let { guidance ->
+                    LaneGuidanceStrip(
+                        guidance = guidance,
+                        darkSurface = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                LiveRoadAlertHud(
+                    roadState = roadIntelligenceState,
+                    onCommunityConfirm = onCommunityReportConfirm,
+                    onCommunityDismiss = onCommunityReportDismiss,
+                )
+            }
+        }
 
-        // Mockup: current speed + posted limit, lower-left, above the trip card.
-        LiveSpeedBlock(
-            currentSpeedMetersPerSecond = roadIntelligenceState.currentSpeedMetersPerSecond,
-            speedLimitAlert = roadIntelligenceState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull(),
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .navigationBarsPadding()
-                .padding(start = 16.dp, bottom = summaryBottomPadding + 148.dp),
-        )
+        // Mode A: the demo chevron graphic (see LiveArPreviewChevrons' doc). Disappears the instant
+        // hudState leaves Idle — i.e. the moment real navigation starts — with no extra wiring, since
+        // hudState is recomputed fresh from NavigationState every recomposition.
+        if (hudState is LiveHudState.Idle) {
+            LiveArPreviewChevrons(modifier = Modifier.fillMaxSize())
+        }
 
-        // Mockup: mic + map floating circles down the right edge, mirroring the speed block's
-        // height on the opposite corner. Only while actively navigating — see LiveTopBar's doc
-        // comment for why the header's own controls step aside for this instead of stacking both.
-        if (isNavigating && summaryHud is LiveHudState.Maneuver) {
-            LiveSideControls(
+        if (hudState is LiveHudState.Arrived) {
+            LiveArrivedHud(
+                destinationName = hudState.destinationName,
                 onBackToMap = { onModeSelected(MapMode.Map) },
-                voiceEnabled = voiceEnabled,
-                onVoiceMuteToggled = onVoiceMuteToggled,
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
+                    .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(end = 16.dp, bottom = summaryBottomPadding + 140.dp),
+                    .padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
             )
         }
+
+        // Keep speed, side controls, driving actions and trip summary in a single content-sized
+        // bottom stack. The old independently bottom-aligned rows assumed a fixed trip-card
+        // height, so action labels were obscured when Claude's redesigned summary grew.
+        if (hudState is LiveHudState.Maneuver) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    LiveSpeedBlock(
+                        currentSpeedMetersPerSecond = roadIntelligenceState.currentSpeedMetersPerSecond,
+                        speedLimitAlert = roadIntelligenceState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull(),
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (isNavigating) {
+                        LiveSideControls(
+                            onBackToMap = { onModeSelected(MapMode.Map) },
+                            voiceEnabled = voiceEnabled,
+                            onVoiceMuteToggled = onVoiceMuteToggled,
+                        )
+                    }
+                }
+                LiveDrivingActions(
+                    voiceEnabled = voiceEnabled,
+                    driverReportStatus = driverReportStatus,
+                    tripShareStatus = tripShareStatus,
+                    onVoiceMuteToggled = onVoiceMuteToggled,
+                    onReport = onReport,
+                    onShareTrip = onShareTrip,
+                    onDismissExternalStatus = onDismissExternalStatus,
+                    onReroute = onReroute,
+                )
+                LiveTripSummary(
+                    hud = hudState,
+                    roadIntelligenceState = roadIntelligenceState,
+                    onExitNavigation = onExitNavigation,
+                )
+            }
+        }
     }
+}
+
+/**
+ * Debug-build-only read of [ArPipelineDiagnostics]: names the one pipeline stage currently blocking
+ * (or not blocking) AR arrows, instead of the single undifferentiated "no arrows" symptom.
+ *
+ * **Never reaches a release build.** Gated on [BuildConfig.DEBUG] rather than any runtime/user
+ * setting, so there is no code path — flag, build variant, or otherwise — by which this diagnostic
+ * text could render in front of a real driver. Production messaging stays exactly what
+ * [LocalizationChip] already shows.
+ */
+@Composable
+private fun LiveArDiagnosticsOverlay(
+    previewProvider: PreviewProvider,
+    spatialState: SpatialLocalizationState,
+    hasRoute: Boolean,
+    isNavigating: Boolean,
+    arrowPipeline: ARArrowPipeline,
+    modifier: Modifier = Modifier,
+) {
+    if (!BuildConfig.DEBUG) return
+    val snapshot = ArPipelineSnapshot(
+        previewProvider = if (previewProvider == PreviewProvider.Spatial) {
+            ArPreviewProvider.Spatial
+        } else {
+            ArPreviewProvider.CameraX
+        },
+        spatialState = spatialState,
+        hasRoute = hasRoute,
+        isNavigating = isNavigating,
+        glReady = arrowPipeline.isGlReady,
+        sampledCount = arrowPipeline.sampledCount(),
+        arrowCount = arrowPipeline.arrowCount(),
+    )
+    val diagnostic = remember(snapshot) { ArPipelineDiagnostics.classify(snapshot) }
+    val detail = when {
+        arrowPipeline.usingAnchors -> "anchored"
+        arrowPipeline.degradedReason != null -> arrowPipeline.degradedReason
+        else -> null
+    }
+    Text(
+        text = buildString {
+            append("AR: ")
+            append(diagnostic.name)
+            append(" · sampled ")
+            append(snapshot.sampledCount)
+            append(" · drawn ")
+            append(snapshot.arrowCount)
+            detail?.let { append(" · "); append(it) }
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = Color.White,
+        modifier = modifier
+            .clip(MaterialTheme.shapes.small)
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.7f))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
 }
 
 /**
@@ -443,15 +514,11 @@ private fun LiveRoadAlertHud(
     // Hazards only. Speed moved to its own lower-left block ([LiveSpeedBlock]) because the mockup
     // puts the speedometer there, in the driver's natural eyeline next to the trip card — not in a
     // queue with warnings under the maneuver card.
-    val topAlert = roadState.activeAlerts.firstOrNull { it !is RouteAlert.SpeedLimit } ?: return
-    if (topAlert is RouteAlert.Lane) {
-        LaneGuidanceStrip(
-            guidance = topAlert.guidance,
-            darkSurface = true,
-            modifier = modifier,
-        )
-        return
-    }
+    // Lane recommendations have their own dedicated panel above, so they stay visible
+    // even when severe congestion or an incident is ranked first.
+    val topAlert = roadState.activeAlerts.firstOrNull {
+        it !is RouteAlert.SpeedLimit && it !is RouteAlert.Lane
+    } ?: return
 
     val measurementSystem = LocalMeasurementSystem.current
     val locale = LocalAppLocale.current
@@ -524,11 +591,35 @@ private fun LiveSpeedBlock(
     val speedUnit = NavigationUnits.speedUnitLabel(measurementSystem, locale)
     if (speedValue == null && limitValue == null) return
 
-    Row(
+    Column(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Bottom,
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
+        // Reference #1: regulatory posted-speed sign ABOVE the circular current-speed dial,
+        // both left-aligned. Never fill either instrument with invented measurements.
+        if (limitValue != null) {
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(2.dp, OpenMapsColors.Navy900, RoundedCornerShape(8.dp))
+                    .background(Color.White)
+                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = stringResource(R.string.live_speed_limit_label),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OpenMapsColors.Navy900,
+                )
+                Text(
+                    text = limitValue,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = OpenMapsColors.Navy900,
+                    maxLines = 1,
+                )
+            }
+        }
         if (speedValue != null && currentSpeedMetersPerSecond != null) {
             val arcFraction = speedArcFraction(
                 speedMetersPerSecond = currentSpeedMetersPerSecond,
@@ -572,27 +663,6 @@ private fun LiveSpeedBlock(
                         maxLines = 1,
                     )
                 }
-            }
-        }
-        if (limitValue != null) {
-            Column(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.White)
-                    .padding(horizontal = 9.dp, vertical = 7.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = stringResource(R.string.live_speed_limit_label),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OpenMapsColors.Navy900,
-                )
-                Text(
-                    text = limitValue,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = OpenMapsColors.Navy900,
-                    maxLines = 1,
-                )
             }
         }
     }
@@ -1334,6 +1404,86 @@ private fun LiveStatusHud(title: String, modifier: Modifier = Modifier) {
         )
         Text(text = title, style = MaterialTheme.typography.titleMedium, color = Color.White)
     }
+}
+
+/**
+ * Mode A — Live opened with no active route. A clearly-labeled, deliberately screen-space demo of
+ * the chevron style real navigation uses once a destination is chosen.
+ *
+ * **This must never be mistaken for guidance.** The chevrons here are fixed, symmetric, screen-space
+ * shapes with no tie to route geometry, device pose, or ARCore tracking at all — unlike the real AR
+ * arrows ([ARArrowPipeline]), which exist only when a route, a tracked pose and real sample nodes all
+ * agree. Available regardless of ARCore/Geospatial availability (CameraX fallback included): a demo
+ * of the *visual style* does not need a tracked pose, only a camera background, which Live always has
+ * one way or another. The label is what keeps it honest — see [LiveArPreviewLabel].
+ */
+@Composable
+private fun LiveArPreviewChevrons(modifier: Modifier = Modifier) {
+    // A slow opacity breathe, not a position change: motion toward the top of the screen would read
+    // as "go this way", which is exactly the instruction this preview must never imply.
+    val transition = rememberInfiniteTransition(label = "ar_preview_pulse")
+    val pulse by transition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1600, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "ar_preview_pulse",
+    )
+    Canvas(modifier = modifier) {
+        val centerX = size.width / 2f
+        val baseY = size.height * 0.78f
+        val spanY = size.height * 0.28f
+        for (i in 0 until AR_PREVIEW_CHEVRON_COUNT) {
+            val t = i / (AR_PREVIEW_CHEVRON_COUNT - 1).toFloat()
+            val y = baseY - t * spanY
+            val radius = AR_PREVIEW_BASE_RADIUS_PX * (1f - t * 0.4f)
+            drawDemoChevron(
+                centerX = centerX,
+                centerY = y,
+                radius = radius,
+                color = OpenMapsColors.ElectricBlue,
+                alpha = pulse * (1f - t * 0.35f),
+            )
+        }
+    }
+}
+
+/**
+ * One demo chevron, drawn with the same open double-stroke silhouette [ARArrowVertexGeometry] uses
+ * for the real GL-rendered arrows — so the *style* this previews is accurate — but as a plain Compose
+ * stroke rather than a GL draw call, since this never needs to be anchored to anything.
+ */
+private fun DrawScope.drawDemoChevron(centerX: Float, centerY: Float, radius: Float, color: Color, alpha: Float) {
+    val halfWidth = radius * 1.16f
+    val tipY = centerY - radius * 0.68f
+    val outerY = centerY + radius * 0.58f
+    val thickness = (radius * 0.38f).coerceAtLeast(3f)
+    val tinted = color.copy(alpha = alpha.coerceIn(0f, 1f))
+    drawLine(tinted, Offset(centerX - halfWidth, outerY), Offset(centerX, tipY), thickness, StrokeCap.Round)
+    drawLine(tinted, Offset(centerX + halfWidth, outerY), Offset(centerX, tipY), thickness, StrokeCap.Round)
+}
+
+private const val AR_PREVIEW_CHEVRON_COUNT = 5
+private const val AR_PREVIEW_BASE_RADIUS_PX = 42f
+
+/**
+ * The text banner that is the entire reason [LiveArPreviewChevrons] is allowed to exist: without it,
+ * screen-space demo chevrons over a live camera feed would be indistinguishable from real guidance.
+ */
+@Composable
+private fun LiveArPreviewLabel(modifier: Modifier = Modifier) {
+    Text(
+        text = stringResource(R.string.live_ar_preview_label),
+        style = MaterialTheme.typography.labelLarge,
+        color = Color.White,
+        textAlign = TextAlign.Center,
+        modifier = modifier
+            .clip(MaterialTheme.shapes.large)
+            .background(OpenMapsColors.Navy950.copy(alpha = 0.62f))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    )
 }
 
 /**

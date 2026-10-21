@@ -76,6 +76,9 @@ class ARArrowPipeline(
     /** True once [onSurfaceCreated] has run; before that there is no GL context to draw with. */
     private var glReady = false
 
+    /** Debug-diagnostics read of [glReady]; never used to gate real rendering decisions. */
+    val isGlReady: Boolean get() = glReady
+
     @Volatile private var viewportWidthPx: Int = 0
     @Volatile private var viewportHeightPx: Int = 0
 
@@ -168,7 +171,20 @@ class ARArrowPipeline(
         }
 
         // --- Degraded path: per-frame geographic projection ---
+        //
+        // This path has no ARCore world anchor to stabilize it — every arrow's screen position is
+        // re-derived directly from *this frame's* Geospatial pose, so a `Poor` fix would genuinely
+        // misplace it relative to the real road. Unlike the anchored path above (which may legitimately
+        // ride out a `Poor` dip on anchors created earlier under a good fix — see
+        // `ARArrowConfig.minimumQuality`'s doc), the unanchored path is gated at the stricter
+        // `minimumUnanchoredQuality` so a momentarily noisy fix never forces a visibly wrong arrow onto
+        // the road.
         usingAnchors = false
+        if (quality.ordinal < config.minimumUnanchoredQuality.ordinal) {
+            current = emptyList()
+            degradedReason = "quality too low for unanchored projection"
+            return
+        }
         degradedReason = when {
             anchoredPoints.isEmpty() -> "no anchors created yet"
             !AnchoredArrowProjector.isUsable(anchoredPoints) -> "anchors not yet tracked"
