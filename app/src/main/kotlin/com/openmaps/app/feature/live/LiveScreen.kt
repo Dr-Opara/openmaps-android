@@ -290,6 +290,16 @@ fun LiveScreen(
                 LocalizationChip(status = localizationStatus)
             }
             if (isNavigating) {
+                // Highway navigation must not lose lane recommendations when a hazard is
+                // ranked above the lane alert. Show real lane guidance independently,
+                // then show the highest non-lane hazard/traffic message if available.
+                roadIntelligenceState.laneGuidance?.let { guidance ->
+                    LaneGuidanceStrip(
+                        guidance = guidance,
+                        darkSurface = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 LiveRoadAlertHud(
                     roadState = roadIntelligenceState,
                     onCommunityConfirm = onCommunityReportConfirm,
@@ -413,15 +423,11 @@ private fun LiveRoadAlertHud(
     // Hazards only. Speed moved to its own lower-left block ([LiveSpeedBlock]) because the mockup
     // puts the speedometer there, in the driver's natural eyeline next to the trip card — not in a
     // queue with warnings under the maneuver card.
-    val topAlert = roadState.activeAlerts.firstOrNull { it !is RouteAlert.SpeedLimit } ?: return
-    if (topAlert is RouteAlert.Lane) {
-        LaneGuidanceStrip(
-            guidance = topAlert.guidance,
-            darkSurface = true,
-            modifier = modifier,
-        )
-        return
-    }
+    // Lane recommendations have their own dedicated panel above, so they stay visible
+    // even when severe congestion or an incident is ranked first.
+    val topAlert = roadState.activeAlerts.firstOrNull {
+        it !is RouteAlert.SpeedLimit && it !is RouteAlert.Lane
+    } ?: return
 
     val measurementSystem = LocalMeasurementSystem.current
     val locale = LocalAppLocale.current
