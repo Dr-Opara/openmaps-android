@@ -43,7 +43,10 @@ class CompositePlaceRepository(
         // 2. Providers, in order. The first success wins; an empty success is a real answer and ends
         //    the chain rather than falling through to a second provider for the same area.
         var lastFailure: PlaceException = PlaceException.NoNetwork
-        for (provider in providers) {
+        for ((index, provider) in providers.withIndex()) {
+            // The direct public OSM fallback supports only short-radius discovery. Never ask it for
+            // a 20-mile query (which it silently clamps to 3 km) and call that full coverage.
+            if (index > 0 && radiusMeters > MAX_FALLBACK_NEARBY_RADIUS_METERS) break
             val attempt = runCatching { provider.nearbyPlaces(center, radiusMeters, categories) }
             val value = attempt.getOrNull()
             if (value != null && value.isSuccess) {
@@ -89,6 +92,7 @@ class CompositePlaceRepository(
 
     private companion object {
         const val MAX_ROUTE_RADIUS_METERS = 8_000.0
+        const val MAX_FALLBACK_NEARBY_RADIUS_METERS = 8_000.0
     }
 }
 

@@ -97,7 +97,7 @@ class BackendPlaceRepository(
                     .put("latitude", center.latitude)
                     .put("longitude", center.longitude),
             )
-            .put("radiusMeters", radiusMeters.coerceIn(MIN_RADIUS_METERS, MAX_ROUTE_RADIUS_METERS))
+            .put("radiusMeters", radiusMeters.coerceIn(MIN_RADIUS_METERS, MAX_DISCOVERY_RADIUS_METERS))
             .put(
                 "categories",
                 JSONArray().apply { categories.forEach { put(it.name) } },
@@ -125,6 +125,7 @@ class BackendPlaceRepository(
         const val CONNECT_TIMEOUT_MILLIS = 5_000
         const val READ_TIMEOUT_MILLIS = 9_000
         const val MIN_RADIUS_METERS = 250.0
+        const val MAX_DISCOVERY_RADIUS_METERS = 32_187.0
         const val MAX_ROUTE_RADIUS_METERS = 8_000.0
         const val MAX_RESULTS = 60
     }

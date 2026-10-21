@@ -70,6 +70,7 @@ import kotlin.math.sin
 fun NearbyExploreSheet(
     placesState: PlacesState,
     places: List<Place>,
+    extendedDiscovery: ExtendedDiscoveryStatus = ExtendedDiscoveryStatus.Idle,
     selectedCategories: Set<PlaceCategory>,
     onCategoriesChanged: (Set<PlaceCategory>) -> Unit,
     currentLocation: UserLocation?,
@@ -108,6 +109,12 @@ fun NearbyExploreSheet(
         Spacer(Modifier.height(4.dp))
         PlaceCategoryFilterRow(selected = selectedCategories, onSelectedChanged = onCategoriesChanged)
         Spacer(Modifier.height(12.dp))
+        when (extendedDiscovery) {
+            ExtendedDiscoveryStatus.Searching -> NearbyStatusRow("Searching within 20 miles…", showSpinner = true)
+            ExtendedDiscoveryStatus.Complete -> Text("Showing closest results found within 20 miles (not an exhaustive list)", color = OpenMapsColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+            ExtendedDiscoveryStatus.Unavailable -> Text("20-mile search unavailable; showing nearby results only.", color = OpenMapsColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+            ExtendedDiscoveryStatus.Idle -> Unit
+        }
 
         when {
             currentLocation == null -> NearbyStatusRow(stringResource(R.string.nearby_waiting_for_location), showSpinner = true)
@@ -144,7 +151,7 @@ fun NearbyExploreSheet(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    items(places.take(8), key = { it.id }) { place ->
+                    items(places.take(if (extendedDiscovery == ExtendedDiscoveryStatus.Complete) 40 else 8), key = { it.id }) { place ->
                         NearbyPlaceCard(place = place, onDetails = { onDetails(place) }, onNavigate = { onNavigate(place) })
                     }
                 }

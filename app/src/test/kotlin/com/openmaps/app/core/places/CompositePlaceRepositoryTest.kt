@@ -47,6 +47,31 @@ class CompositePlaceRepositoryTest {
     }
 
     @Test
+    fun wideDiscovery_backendFailureNeverFallsBackTo3KmOverpass() = runTest {
+        val backend = StubProvider(Result.failure(PlaceException.NoNetwork))
+        val overpass = StubProvider(Result.success(PlaceQueryResult(listOf(cachedPlace("wrong-radius")), PlaceSource.Network)))
+        val repo = CompositePlaceRepository(listOf(backend, overpass))
+
+        val result = repo.nearbyPlaces(center, 32_187.0, setOf(PlaceCategory.Gas))
+
+        assertTrue("wide failure must be honest", result.isFailure)
+        assertEquals(1, backend.calls)
+        assertEquals("the clamping Overpass provider must not report false 20-mile coverage", 0, overpass.calls)
+    }
+
+    @Test
+    fun normalNearbyFailureStillFallsBackToOverpass() = runTest {
+        val backend = StubProvider(Result.failure(PlaceException.NoNetwork))
+        val overpass = StubProvider(Result.success(PlaceQueryResult(listOf(cachedPlace("normal")), PlaceSource.Network)))
+        val repo = CompositePlaceRepository(listOf(backend, overpass))
+
+        val result = repo.nearbyPlaces(center, 3_000.0, setOf(PlaceCategory.Gas)).getOrThrow()
+
+        assertEquals(listOf("normal"), result.places.map { it.id })
+        assertEquals(1, overpass.calls)
+    }
+
+    @Test
     fun primarySuccess_isReturnedAsNetworkData() = runTest {
         val primary = StubProvider(Result.success(PlaceQueryResult(listOf(cachedPlace("a")), PlaceSource.Network)))
         val repo = CompositePlaceRepository(listOf(primary))
