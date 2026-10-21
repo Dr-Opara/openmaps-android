@@ -69,7 +69,10 @@ class ARArrowSampler(
             // data): accumulate distance but never place an arrow or derive a tangent from it.
             if (legLength <= DEGENERATE_SEGMENT_METERS) continue
 
-            if (travelled + legLength >= nextArrowAt) {
+            // A sparse provider polyline can span many arrow intervals in one segment.
+            // Emit every due chevron, not just the first one, while keeping route distance
+            // absolute and the existing visibility/count limits intact.
+            while (travelled + legLength >= nextArrowAt) {
                 // Never emit past the visibility window. Checked *before* placing, because the
                 // spacing budget can overshoot `maxDistanceAheadMeters` within a long segment.
                 if (nextArrowAt > config.maxDistanceAheadMeters) return nodes
