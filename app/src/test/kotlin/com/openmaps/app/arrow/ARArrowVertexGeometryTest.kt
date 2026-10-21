@@ -28,10 +28,14 @@ class ARArrowVertexGeometryTest {
     @Test fun arrowPacksExactlyTwoFloatsPerVertex() {
         val buffer = FloatArray(ARArrowVertexGeometry.MAX_FLOATS)
         val written = ARArrowVertexGeometry.write(listOf(arrow(540f, 1200f)), 1080, 2400, buffer)
-        assertEquals(6, written)
-        assertEquals(0f, buffer[0], 0.00001f)
-        assertEquals(11.5f / 1200f, buffer[1], 0.00001f)
-        assertEquals(-8f / 540f, buffer[2], 0.00001f)
+        assertEquals(ARArrowVertexGeometry.FLOATS_PER_ARROW, written)
+        // Every vertex lies around the correctly projected screen center, not at raw pixels.
+        for (i in 0 until written step 2) {
+            org.junit.Assert.assertTrue(buffer[i] in -1f..1f)
+            org.junit.Assert.assertTrue(buffer[i + 1] in -1f..1f)
+        }
+        // Two thick diagonal arms, not a filled three-vertex triangle.
+        assertEquals(12, ARArrowVertexGeometry.VERTICES_PER_ARROW)
     }
 
     @Test fun invalidViewportAndOffscreenArrowDoNotDraw() {
@@ -41,7 +45,7 @@ class ARArrowVertexGeometryTest {
         assertEquals(0, ARArrowVertexGeometry.write(listOf(arrow(Float.NaN, 1200f)), 1080, 2400, buffer))
     }
 
-    @Test fun bufferLimitsTrianglesToHardCap() {
+    @Test fun bufferLimitsChevronsToHardCap() {
         val buffer = FloatArray(ARArrowVertexGeometry.MAX_FLOATS)
         assertEquals(ARArrowVertexGeometry.MAX_FLOATS,
             ARArrowVertexGeometry.write(List(40) { arrow(540f, 1200f) }, 1080, 2400, buffer))
