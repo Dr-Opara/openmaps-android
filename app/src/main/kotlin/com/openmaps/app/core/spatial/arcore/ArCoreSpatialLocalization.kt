@@ -488,6 +488,13 @@ class ArCoreSpatialLocalization(
         private var texCoordHandle = 0
         private var samplerUniform = 0
 
+        // GL resources belong to this EGL context, not to the main thread. The Compose
+        // DisposableEffect which attaches the AR overlay may run AFTER this surface's first
+        // onSurfaceCreated(). Prepare the current overlay in the render loop whenever it
+        // changes, and reset on context recreation. Otherwise the renderer stays uninitialized
+        // and silently draws no arrows throughout an otherwise healthy AR session.
+        private var preparedOverlayRenderer: ArOverlayRenderer? = null
+
         private val quadPositions = floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)
         private val quadTexCoords = floatArrayOf(0f, 1f, 1f, 1f, 0f, 0f, 1f, 0f)
         private val positionBuffer: java.nio.FloatBuffer =
@@ -506,8 +513,10 @@ class ArCoreSpatialLocalization(
             GLES20.glTexParameteri(TEXTURE_TARGET, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
             cameraTextureId = texture
 
-            // Let any overlay build its own GL resources now that a context exists.
-            overlayRenderer?.onSurfaceCreated()
+            // GL resources are prepared in onDrawFrame(), not just here: an overlay
+            // installed after this callback must still receive onSurfaceCreated() on
+            // the GL thread. Reset on EGL context recreation.
+            preparedOverlayRenderer = null
 
             program = buildProgram()
             positionHandle = GLES20.glGetAttribLocation(program, "a_Position")
@@ -532,11 +541,17 @@ class ArCoreSpatialLocalization(
                 updateCameraTextureCoordinates(frame)
             }
             drawCameraBackground()
-            // Overlays (Phase 7 anchors / Phase 8 arrows) draw on top of the camera, after it, so
-            // they are always composited over a complete frame.
-            overlayRenderer?.let { renderer ->
+            // Overlays draw on top of the camera. Snapshot the current renderer once so
+            // attach/detach races cannot initialize one renderer and draw with another.
+            // A late attachment still gets the GL-context callback before its first draw.
+            val renderer = overlayRenderer
+            if (renderer !== preparedOverlayRenderer) {
+                preparedOverlayRenderer = renderer
+                renderer?.onSurfaceCreated()
+            }
+            renderer?.let {
                 GLES20.glEnable(GLES20.GL_BLEND)
-                renderer.drawFrame(overlayAlpha)
+                it.drawFrame(overlayAlpha)
                 GLES20.glDisable(GLES20.GL_BLEND)
             }
         }
