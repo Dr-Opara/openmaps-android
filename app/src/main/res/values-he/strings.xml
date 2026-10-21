@@ -67,6 +67,7 @@
     <string name="live_then_label">ואז</string>
     <string name="live_speed_limit_label">מגבלה</string>
     <string name="live_status_destination">יעד</string>
+    <string name="live_ar_preview_label">תצוגה מקדימה של AR — בחר/י יעד כדי לנווט.</string>
     <string name="live_stat_remaining">נותרו</string>
     <string name="live_stat_to_arrive">עד ההגעה</string>
     <string name="live_stat_arrival">הגעה</string>

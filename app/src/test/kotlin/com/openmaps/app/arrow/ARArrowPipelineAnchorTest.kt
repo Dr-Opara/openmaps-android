@@ -312,15 +312,34 @@ class ARArrowPipelineAnchorTest {
     }
 
     @Test
-    fun poorLocalization_suppressesArrowsOnBothPaths() {
-        // Misleading spatial arrows are worse than no arrows: a chevron drawn from a bad fix points
-        // the driver somewhere that is not the route.
+    fun poorLocalization_withExistingAnchors_stillDrawsArrows() {
+        // Poor is a usable fix, not "no fix" (see ARArrowConfig.minimumQuality's doc) — and the
+        // anchors themselves were created earlier under a good fix and are ARCore-tracked (VIO-local),
+        // not re-derived from the live Geospatial estimate each frame. A momentary Poor dip must not
+        // wipe out arrows that are, in fact, still placed correctly. This is the behavior an earlier
+        // revision got backwards, and was the dominant real-world reason arrows "never appeared": live
+        // Geospatial quality jitters in and out of Poor constantly while actually driving.
         val pipeline = pipeline()
         repeat(10) { update(pipeline, anchored = anchors(10.0, 40.0, 80.0), state = tracking(LocalizationQuality.Good)) }
         assertTrue("precondition: arrows are showing", pipeline.arrowCount() > 0)
 
         repeat(10) { update(pipeline, anchored = anchors(10.0, 40.0, 80.0), state = tracking(LocalizationQuality.Poor)) }
-        assertEquals("poor localization must not produce spatial arrows", 0, pipeline.arrowCount())
+        assertTrue("already-anchored arrows must survive a Poor dip", pipeline.arrowCount() > 0)
+        assertTrue(pipeline.usingAnchors)
+    }
+
+    @Test
+    fun poorLocalization_withoutAnchors_suppressesTheUnanchoredFallback() {
+        // The unanchored fallback has no world anchor to stabilize it — every arrow's position is
+        // re-derived directly from *this frame's* fix, so at Poor quality it would genuinely be
+        // misplaced relative to the real road. Unlike the anchored case above, this path must still
+        // refuse Poor: "don't bypass tracking-quality checks to force an incorrect arrow onto the road".
+        val pipeline = pipeline()
+        repeat(10) {
+            update(pipeline, anchored = emptyList(), cameraTransform = null, state = tracking(LocalizationQuality.Poor))
+        }
+        assertEquals("the unanchored path must not place arrows from a Poor fix", 0, pipeline.arrowCount())
+        assertFalse(pipeline.usingAnchors)
     }
 
     @Test

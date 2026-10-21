@@ -67,6 +67,7 @@
     <string name="live_then_label">Puis</string>
     <string name="live_speed_limit_label">LIMITE</string>
     <string name="live_status_destination">Destination</string>
+    <string name="live_ar_preview_label">Aperçu RA — Choisissez une destination pour naviguer.</string>
     <string name="live_stat_remaining">restant</string>
     <string name="live_stat_to_arrive">avant arrivée</string>
     <string name="live_stat_arrival">arrivée</string>

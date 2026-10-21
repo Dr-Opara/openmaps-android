@@ -111,8 +111,36 @@ data class ARArrowConfig(
 
     // region Localization gating
 
-    /** Below this quality no arrows are drawn at all. */
-    val minimumQuality: LocalizationQuality = LocalizationQuality.Poor,
+    /**
+     * Below this quality the sampler produces no candidate nodes at all — the true "no usable fix"
+     * floor. Deliberately **not** [LocalizationQuality.Poor]: `Poor` is documented (see
+     * [LocalizationQuality]) as "usable for 'you are here'", and [RouteAnchorManager] already keeps
+     * previously-created anchors tracked and stable through a `Poor` dip (anchors are ARCore-local,
+     * VIO-tracked, and do not degrade just because the live Geospatial accuracy estimate does).
+     *
+     * An earlier revision set this to `Poor`, which made the sampler itself the single point that
+     * wiped the whole arrow set to empty on every momentary dip below `Fair` — even while
+     * [RouteAnchorManager] was correctly still refreshing perfectly good, already-tracked anchors in
+     * the background. Since live Geospatial quality jitters in and out of `Poor` constantly while
+     * actually driving (compass noise inside a moving vehicle, satellite geometry changes, brief sky
+     * occlusion), that one-tier-too-strict floor was the dominant real-world reason arrows appeared
+     * to "never show" or vanished moments after appearing: the anchors were fine, but the sampler
+     * never even produced nodes to project through them. [ARArrowPipeline] still requires `Fair`+ to
+     * use the *unanchored* fallback (see [AnchoredArrowProjector] / `ARArrowPipeline.update`'s
+     * degraded-path gate) and [RouteAnchorManager] still requires `Fair`+ to create a *new* anchor —
+     * only the already-anchored, already-validated case is allowed to ride out a `Poor` dip.
+     */
+    val minimumQuality: LocalizationQuality = LocalizationQuality.Acquiring,
+
+    /**
+     * Floor for the **unanchored** (per-frame raw geographic) fallback path specifically — see
+     * [ARArrowPipeline.update]. This path re-derives each arrow's screen position directly from the
+     * current frame's Geospatial pose with no ARCore world anchor to stabilize it, so a `Poor` fix
+     * would genuinely misplace it relative to the real road. Kept at the original, stricter bar: this
+     * is the one path where loosening [minimumQuality] above would have meant "force a possibly
+     * incorrect arrow onto the road", which is never acceptable.
+     */
+    val minimumUnanchoredQuality: LocalizationQuality = LocalizationQuality.Fair,
 
     /**
      * At [Localizability] fair, density is reduced rather than quality reduced: fewer, larger arrows
