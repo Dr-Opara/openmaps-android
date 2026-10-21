@@ -290,6 +290,16 @@ fun LiveScreen(
                 LocalizationChip(status = localizationStatus)
             }
             if (isNavigating) {
+                // Highway navigation must not lose lane recommendations when a hazard is
+                // ranked above the lane alert. Show real lane guidance independently,
+                // then show the highest non-lane hazard/traffic message if available.
+                roadIntelligenceState.laneGuidance?.let { guidance ->
+                    LaneGuidanceStrip(
+                        guidance = guidance,
+                        darkSurface = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 LiveRoadAlertHud(
                     roadState = roadIntelligenceState,
                     onCommunityConfirm = onCommunityReportConfirm,
@@ -413,15 +423,11 @@ private fun LiveRoadAlertHud(
     // Hazards only. Speed moved to its own lower-left block ([LiveSpeedBlock]) because the mockup
     // puts the speedometer there, in the driver's natural eyeline next to the trip card — not in a
     // queue with warnings under the maneuver card.
-    val topAlert = roadState.activeAlerts.firstOrNull { it !is RouteAlert.SpeedLimit } ?: return
-    if (topAlert is RouteAlert.Lane) {
-        LaneGuidanceStrip(
-            guidance = topAlert.guidance,
-            darkSurface = true,
-            modifier = modifier,
-        )
-        return
-    }
+    // Lane recommendations have their own dedicated panel above, so they stay visible
+    // even when severe congestion or an incident is ranked first.
+    val topAlert = roadState.activeAlerts.firstOrNull {
+        it !is RouteAlert.SpeedLimit && it !is RouteAlert.Lane
+    } ?: return
 
     val measurementSystem = LocalMeasurementSystem.current
     val locale = LocalAppLocale.current
@@ -494,11 +500,35 @@ private fun LiveSpeedBlock(
     val speedUnit = NavigationUnits.speedUnitLabel(measurementSystem, locale)
     if (speedValue == null && limitValue == null) return
 
-    Row(
+    Column(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Bottom,
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
+        // Reference #1: regulatory posted-speed sign ABOVE the circular current-speed dial,
+        // both left-aligned. Never fill either instrument with invented measurements.
+        if (limitValue != null) {
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(2.dp, OpenMapsColors.Navy900, RoundedCornerShape(8.dp))
+                    .background(Color.White)
+                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = stringResource(R.string.live_speed_limit_label),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OpenMapsColors.Navy900,
+                )
+                Text(
+                    text = limitValue,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = OpenMapsColors.Navy900,
+                    maxLines = 1,
+                )
+            }
+        }
         if (speedValue != null && currentSpeedMetersPerSecond != null) {
             val arcFraction = speedArcFraction(
                 speedMetersPerSecond = currentSpeedMetersPerSecond,
@@ -542,27 +572,6 @@ private fun LiveSpeedBlock(
                         maxLines = 1,
                     )
                 }
-            }
-        }
-        if (limitValue != null) {
-            Column(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.White)
-                    .padding(horizontal = 9.dp, vertical = 7.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = stringResource(R.string.live_speed_limit_label),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OpenMapsColors.Navy900,
-                )
-                Text(
-                    text = limitValue,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = OpenMapsColors.Navy900,
-                    maxLines = 1,
-                )
             }
         }
     }
