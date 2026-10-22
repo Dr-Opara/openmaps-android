@@ -895,7 +895,7 @@ private fun RoutePreviewSummary(
             style = MaterialTheme.typography.bodySmall,
             color = OpenMapsColors.TextOnDarkSecondary,
         )
-        RouteState.Loading -> RouteLoadingRow()
+        RouteState.Loading -> RouteLoadingRow(color = OpenMapsColors.TextOnDarkSecondary)
         is RouteState.Error -> Text(
             text = stringResource(routeState.reason.toMessageRes()),
             style = MaterialTheme.typography.bodySmall,
@@ -1042,14 +1042,14 @@ private fun RouteStatusText(text: String, color: Color = OpenMapsColors.TextSeco
 }
 
 @Composable
-private fun RouteLoadingRow() {
+private fun RouteLoadingRow(color: Color = OpenMapsColors.TextSecondary) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
         CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = OpenMapsColors.ElectricBlue)
         Spacer(Modifier.width(6.dp))
         Text(
             text = stringResource(R.string.route_loading),
             style = MaterialTheme.typography.labelLarge,
-            color = OpenMapsColors.TextSecondary,
+            color = color,
         )
     }
 }
