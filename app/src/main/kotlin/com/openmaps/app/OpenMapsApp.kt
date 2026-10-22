@@ -283,15 +283,8 @@ private fun AppShell(container: AppContainer) {
                 environmentProfile = state.activeProfile,
                 voiceEnabled = state.voiceEnabled,
                 onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
-                driverReportStatus = state.driverReportStatus,
-                tripShareStatus = state.tripShareStatus,
-                onReport = viewModel::onDriverReportRequested,
                 onCommunityReportConfirm = viewModel::onCommunityReportConfirmed,
                 onCommunityReportDismiss = viewModel::onCommunityReportDismissed,
-                onShareTrip = viewModel::onTripShareRequested,
-                onDismissExternalStatus = viewModel::onExternalActionStatusDismissed,
-                onReroute = viewModel::onManualRerouteRequested,
-                onExitNavigation = viewModel::endNavigationToHome,
             )
         }
 
