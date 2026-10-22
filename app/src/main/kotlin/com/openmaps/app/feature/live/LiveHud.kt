@@ -32,6 +32,12 @@ sealed interface LiveHudState {
         val remainingDistanceMeters: Double,
         val remainingDurationSeconds: Double,
         val destinationName: String?,
+        /**
+         * The current maneuver's street name(s), straight from the routing provider
+         * ([com.openmaps.app.core.routing.RouteManeuver.streetName], itself Valhalla's `street_names`)
+         * — never derived from [instruction] text and never guessed when the provider omits it.
+         */
+        val currentStreetName: String?,
     ) : LiveHudState
 
     /** Confirmed off route; still tracking the old route. */
@@ -94,6 +100,7 @@ object LiveHud {
             remainingDistanceMeters = progress.remainingDistanceMeters,
             remainingDurationSeconds = progress.remainingDurationSeconds,
             destinationName = destinationName,
+            currentStreetName = current.streetName?.takeIf { it.isNotBlank() },
         )
     }
 }
