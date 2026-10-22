@@ -2,9 +2,12 @@ package com.openmaps.app.core.designsystem
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
@@ -59,5 +62,28 @@ fun GlassRow(
         modifier = modifier.glass(shape).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         content = content,
+    )
+}
+
+/**
+ * The short centered bar at the top of a bottom sheet/card, signaling it is draggable.
+ *
+ * Reference screenshots (Live's bottom trip card and Route Preview's sheet) both show this; neither
+ * [com.openmaps.app.feature.live.LiveTripSummary] nor the Route Preview sheet currently draws one —
+ * see `docs/LIVE_MOCKUP_VISUAL_SPEC.md` section 2.2. [tint] defaults to the light-on-dark value both
+ * of those surfaces need; a light-sheet caller (e.g. the existing handle inlined in
+ * `MapControls.kt`'s `BottomPanel`) would pass [OpenMapsColors.SurfaceBorder] instead.
+ */
+@Composable
+fun SheetDragHandle(
+    modifier: Modifier = Modifier,
+    tint: Color = Color.White.copy(alpha = 0.35f),
+) {
+    Box(
+        modifier
+            .width(36.dp)
+            .height(4.dp)
+            .clip(CircleShape)
+            .background(tint),
     )
 }
