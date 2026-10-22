@@ -794,6 +794,13 @@ private fun ArPreviewSurface(
             else -> null
         }
 
+        // Phase 1 guidance gate: chevrons and anchors only for valid ACTIVE navigation.
+        // MapUiState.isNavigating is deliberately broader — it stays true for OffRoute,
+        // Rerouting and Arrived so the HUD can keep describing the trip — and must not gate the
+        // AR guidance layer, or stale-route arrows and anchors survive those transitions. The
+        // HUD's own uses of isNavigating below are untouched by this gate.
+        val isGuidanceActive = navigationState is NavigationState.Active
+
         LaunchedEffect(route, navigationState, spatialState) {
             val manager = viewModel.routeAnchorManager
             val anchored = if (route != null && manager != null) {
@@ -805,7 +812,7 @@ private fun ArPreviewSurface(
                     remainingDistanceMeters = progress?.remainingDistanceMeters ?: Double.MAX_VALUE,
                     routeDistanceAtIndex = routeDistanceAtIndex,
                     spatialState = spatialState,
-                    isNavigating = isNavigating,
+                    isNavigating = isGuidanceActive,
                 )
             } else {
                 emptyList()
@@ -817,7 +824,7 @@ private fun ArPreviewSurface(
                 spatialState = spatialState,
                 viewportWidthPx = glView.width,
                 viewportHeightPx = glView.height,
-                isNavigating = isNavigating,
+                isNavigating = isGuidanceActive,
                 anchoredPoints = anchored,
                 cameraTransform = anchorManager.backendCameraTransform(),
             )
