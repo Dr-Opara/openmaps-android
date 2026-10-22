@@ -83,19 +83,19 @@ class ARArrowGuidanceGateTest {
         endShapeIndex = index * 3,
     )
 
-    private fun pose(quality: LocalizationQuality = LocalizationQuality.Good) = SpatialPose(
+    private fun pose(quality: LocalizationQuality = LocalizationQuality.Good, headingDegrees: Double = 0.0) = SpatialPose(
         latitude = 0.0,
         longitude = 0.0,
         altitudeMeters = 5.0,
-        headingDegrees = 0.0,
+        headingDegrees = headingDegrees,
         horizontalAccuracyMeters = 2.0,
         verticalAccuracyMeters = 2.0,
         headingAccuracyDegrees = 1.0,
         quality = quality,
     )
 
-    private fun tracking(quality: LocalizationQuality = LocalizationQuality.Good) =
-        SpatialLocalizationState.Tracking(pose(quality))
+    private fun tracking(quality: LocalizationQuality = LocalizationQuality.Good, headingDegrees: Double = 0.0) =
+        SpatialLocalizationState.Tracking(pose(quality, headingDegrees))
 
     private fun anchors(
         vararg distances: Double,
@@ -229,8 +229,12 @@ class ARArrowGuidanceGateTest {
         assertEquals("Rerouting must stay clear", 0, pipeline.arrowCount())
 
         // Replacement route arrives and guidance resumes; its anchors do not exist yet, so the
-        // fallback projection draws — but the set is derived from the new route only.
-        settled(pipeline, anchored = emptyList(), route = routeEast)
+        // fallback projection draws — but the set is derived from the new route only. The driver
+        // now faces east (heading 90) onto the replacement road: with the north-facing pose the
+        // due-east road would sit 90 degrees off-axis, outside the 60-degree FOV, and the
+        // projection would correctly drop every node — which is a test-harness artifact, not a
+        // guidance result.
+        settled(pipeline, anchored = emptyList(), route = routeEast, state = tracking(headingDegrees = 90.0))
         assertTrue("the replacement route must draw arrows again", pipeline.arrowCount() > 0)
     }
 
