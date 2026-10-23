@@ -12,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.verticalScroll
@@ -515,6 +516,9 @@ fun BottomPanel(
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     // Direct finger-following drag, with a spring only after release. The previous handle
     // accumulated pixels but moved the Route Preview *zero* pixels and only toggled Home/Discover.
+    // Keep the existing Home/Discover expansion behavior independent from Route Preview.
+    var discoverExpanded by remember { mutableStateOf(false) }
+    var discoverDragDistance by remember { mutableFloatStateOf(0f) }
     var sheetHeightPx by remember { mutableIntStateOf(0) }
     var sheetOffsetPx by remember { mutableFloatStateOf(0f) }
     val density = LocalDensity.current
@@ -574,11 +578,27 @@ fun BottomPanel(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Larger handle area remains usable even when sheet content is scrollable.
+        val handleModifier = if (destination == null) {
+            Modifier.pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragStart = { discoverDragDistance = 0f },
+                    onVerticalDrag = { change, amount ->
+                        change.consume()
+                        discoverDragDistance += amount
+                    },
+                    onDragEnd = {
+                        if (discoverDragDistance < -35f) discoverExpanded = true
+                        if (discoverDragDistance > 35f) discoverExpanded = false
+                    },
+                )
+            }
+        } else {
+            Modifier.clickable {
+                settleTo(if (sheetOffsetPx > collapseLimit * 0.45f) 0f else collapseLimit)
+            }
+        }
         Box(
-            Modifier.fillMaxWidth().height(28.dp)
-                .clickable(enabled = destination != null) {
-                    settleTo(if (sheetOffsetPx > collapseLimit * 0.45f) 0f else collapseLimit)
-                },
+            Modifier.fillMaxWidth().height(28.dp).then(handleModifier),
             contentAlignment = Alignment.Center,
         ) {
             SheetDragHandle(
@@ -588,7 +608,8 @@ fun BottomPanel(
         }
         if (destination == null) {
             Box(
-                modifier = Modifier.heightIn(max = screenHeight * 0.40f),
+                modifier = if (discoverExpanded) Modifier.height(screenHeight * 0.68f)
+                    else Modifier.heightIn(max = screenHeight * 0.40f),
             ) {
             Column(Modifier.verticalScroll(rememberScrollState())) {
             HomeDiscoveryPanel(
