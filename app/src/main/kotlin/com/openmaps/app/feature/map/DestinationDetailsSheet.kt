@@ -110,7 +110,11 @@ fun DestinationDetailsSheet(
         )
         photosLoading = false
     }
-    val coverPhoto = gallery.destinationPhotos.firstOrNull()
+    // All searched destinations (including exact addresses) get an image preview when
+    // a credible source exists. A nearby street view is clearly labeled as context,
+    // never advertised as a photograph of the precise street address or venue.
+    val coverPhoto = gallery.destinationPhotos.firstOrNull() ?: gallery.nearbyStreetViews.firstOrNull()
+    val streetContextCover = coverPhoto?.kind == com.openmaps.app.core.geocoding.GalleryPhotoKind.NearbyStreet
     val context = LocalContext.current
     var destinationNearby by androidx.compose.runtime.remember(destination.id) { mutableStateOf<List<Place>>(emptyList()) }
     var nearbyStatus by androidx.compose.runtime.remember(destination.id) { mutableStateOf("loading") }
@@ -151,12 +155,15 @@ fun DestinationDetailsSheet(
             if (coverPhoto != null) {
                 Image(
                     bitmap = coverPhoto.bitmap.asImageBitmap(),
-                    contentDescription = "View destination photos",
+                    contentDescription = if (streetContextCover)
+                        "Nearby street view; may not depict the exact destination. Open photos"
+                    else "View destination photos",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.matchParentSize().clickable { tab = DestinationDetailsTab.Photos },
                 )
                 Text(
-                    "Photos (" + gallery.destinationPhotos.size + ")",
+                    if (streetContextCover) "Nearby street view" else
+                        "Photos (" + gallery.destinationPhotos.size + ")",
                     modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
                         .clip(GlassShapes.Pill)
                         .background(OpenMapsColors.Navy950.copy(alpha = 0.80f))
@@ -199,7 +206,9 @@ fun DestinationDetailsSheet(
 
             coverPhoto?.let { licensed ->
                 Text(
-                    "Photo: " + licensed.author + " · " + licensed.license + " · Wikimedia Commons",
+                    (if (streetContextCover) "Nearby street view: " else "Photo: ") +
+                        licensed.author + " · " + licensed.license + " · " +
+                        (if (streetContextCover) "Mapillary" else "Wikimedia Commons"),
                     modifier = Modifier.padding(top = 6.dp).clickable {
                         runCatching {
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.sourceUrl)))

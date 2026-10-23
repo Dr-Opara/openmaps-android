@@ -273,7 +273,8 @@ fun PlaceDetailsSheet(
     var tab by rememberSaveable(place.id) { mutableStateOf(PlaceDetailsTab.Overview) }
     var gallery by remember(place.id) { mutableStateOf(PlacePhotoGallery()) }
     var photosLoading by remember(place.id) { mutableStateOf(true) }
-    val coverPhoto = gallery.destinationPhotos.firstOrNull()
+    val coverPhoto = gallery.destinationPhotos.firstOrNull() ?: gallery.nearbyStreetViews.firstOrNull()
+    val streetContextCover = coverPhoto?.kind == com.openmaps.app.core.geocoding.GalleryPhotoKind.NearbyStreet
     var destinationNearby by remember(place.id) { mutableStateOf<List<Place>>(emptyList()) }
     var nearbyStatus by remember(place.id) { mutableStateOf("loading") }
     LaunchedEffect(place.id, place.latitude, place.longitude, placesRepository) {
@@ -348,7 +349,9 @@ fun PlaceDetailsSheet(
             }
             coverPhoto?.let { licensed ->
                 Text(
-                    "Photo: " + licensed.author + " · " + licensed.license + " · Wikimedia Commons",
+                    (if (streetContextCover) "Nearby street view: " else "Photo: ") +
+                        licensed.author + " · " + licensed.license + " · " +
+                        (if (streetContextCover) "Mapillary" else "Wikimedia Commons"),
                     modifier = Modifier.padding(top = 6.dp).clickable {
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.sourceUrl))) }
                     },
@@ -478,10 +481,24 @@ private fun PlaceHeroImage(place: Place, onDismiss: () -> Unit, photo: GalleryPh
         if (photo != null) {
             Image(
                 bitmap = photo.bitmap.asImageBitmap(),
-                contentDescription = "Photo of ${place.name}",
+                contentDescription = if (photo.kind == com.openmaps.app.core.geocoding.GalleryPhotoKind.NearbyStreet)
+                    "Nearby street view, may not show ${place.name}; open gallery"
+                else "Photo of ${place.name}; open gallery",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.matchParentSize().clickable { onPhotoClicked() },
             )
+            if (photo.kind == com.openmaps.app.core.geocoding.GalleryPhotoKind.NearbyStreet) {
+                Text(
+                    "Nearby street view",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .clip(GlassShapes.Pill)
+                        .background(OpenMapsColors.Navy900.copy(alpha = 0.85f))
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                )
+            }
         } else {
             Icon(
                 painter = painterResource(place.category.iconRes()),
