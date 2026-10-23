@@ -276,6 +276,8 @@ fun MapScreen(
                 // layered above the route summary it belongs to.
                 state.isShowingSteps && state.stepsRouteSummary != null -> RouteStepsSheet(
                     maneuvers = state.stepsRouteSummary?.maneuvers.orEmpty(),
+                    totalDistanceMeters = state.stepsRouteSummary?.distanceMeters,
+                    totalDurationSeconds = state.stepsRouteSummary?.durationSeconds,
                     onDismiss = viewModel::onStepsDismissed,
                 )
 
