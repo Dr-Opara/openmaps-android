@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -38,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -147,6 +149,8 @@ fun LiveScreen(
     onVoiceMuteToggled: () -> Unit = {},
     onCommunityReportConfirm: (String) -> Unit = {},
     onCommunityReportDismiss: (String) -> Unit = {},
+    /** Ends the active trip, unlike the Map toggle which keeps navigation running. */
+    onExitNavigation: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     // Reactive: flips from Spatial to CameraX mid-session if AR fails, which is what guarantees a
@@ -361,6 +365,7 @@ fun LiveScreen(
                             onBackToMap = { onModeSelected(MapMode.Map) },
                             voiceEnabled = voiceEnabled,
                             onVoiceMuteToggled = onVoiceMuteToggled,
+                            onExitNavigation = onExitNavigation,
                         )
                     }
                 }
@@ -1263,7 +1268,9 @@ private fun LiveSideControls(
     modifier: Modifier = Modifier,
     voiceEnabled: Boolean = true,
     onVoiceMuteToggled: () -> Unit = {},
+    onExitNavigation: () -> Unit = {},
 ) {
+    var confirmExit by remember { mutableStateOf(false) }
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1300,6 +1307,47 @@ private fun LiveSideControls(
                 modifier = Modifier.size(20.dp),
             )
         }
+
+        // A Map switch retains the trip. This distinct End control terminates navigation
+        // only after confirmation, preventing accidental route dismissal.
+        IconButton(
+            onClick = { confirmExit = true },
+            modifier = Modifier
+                .size(50.dp)
+                .clip(CircleShape)
+                .background(OpenMapsColors.Navy950.copy(alpha = 0.72f))
+                .border(1.dp, Color(0xFFC62828).copy(alpha = 0.90f), CircleShape),
+        ) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = stringResource(R.string.nav_exit),
+                tint = Color(0xFFFF6B6B),
+                modifier = Modifier.size(23.dp),
+            )
+        }
+    }
+
+    if (confirmExit) {
+        AlertDialog(
+            onDismissRequest = { confirmExit = false },
+            title = { Text(stringResource(R.string.nav_exit_confirm_title)) },
+            text = { Text(stringResource(R.string.nav_exit_confirm_body)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmExit = false
+                        onExitNavigation()
+                    },
+                ) {
+                    Text(stringResource(R.string.nav_exit_end))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmExit = false }) {
+                    Text(stringResource(R.string.nav_exit_continue))
+                }
+            },
+        )
     }
 }
 
