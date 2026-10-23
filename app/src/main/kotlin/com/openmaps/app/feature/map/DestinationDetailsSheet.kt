@@ -56,6 +56,11 @@ import androidx.compose.ui.unit.dp
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
+import com.openmaps.app.core.designsystem.mapSheetSurfaceColor
+import com.openmaps.app.core.designsystem.mapSheetMutedColor
+import com.openmaps.app.core.designsystem.mapSheetPrimaryTextColor
+import com.openmaps.app.core.designsystem.mapSheetSecondaryTextColor
+import com.openmaps.app.core.designsystem.mapSheetBorderColor
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.BuildConfig
@@ -143,14 +148,14 @@ fun DestinationDetailsSheet(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(max = (LocalConfiguration.current.screenHeightDp.dp - 145.dp).coerceAtLeast(330.dp))
-            .surfaceCard(GlassShapes.Card)
+            .clip(GlassShapes.Card).background(mapSheetSurfaceColor())
             .verticalScroll(rememberScrollState()),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(118.dp)
-                .background(OpenMapsColors.SurfaceMuted),
+                .background(mapSheetMutedColor()),
         ) {
             if (coverPhoto != null) {
                 Image(
@@ -191,7 +196,7 @@ fun DestinationDetailsSheet(
                     .size(36.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.90f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.MoreVert, contentDescription = null, tint = OpenMapsColors.TextSecondary)
+                Icon(Icons.Filled.MoreVert, contentDescription = null, tint = mapSheetSecondaryTextColor())
             }
         }
 
@@ -199,7 +204,7 @@ fun DestinationDetailsSheet(
             Text(
                 text = destination.name.ifBlank { destination.displayName },
                 style = MaterialTheme.typography.headlineSmall,
-                color = OpenMapsColors.TextPrimary,
+                color = mapSheetPrimaryTextColor(),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -215,7 +220,7 @@ fun DestinationDetailsSheet(
                         }
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -224,7 +229,7 @@ fun DestinationDetailsSheet(
                 Text(
                     text = it.replace('_', ' '),
                     style = MaterialTheme.typography.labelMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                     modifier = Modifier.padding(top = 3.dp),
                 )
             }
@@ -347,7 +352,7 @@ fun DestinationDetailsSheet(
                                 DestinationDetailsTab.Nearby -> stringResource(R.string.place_tab_nearby)
                             },
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (selected) OpenMapsColors.ElectricBlueFilled else OpenMapsColors.TextSecondary,
+                            color = if (selected) OpenMapsColors.ElectricBlueFilled else mapSheetSecondaryTextColor(),
                         )
                         Spacer(Modifier.height(4.dp))
                         Box(
@@ -370,7 +375,7 @@ fun DestinationDetailsSheet(
                 DestinationDetailsTab.Reviews -> Text(
                     stringResource(R.string.place_reviews_unavailable),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                 )
                 DestinationDetailsTab.Photos -> VerifiedPlacePhotoGallery(
                     gallery = gallery,
@@ -379,19 +384,19 @@ fun DestinationDetailsSheet(
                 )
                 DestinationDetailsTab.Nearby -> {
                     when (nearbyStatus) {
-                        "loading" -> Text("Finding places near this destination…", color = OpenMapsColors.TextSecondary)
-                        "error" -> Text("Nearby places are temporarily unavailable.", color = OpenMapsColors.TextSecondary)
+                        "loading" -> Text("Finding places near this destination…", color = mapSheetSecondaryTextColor())
+                        "error" -> Text("Nearby places are temporarily unavailable.", color = mapSheetSecondaryTextColor())
                         else -> if (destinationNearby.isEmpty()) {
-                            Text("No nearby places returned for this destination.", color = OpenMapsColors.TextSecondary)
+                            Text("No nearby places returned for this destination.", color = mapSheetSecondaryTextColor())
                         } else {
                             destinationNearby.take(8).forEach { place ->
                                 TextButton(onClick = { onSelectNearby(place) }, modifier = Modifier.fillMaxWidth()) {
                                     Column(Modifier.fillMaxWidth()) {
-                                        Text(place.name, color = OpenMapsColors.TextPrimary, maxLines = 1)
+                                        Text(place.name, color = mapSheetPrimaryTextColor(), maxLines = 1)
                                         Text(
                                             place.category.name + (place.distanceMeters?.let { " · %.1f mi".format(Locale.US, it / 1609.344) } ?: ""),
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = OpenMapsColors.TextSecondary,
+                                            color = mapSheetSecondaryTextColor(),
                                         )
                                     }
                                 }
@@ -429,26 +434,26 @@ private fun DestinationOverview(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(
             modifier = Modifier.fillMaxWidth()
-                .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+                .background(mapSheetMutedColor(), GlassShapes.Card)
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text("About this destination", style = MaterialTheme.typography.titleMedium, color = OpenMapsColors.TextPrimary)
+            Text("About this destination", style = MaterialTheme.typography.titleMedium, color = mapSheetPrimaryTextColor())
             if (category != null) {
                 Text(category.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodyMedium, color = OpenMapsColors.ElectricBlueFilled)
             }
             if (area.isNotEmpty()) {
-                Text("Located in $area", style = MaterialTheme.typography.bodyMedium, color = OpenMapsColors.TextSecondary)
+                Text("Located in $area", style = MaterialTheme.typography.bodyMedium, color = mapSheetSecondaryTextColor())
             }
             if (category == null && area.isEmpty()) {
                 Text("Explore this destination on the map or get directions to plan your visit.",
-                    style = MaterialTheme.typography.bodyMedium, color = OpenMapsColors.TextSecondary)
+                    style = MaterialTheme.typography.bodyMedium, color = mapSheetSecondaryTextColor())
             }
         }
         if (address != null) {
             Row(
                 modifier = Modifier.fillMaxWidth()
-                    .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+                    .background(mapSheetMutedColor(), GlassShapes.Card)
                     .padding(14.dp),
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -456,8 +461,8 @@ private fun DestinationOverview(
                 Icon(Icons.Filled.Place, contentDescription = null, tint = OpenMapsColors.ElectricBlueFilled,
                     modifier = Modifier.size(20.dp))
                 Column {
-                    Text("Location", style = MaterialTheme.typography.titleSmall, color = OpenMapsColors.TextPrimary)
-                    Text(address, style = MaterialTheme.typography.bodyMedium, color = OpenMapsColors.TextSecondary)
+                    Text("Location", style = MaterialTheme.typography.titleSmall, color = mapSheetPrimaryTextColor())
+                    Text(address, style = MaterialTheme.typography.bodyMedium, color = mapSheetSecondaryTextColor())
                 }
             }
         }
@@ -465,24 +470,24 @@ private fun DestinationOverview(
             Text(
                 "Tap Directions to see available routes, travel time, distance and estimated arrival.",
                 style = MaterialTheme.typography.bodySmall,
-                color = OpenMapsColors.TextSecondary,
+                color = mapSheetSecondaryTextColor(),
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
         }
         Column(
             modifier = Modifier.fillMaxWidth()
-                .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+                .background(mapSheetMutedColor(), GlassShapes.Card)
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
-            Text("Explore nearby", style = MaterialTheme.typography.titleMedium, color = OpenMapsColors.TextPrimary)
+            Text("Explore nearby", style = MaterialTheme.typography.titleMedium, color = mapSheetPrimaryTextColor())
             when {
                 nearbyStatus == "loading" -> Text("Finding places near this destination…",
-                    style = MaterialTheme.typography.bodySmall, color = OpenMapsColors.TextSecondary)
+                    style = MaterialTheme.typography.bodySmall, color = mapSheetSecondaryTextColor())
                 nearbyStatus == "error" -> Text("Nearby place details are temporarily unavailable.",
-                    style = MaterialTheme.typography.bodySmall, color = OpenMapsColors.TextSecondary)
+                    style = MaterialTheme.typography.bodySmall, color = mapSheetSecondaryTextColor())
                 nearbyPlaces.isEmpty() -> Text("No nearby places returned by the map provider yet.",
-                    style = MaterialTheme.typography.bodySmall, color = OpenMapsColors.TextSecondary)
+                    style = MaterialTheme.typography.bodySmall, color = mapSheetSecondaryTextColor())
                 else -> {
                     nearbyPlaces.take(4).forEach { nearby ->
                         Row(
@@ -496,14 +501,14 @@ private fun DestinationOverview(
                                 tint = OpenMapsColors.ElectricBlueFilled, modifier = Modifier.size(18.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(nearby.name, style = MaterialTheme.typography.bodyMedium,
-                                    color = OpenMapsColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    color = mapSheetPrimaryTextColor(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(nearby.category.name.replaceFirstChar { it.uppercase() },
-                                    style = MaterialTheme.typography.bodySmall, color = OpenMapsColors.TextSecondary)
+                                    style = MaterialTheme.typography.bodySmall, color = mapSheetSecondaryTextColor())
                             }
                             nearby.distanceMeters?.let { meters ->
                                 Text(
                                     NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current, LocalAppLocale.current),
-                                    style = MaterialTheme.typography.labelSmall, color = OpenMapsColors.TextSecondary,
+                                    style = MaterialTheme.typography.labelSmall, color = mapSheetSecondaryTextColor(),
                                 )
                             }
                         }
@@ -519,7 +524,7 @@ private fun DestinationTripSummary(durationSeconds: Double, distanceMeters: Doub
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+            .background(mapSheetMutedColor(), GlassShapes.Card)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -528,24 +533,24 @@ private fun DestinationTripSummary(durationSeconds: Double, distanceMeters: Doub
             Text(
                 text = formatTripDuration(durationSeconds),
                 style = MaterialTheme.typography.titleLarge,
-                color = OpenMapsColors.TextPrimary,
+                color = mapSheetPrimaryTextColor(),
             )
             Text(
                 text = stringResource(R.string.destination_trip_time),
                 style = MaterialTheme.typography.labelSmall,
-                color = OpenMapsColors.TextSecondary,
+                color = mapSheetSecondaryTextColor(),
             )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = formatTripDistance(distanceMeters),
                 style = MaterialTheme.typography.titleMedium,
-                color = OpenMapsColors.TextPrimary,
+                color = mapSheetPrimaryTextColor(),
             )
             Text(
                 text = stringResource(R.string.destination_trip_distance),
                 style = MaterialTheme.typography.labelSmall,
-                color = OpenMapsColors.TextSecondary,
+                color = mapSheetSecondaryTextColor(),
             )
         }
         Column(horizontalAlignment = Alignment.End) {
@@ -556,12 +561,12 @@ private fun DestinationTripSummary(durationSeconds: Double, distanceMeters: Doub
                     locale = LocalAppLocale.current,
                 ),
                 style = MaterialTheme.typography.titleMedium,
-                color = OpenMapsColors.TextPrimary,
+                color = mapSheetPrimaryTextColor(),
             )
             Text(
                 text = stringResource(R.string.destination_trip_arrival),
                 style = MaterialTheme.typography.labelSmall,
-                color = OpenMapsColors.TextSecondary,
+                color = mapSheetSecondaryTextColor(),
             )
         }
     }
@@ -575,13 +580,13 @@ private fun ArrivalIntelligenceCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+            .background(mapSheetMutedColor(), GlassShapes.Card)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Text(
             text = stringResource(R.string.destination_arrival_ease),
             style = MaterialTheme.typography.labelLarge,
-            color = OpenMapsColors.TextPrimary,
+            color = mapSheetPrimaryTextColor(),
         )
         routeComplexity?.let { complexity ->
             Text(
@@ -593,7 +598,7 @@ private fun ArrivalIntelligenceCard(
             Text(
                 text = stringResource(R.string.destination_arrival_ease_basis),
                 style = MaterialTheme.typography.bodySmall,
-                color = OpenMapsColors.TextSecondary,
+                color = mapSheetSecondaryTextColor(),
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
@@ -601,7 +606,7 @@ private fun ArrivalIntelligenceCard(
             Text(
                 text = stringResource(R.string.destination_parking_found, parkingNearby.size.coerceAtMost(3)),
                 style = MaterialTheme.typography.bodySmall,
-                color = OpenMapsColors.TextPrimary,
+                color = mapSheetPrimaryTextColor(),
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
