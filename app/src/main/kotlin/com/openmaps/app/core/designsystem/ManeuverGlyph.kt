@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -51,7 +52,11 @@ fun ManeuverIconTile(
         ManeuverGlyph(
             type = type,
             tint = glyphColor,
+            // Canvas has no intrinsic measurement: without fillMaxSize this child measured
+            // to zero inside the Box (the blue tile rendered with NO maneuver arrow).
+            // The explicit size makes the icon visible for ALL maneuver types.
             modifier = Modifier
+                .fillMaxSize()
                 .padding(size * 0.16f),
         )
     }

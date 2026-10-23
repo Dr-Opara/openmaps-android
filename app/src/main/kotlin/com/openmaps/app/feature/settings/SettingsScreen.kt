@@ -40,6 +40,7 @@ import com.openmaps.app.core.location.LocationPermissionState
 import com.openmaps.app.core.localization.MeasurementSystem
 import com.openmaps.app.core.voice.VoiceLanguage
 import com.openmaps.app.map.MapStyleSource
+import com.openmaps.app.map.MapAppearanceMode
 
 @Composable
 fun SettingsScreen(
@@ -54,6 +55,8 @@ fun SettingsScreen(
     measurementSystem: MeasurementSystem = MeasurementSystem.Auto,
     onMeasurementSystemChanged: (MeasurementSystem) -> Unit = {},
     onOpenLanguageSettings: () -> Unit = {},
+    mapAppearanceMode: MapAppearanceMode = MapAppearanceMode.Auto,
+    onMapAppearanceChanged: (MapAppearanceMode) -> Unit = {},
 ) {
     val appLocale = LocalConfiguration.current.locales[0]
     val uriHandler = LocalUriHandler.current
@@ -102,6 +105,41 @@ fun SettingsScreen(
 
             SectionHeader(stringResource(R.string.settings_section_map))
             SettingsRow(title = stringResource(R.string.settings_map_style), value = styleSource.name)
+            Text(
+                text = "Map appearance",
+                style = MaterialTheme.typography.bodyLarge,
+                color = OpenMapsColors.TextOnDark,
+                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+            )
+            Text(
+                text = "Automatic uses the phone's light sensor when available. Day and Night are manual overrides.",
+                style = MaterialTheme.typography.bodySmall,
+                color = OpenMapsColors.TextOnDarkSecondary,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+            MapAppearanceMode.entries.forEach { mode ->
+                val selected = mapAppearanceMode == mode
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .clickable(role = Role.RadioButton) { onMapAppearanceChanged(mode) }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        when (mode) {
+                            MapAppearanceMode.Auto -> "Automatic"
+                            MapAppearanceMode.Day -> "Day"
+                            MapAppearanceMode.Night -> "Night"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (selected) OpenMapsColors.Cyan else OpenMapsColors.TextOnDarkSecondary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (selected) Text("Selected", color = OpenMapsColors.Cyan,
+                        style = MaterialTheme.typography.labelSmall)
+                }
+            }
             if (styleSource.isDevelopmentOnly) {
                 Text(
                     text = stringResource(R.string.settings_map_dev_only),

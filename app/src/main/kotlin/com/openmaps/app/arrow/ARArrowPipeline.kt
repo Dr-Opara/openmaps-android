@@ -89,6 +89,13 @@ class ARArrowPipeline(
      * materially changes — deliberately *not* per frame. Sampling walks the route, so doing it every
      * frame would be the single most expensive thing in the AR loop for no visual benefit.
      *
+     * Phase 1 guidance gate: `isNavigating` here is the *guidance* gate, not the broad
+     * trip-in-progress flag. Callers must pass true only while guidance is valid
+     * (`NavigationState.Active`); `MapUiState.isNavigating` deliberately stays true for OffRoute,
+     * Rerouting and Arrived so the HUD can keep describing the trip, and passing it here would let
+     * stale-route arrows survive those transitions. As a backstop, OffRoute and Arrived progress
+     * are rejected below even if a caller gets this wrong.
+     *
      * **Sampling always runs.** Spacing, turn density, the near cut-off, the visible cap and the
      * tangent heading all come from [ARArrowSampler] and are identical on both paths, so the two
      * paths never disagree about *which* arrows exist or *which way* they point — only about where
@@ -125,6 +132,16 @@ class ARArrowPipeline(
             return
         }
 
+        // Phase 1 guidance gate (valid progress): OffRoute and Arrived progress must never
+        // produce chevrons, even if a caller passes broad trip-in-progress as `isNavigating`.
+        // The Live call site additionally passes guidance-active only; this is the pipeline's own
+        // backstop so a state change that still carries progress cannot leave stale-route arrows
+        // on screen. Rerouting reaches here with null progress and already yields no nodes.
+        if (progress?.isOffRoute == true || progress?.hasArrived == true) {
+            clear()
+            return
+        }
+
         val rawQuality = spatialState.pose?.quality
         if (rawQuality == null) {
             clear()
@@ -138,7 +155,9 @@ class ARArrowPipeline(
             geometry = route.geometry,
             progress = progress,
             quality = quality,
-            isArrived = false,
+            // Honest now: the gate above returns early for arrived progress, but the sampler's
+            // own arrival suppression must still see the real value, not a hard-coded false.
+            isArrived = progress?.hasArrived == true,
             remainingDistanceMeters = remaining,
         )
         lastSampledCount = nodes.size

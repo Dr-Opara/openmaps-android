@@ -13,8 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.List
@@ -37,6 +38,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
+import com.openmaps.app.core.designsystem.ManeuverGlyph
+import com.openmaps.app.core.localization.LocalMeasurementSystem
+import com.openmaps.app.core.localization.LocalAppLocale
+import com.openmaps.app.core.localization.NavigationUnits
+import com.openmaps.app.core.routing.displayInstruction
+import kotlin.math.roundToInt
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.routing.RouteManeuver
@@ -57,12 +64,15 @@ fun RouteStepsSheet(
     maneuvers: List<RouteManeuver>,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    totalDistanceMeters: Double? = null,
+    totalDurationSeconds: Double? = null,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .surfaceCard(GlassShapes.Card)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
+            .clip(GlassShapes.Card)
+            .background(OpenMapsColors.Navy900)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Icon(
@@ -74,30 +84,69 @@ fun RouteStepsSheet(
             Spacer(Modifier.width(10.dp))
             Text(
                 text = stringResource(R.string.nav_steps),
-                style = MaterialTheme.typography.titleMedium,
-                color = OpenMapsColors.TextPrimary,
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White,
                 modifier = Modifier.weight(1f),
             )
             IconButton(onClick = onDismiss) {
                 Icon(
                     Icons.Filled.Close,
                     contentDescription = stringResource(R.string.cd_dismiss),
-                    tint = OpenMapsColors.TextSecondary,
+                    tint = Color.White,
                 )
             }
         }
         Spacer(Modifier.height(8.dp))
+        // Per-maneuver time is NOT provided by the route model: only show an overall ETA.
+        if (totalDistanceMeters != null || totalDurationSeconds != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .background(OpenMapsColors.Navy800, RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                totalDistanceMeters?.takeIf { it.isFinite() && it >= 0 }?.let { distance ->
+                    Column(Modifier.weight(1f)) {
+                        Text("TOTAL DISTANCE", style = MaterialTheme.typography.labelSmall,
+                            color = OpenMapsColors.TextOnDarkSecondary)
+                        Text(
+                            NavigationUnits.formatDistance(
+                                distance, LocalMeasurementSystem.current, LocalAppLocale.current,
+                            ),
+                            style = MaterialTheme.typography.titleMedium, color = Color.White,
+                        )
+                    }
+                }
+                totalDurationSeconds?.takeIf { it.isFinite() && it >= 0 }?.let { seconds ->
+                    val minutes = (seconds / 60.0).roundToInt()
+                    val hours = minutes / 60
+                    val rest = minutes % 60
+                    val duration = if (hours > 0) {
+                        hours.toString() + " hr " + rest.toString() + " min"
+                    } else minutes.toString() + " min"
+                    Column(Modifier.weight(1f)) {
+                        Text("TRIP TIME", style = MaterialTheme.typography.labelSmall,
+                            color = OpenMapsColors.TextOnDarkSecondary)
+                        Text(duration, style = MaterialTheme.typography.titleMedium, color = Color.White)
+                    }
+                }
+            }
+        }
+
         if (maneuvers.isEmpty()) {
             Text(
                 text = stringResource(R.string.nav_steps_unavailable),
                 style = MaterialTheme.typography.bodyMedium,
-                color = OpenMapsColors.TextSecondary,
+                color = OpenMapsColors.TextOnDarkSecondary,
                 modifier = Modifier.padding(vertical = 12.dp),
             )
         } else {
-            LazyColumn(modifier = Modifier.heightIn(max = MAX_STEPS_SHEET_HEIGHT)) {
-                items(maneuvers, key = { "${it.type}-${it.endShapeIndex}" }) { maneuver ->
-                    RouteStepRow(maneuver)
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 410.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                itemsIndexed(maneuvers, key = { index, _ -> index }) { index, maneuver ->
+                    RouteStepRow(index + 1, maneuver)
                 }
             }
         }
@@ -105,66 +154,68 @@ fun RouteStepsSheet(
 }
 
 @Composable
-private fun RouteStepRow(maneuver: RouteManeuver) {
+private fun RouteStepRow(stepNumber: Int, maneuver: RouteManeuver) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.Top,
+            .background(OpenMapsColors.Navy800, RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(OpenMapsColors.SurfaceMuted, CircleShape),
+            modifier = Modifier.size(58.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(OpenMapsColors.ElectricBlueFilled),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = if (maneuver.type == com.openmaps.app.core.routing.ManeuverType.Destination) {
-                    Icons.Filled.Place
-                } else {
-                    Icons.AutoMirrored.Filled.ArrowForward
-                },
-                contentDescription = null,
-                tint = OpenMapsColors.ElectricBlueFilled,
-                modifier = Modifier
-                    .size(16.dp)
-                    .graphicsLayer { rotationZ = maneuver.type.stepArrowRotationDegrees() },
+            // Same real hook/roundabout/U-turn pictogram family as Live guidance.
+            ManeuverGlyph(
+                type = maneuver.type,
+                tint = Color.White,
+                modifier = Modifier.size(38.dp),
             )
         }
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = maneuver.instruction.ifBlank { maneuver.streetName.orEmpty() },
-            style = MaterialTheme.typography.bodyMedium,
-            color = OpenMapsColors.TextPrimary,
-            modifier = Modifier
-                .weight(1f)
-                .semantics { contentDescription = maneuver.type.stepSpokenLabel() },
-        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "STEP $stepNumber",
+                style = MaterialTheme.typography.labelLarge,
+                color = OpenMapsColors.TextOnDarkSecondary,
+            )
+            val instruction = maneuver.displayInstruction()
+                .ifBlank { maneuver.streetName.orEmpty() }
+                .ifBlank { maneuver.type.stepSpokenLabel() }
+            Text(
+                text = instruction,
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            maneuver.streetName
+                ?.takeIf { it.isNotBlank() && !instruction.contains(it, ignoreCase = true) }
+                ?.let { street ->
+                    Text(street, style = MaterialTheme.typography.bodyMedium,
+                        color = OpenMapsColors.TextOnDarkSecondary, maxLines = 2)
+                }
+            if (maneuver.distanceMeters.isFinite() && maneuver.distanceMeters >= 0.0) {
+                Text(
+                    text = NavigationUnits.formatDistance(
+                        maneuver.distanceMeters,
+                        LocalMeasurementSystem.current,
+                        LocalAppLocale.current,
+                    ) + " along this segment",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFB9D3FF),
+                )
+            }
+        }
     }
 }
 
-/** Rotation for a step's arrow, matching [NavigationControls]' maneuver-arrow convention. */
-private fun com.openmaps.app.core.routing.ManeuverType.stepArrowRotationDegrees(): Float {
-    val pointing = when (this) {
-        com.openmaps.app.core.routing.ManeuverType.SlightLeft -> -45
-        com.openmaps.app.core.routing.ManeuverType.TurnLeft -> -90
-        com.openmaps.app.core.routing.ManeuverType.SharpLeft -> -135
-        com.openmaps.app.core.routing.ManeuverType.UTurn -> 180
-        com.openmaps.app.core.routing.ManeuverType.SlightRight -> 45
-        com.openmaps.app.core.routing.ManeuverType.TurnRight -> 90
-        com.openmaps.app.core.routing.ManeuverType.SharpRight -> 135
-        com.openmaps.app.core.routing.ManeuverType.Roundabout -> 90
-        com.openmaps.app.core.routing.ManeuverType.Ramp -> 45
-        else -> 0
-    }
-    // The glyph points east at 0deg, so straight ahead is -90deg.
-    return pointing - 90f
-}
-
-/** Screen-reader text for a step; an arrow glyph alone carries no meaning. */
+/** Provider type labels also serve accessibility; unknown types are not fabricated as turns. */
 private fun com.openmaps.app.core.routing.ManeuverType.stepSpokenLabel(): String = when (this) {
-    com.openmaps.app.core.routing.ManeuverType.Start -> "Starting route"
+    com.openmaps.app.core.routing.ManeuverType.Start -> "Depart"
     com.openmaps.app.core.routing.ManeuverType.Continue -> "Continue"
     com.openmaps.app.core.routing.ManeuverType.SlightLeft -> "Bear left"
     com.openmaps.app.core.routing.ManeuverType.SlightRight -> "Bear right"
@@ -175,9 +226,9 @@ private fun com.openmaps.app.core.routing.ManeuverType.stepSpokenLabel(): String
     com.openmaps.app.core.routing.ManeuverType.UTurn -> "Make a U-turn"
     com.openmaps.app.core.routing.ManeuverType.Merge -> "Merge"
     com.openmaps.app.core.routing.ManeuverType.Ramp -> "Take the ramp"
-    com.openmaps.app.core.routing.ManeuverType.Roundabout -> "Enter the roundabout"
+    com.openmaps.app.core.routing.ManeuverType.Roundabout -> "Enter roundabout"
     com.openmaps.app.core.routing.ManeuverType.Destination -> "Arrive at your destination"
     com.openmaps.app.core.routing.ManeuverType.Unknown -> "Continue"
 }
 
-private val MAX_STEPS_SHEET_HEIGHT = 320.dp
+private val MAX_STEPS_SHEET_HEIGHT = 410.dp
