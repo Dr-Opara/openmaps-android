@@ -36,6 +36,12 @@ object PlacePhotoGalleryRepository {
     private const val USER_AGENT = "OpenMapsAndroid/1.0 (https://openmaps.tech; photo gallery)"
     private val GENERIC_WORDS = setOf("airport", "international", "intercontinental", "terminal", "center", "centre", "station", "building", "restaurant", "hotel", "store", "shop")
 
+    /** Conservative city token, used for chain locations. */
+    fun localityFromAddress(address: String?): String? {
+        val pieces = address?.split(",")?.map { it.trim() }.orEmpty()
+        return pieces.getOrNull(pieces.size - 2)?.takeIf { it.length >= 4 }
+    }
+
     /** Unit-testable identity check. Avoid photos of a same-name chain at another location. */
     internal fun matchesCommonsTitle(name: String, title: String, locality: String?): Boolean {
         val words = name.lowercase(Locale.ROOT)
@@ -45,9 +51,10 @@ object PlacePhotoGalleryRepository {
         if (words.isEmpty()) return false
         val normalizedTitle = title.lowercase(Locale.ROOT).replace('_', ' ')
         if (!words.all { normalizedTitle.contains(it) }) return false
-        if (locality != null && !normalizedTitle.contains(locality.lowercase(Locale.ROOT))) return false
-        // A single ambiguous chain name must never be matched without its city.
-        return locality != null || words.size >= 2
+        // Unique, specifically named airports can be matched by full title, even when the
+        // filename doesn't include the city (e.g. "Inside William P. Hobby Airport.jpg").
+        if (name.contains("airport", ignoreCase = true) && words.size >= 2) return true
+        return locality != null && normalizedTitle.contains(locality.lowercase(Locale.ROOT))
     }
 
     suspend fun load(
@@ -71,16 +78,44 @@ object PlacePhotoGalleryRepository {
     private fun commons(name: String, locality: String?): List<GalleryPhoto> {
         val queryName = name.replace(Regex("\\([^)]*\\)"), "").trim().take(140)
         if (queryName.length < 5) return emptyList()
-        val encoded = URLEncoder.encode("\"$queryName\"", "UTF-8")
+        val encoded = URLEncoder.encode("\"" + queryName + "\"", "UTF-8")
         val endpoint = "https://commons.wikimedia.org/w/api.php?action=query&generator=search" +
-            "&gsrsearch=$encoded&gsrnamespace=6&gsrlimit=16&prop=imageinfo" +
+            "&gsrsearch=$encoded&gsrnamespace=6&gsrlimit=25&prop=imageinfo" +
             "&iiprop=url%7Csize%7Cextmetadata&iiurlwidth=740&format=json"
-        val pages = json(endpoint).optJSONObject("query")?.optJSONObject("pages") ?: return emptyList()
-        val candidates = mutableListOf<GalleryPhoto>()
+        val pages = json(endpoint).optJSONObject("query")?.optJSONObject("pages")
+        val first = readCommonsPages(pages, queryName, locality, verifiedCategory = false)
+        if (first.isNotEmpty()) return first
+
+        // Many valid image filenames are abbreviated ("HobbyAirportTerminal.JPG") and cannot
+        // satisfy a full-name title match. For specifically named airports, an exact Commons
+        // category gives a stronger identity link than nearby geolocation or fuzzy title search.
+        // Never apply category fallback to chain restaurants or generic stores.
+        if (!queryName.contains("airport", ignoreCase = true)) return emptyList()
+        val category = URLEncoder.encode("Category:" + queryName, "UTF-8")
+        val categoryEndpoint =
+            "https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers" +
+                "&gcmtitle=$category&gcmtype=file&gcmlimit=35&prop=imageinfo" +
+                "&iiprop=url%7Csize%7Cextmetadata&iiurlwidth=740&format=json"
+        val categoryPages = json(categoryEndpoint).optJSONObject("query")?.optJSONObject("pages")
+        return readCommonsPages(categoryPages, queryName, locality, verifiedCategory = true)
+    }
+
+    private fun readCommonsPages(
+        pages: JSONObject?,
+        name: String,
+        locality: String?,
+        verifiedCategory: Boolean,
+    ): List<GalleryPhoto> {
+        if (pages == null) return emptyList()
+        val candidates = mutableListOf<Pair<Int, GalleryPhoto>>()
         val keys = pages.keys()
-        while (keys.hasNext() && candidates.size < 4) {
+        while (keys.hasNext() && candidates.size < 8) {
             val page = pages.optJSONObject(keys.next()) ?: continue
-            if (!matchesCommonsTitle(queryName, page.optString("title"), locality)) continue
+            val title = page.optString("title")
+            if (!verifiedCategory && !matchesCommonsTitle(name, title, locality)) continue
+            if (!title.matches(Regex("(?i)^File:.*\\.(jpe?g|png|webp)$"))) continue
+            // Avoid irrelevant airport diagrams/aircraft flight charts even in a category.
+            if (verifiedCategory && Regex("(?i)diagram|chart|map|logo|signage").containsMatchIn(title)) continue
             val info = page.optJSONArray("imageinfo")?.optJSONObject(0) ?: continue
             if (info.optInt("width") < 740 || info.optInt("height") < 420) continue
             val metadata = info.optJSONObject("extmetadata") ?: continue
@@ -92,16 +127,21 @@ object PlacePhotoGalleryRepository {
                 !onHost(pageUrl, "commons.wikimedia.org")) continue
             val artist = metadata.optJSONObject("Artist")?.optString("value").orEmpty()
                 .replace(Regex("<[^>]*>"), " ").replace(Regex("\\s+"), " ").trim().take(130)
-            val bitmap = fetchBitmap(imageUrl) ?: continue
-            candidates += GalleryPhoto(
-                bitmap = bitmap,
+            val photo = GalleryPhoto(
+                bitmap = fetchBitmap(imageUrl) ?: continue,
                 author = artist.ifBlank { "Wikimedia Commons contributor" },
                 license = license,
                 sourceUrl = pageUrl,
                 kind = GalleryPhotoKind.Destination,
             )
+            val preference = when {
+                Regex("(?i)terminal|entrance|exterior|front|inside").containsMatchIn(title) -> 0
+                Regex("(?i)airport|aerial").containsMatchIn(title) -> 1
+                else -> 2
+            }
+            candidates += preference to photo
         }
-        return candidates
+        return candidates.sortedBy { it.first }.take(4).map { it.second }
     }
 
     internal fun allowedCommonsLicense(license: String): Boolean =
