@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -145,8 +145,8 @@ fun RouteStepsSheet(
                 modifier = Modifier.heightIn(max = 410.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                items(maneuvers, key = { "${it.type}-${it.endShapeIndex}" }) { maneuver ->
-                    RouteStepRow(maneuver)
+                itemsIndexed(maneuvers, key = { index, _ -> index }) { index, maneuver ->
+                    RouteStepRow(index + 1, maneuver)
                 }
             }
         }
@@ -154,7 +154,7 @@ fun RouteStepsSheet(
 }
 
 @Composable
-private fun RouteStepRow(maneuver: RouteManeuver) {
+private fun RouteStepRow(stepNumber: Int, maneuver: RouteManeuver) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -178,7 +178,7 @@ private fun RouteStepRow(maneuver: RouteManeuver) {
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text = maneuver.type.stepSpokenLabel(),
+                text = "STEP $stepNumber",
                 style = MaterialTheme.typography.labelLarge,
                 color = OpenMapsColors.TextOnDarkSecondary,
             )
@@ -187,7 +187,7 @@ private fun RouteStepRow(maneuver: RouteManeuver) {
                 .ifBlank { maneuver.type.stepSpokenLabel() }
             Text(
                 text = instruction,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 color = Color.White,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,

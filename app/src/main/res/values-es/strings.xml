@@ -160,7 +160,7 @@
     <string name="nav_error_no_location">Necesitamos tu ubicación para iniciar la navegación.</string>
     <string name="nav_error_no_route">Esta ruta aún no tiene indicaciones paso a paso.</string>
     <string name="nav_action_report">Informar</string>
-    <string name="nav_action_volume">Voz IA</string>
+    <string name="nav_action_volume">Volumen</string>
     <string name="nav_action_share">Compartir</string>
     <string name="nav_action_reroute">Nueva ruta</string>
     <string name="nav_exit">SALIR</string>

@@ -43,6 +43,39 @@ class ManeuverPresentationTest {
     }
 
     @Test
+    fun typedTurnReplacesGenericProviderInstruction() {
+        val left = RouteManeuver(
+            instruction = "turn", verbalInstruction = null, type = ManeuverType.TurnLeft,
+            streetName = "Tamarro Xing", distanceMeters = 320.0,
+            beginShapeIndex = 0, endShapeIndex = 1,
+        )
+        val right = left.copy(type = ManeuverType.TurnRight)
+        assertEquals("Turn left", left.displayInstruction())
+        assertEquals("Turn right", right.displayInstruction())
+    }
+
+    @Test
+    fun roundaboutApiTokensBecomeReadableInstructions() {
+        val entry = RouteManeuver(
+            instruction = "roundaboutEnter", verbalInstruction = null,
+            type = ManeuverType.Roundabout, streetName = null,
+            distanceMeters = 110.0, beginShapeIndex = 0, endShapeIndex = 1,
+        )
+        assertEquals("Enter the roundabout", entry.displayInstruction())
+        assertEquals("Exit the roundabout", entry.copy(instruction = "roundaboutExit").displayInstruction())
+    }
+
+    @Test
+    fun preservesSpecificProviderGuidanceWithoutInventingRoad() {
+        val step = RouteManeuver(
+            instruction = "Turn left onto Oak Ridge Drive", verbalInstruction = null,
+            type = ManeuverType.TurnLeft, streetName = "Oak Ridge Drive",
+            distanceMeters = 400.0, beginShapeIndex = 0, endShapeIndex = 1,
+        )
+        assertEquals("Turn left onto Oak Ridge Drive", step.displayInstruction())
+    }
+
+    @Test
     fun fallsBackToStreetName() {
         val maneuver = RouteManeuver(
             instruction = "",
