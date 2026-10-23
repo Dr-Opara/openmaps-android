@@ -385,6 +385,7 @@ fun NavigationControls(
                     subtitle = stringResource(R.string.nav_mode_live_body),
                     selected = selectedNavigationMode == NavigationMode.Live,
                     onClick = { onNavigationModeSelected(NavigationMode.Live) },
+                    icon = painterResource(R.drawable.ic_camera_outline),
                     modifier = Modifier.weight(1f),
                 )
             }
