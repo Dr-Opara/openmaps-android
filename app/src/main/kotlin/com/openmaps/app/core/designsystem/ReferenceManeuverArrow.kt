@@ -108,15 +108,15 @@ private fun DrawScope.drawSlantedArrow(color: Color, right: Boolean, sharp: Bool
         moveTo(start.x, start.y)
         val bend = p(0.50f, 0.54f)
         lineTo(bend.x, bend.y)
-        val end = p(0.50f + side * if (sharp) 0.35f else 0.23f, 0.24f)
+        val end = p(0.50f + side * (if (sharp) 0.35f else 0.23f), 0.24f)
         lineTo(end.x, end.y)
     }
     drawPath(path, color, style = Stroke(
         width = size.minDimension * 0.135f, cap = StrokeCap.Round, join = StrokeJoin.Round,
     ))
     drawFilledTip(
-        tip = p(0.50f + side * if (sharp) 0.42f else 0.30f, 0.12f),
-        base = p(0.50f + side * if (sharp) 0.30f else 0.17f, 0.36f),
+        tip = p(0.50f + side * (if (sharp) 0.42f else 0.30f), 0.12f),
+        base = p(0.50f + side * (if (sharp) 0.30f else 0.17f), 0.36f),
         side = Offset(size.width * 0.12f, size.height * 0.065f),
         color = color,
     )
