@@ -58,8 +58,9 @@ import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
-import com.openmaps.app.core.geocoding.LicensedDestinationPhoto
-import com.openmaps.app.core.geocoding.WikimediaDestinationPhotos
+import com.openmaps.app.BuildConfig
+import com.openmaps.app.core.geocoding.PlacePhotoGallery
+import com.openmaps.app.core.geocoding.PlacePhotoGalleryRepository
 import com.openmaps.app.core.location.UserLocation
 import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
@@ -96,10 +97,20 @@ fun DestinationDetailsSheet(
     modifier: Modifier = Modifier,
 ) {
     var tab by rememberSaveable(destination.id) { mutableStateOf(DestinationDetailsTab.Overview) }
-    var photo by androidx.compose.runtime.remember(destination.id) { mutableStateOf<LicensedDestinationPhoto?>(null) }
-    LaunchedEffect(destination.id) {
-        photo = runCatching { WikimediaDestinationPhotos.forPlace(destination.name.ifBlank { destination.displayName }) }.getOrNull()
+    var gallery by androidx.compose.runtime.remember(destination.id) { mutableStateOf(PlacePhotoGallery()) }
+    var photosLoading by androidx.compose.runtime.remember(destination.id) { mutableStateOf(true) }
+    LaunchedEffect(destination.id, destination.latitude, destination.longitude) {
+        photosLoading = true
+        gallery = PlacePhotoGalleryRepository.load(
+            name = destination.name.ifBlank { destination.displayName },
+            latitude = destination.latitude,
+            longitude = destination.longitude,
+            locality = destination.city?.takeIf { it.isNotBlank() },
+            mapillaryClientToken = BuildConfig.MAPILLARY_CLIENT_TOKEN,
+        )
+        photosLoading = false
     }
+    val coverPhoto = gallery.destinationPhotos.firstOrNull()
     val context = LocalContext.current
     var destinationNearby by androidx.compose.runtime.remember(destination.id) { mutableStateOf<List<Place>>(emptyList()) }
     var nearbyStatus by androidx.compose.runtime.remember(destination.id) { mutableStateOf("loading") }
@@ -137,12 +148,21 @@ fun DestinationDetailsSheet(
                 .height(118.dp)
                 .background(OpenMapsColors.SurfaceMuted),
         ) {
-            if (photo != null) {
+            if (coverPhoto != null) {
                 Image(
-                    bitmap = photo!!.bitmap.asImageBitmap(),
-                    contentDescription = "Photo of ${destination.name}",
+                    bitmap = coverPhoto.bitmap.asImageBitmap(),
+                    contentDescription = "View destination photos",
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.matchParentSize(),
+                    modifier = Modifier.matchParentSize().clickable { tab = DestinationDetailsTab.Photos },
+                )
+                Text(
+                    "Photos (" + gallery.destinationPhotos.size + ")",
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
+                        .clip(GlassShapes.Pill)
+                        .background(OpenMapsColors.Navy950.copy(alpha = 0.80f))
+                        .clickable { tab = DestinationDetailsTab.Photos }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    color = Color.White, style = MaterialTheme.typography.labelSmall,
                 )
             } else {
                 Icon(
@@ -177,12 +197,12 @@ fun DestinationDetailsSheet(
                 overflow = TextOverflow.Ellipsis,
             )
 
-            photo?.let { licensed ->
+            coverPhoto?.let { licensed ->
                 Text(
-                    "Photo: ${licensed.attribution} · ${licensed.license} · Wikimedia Commons",
+                    "Photo: " + licensed.author + " · " + licensed.license + " · Wikimedia Commons",
                     modifier = Modifier.padding(top = 6.dp).clickable {
                         runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.commonsPage)))
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.sourceUrl)))
                         }
                     },
                     style = MaterialTheme.typography.labelSmall,
@@ -343,26 +363,11 @@ fun DestinationDetailsSheet(
                     style = MaterialTheme.typography.bodyMedium,
                     color = OpenMapsColors.TextSecondary,
                 )
-                DestinationDetailsTab.Photos -> {
-                    if (photo == null) {
-                        Text("No verified, licensed photo available for this destination yet.", color = OpenMapsColors.TextSecondary)
-                    } else {
-                        Image(
-                            bitmap = photo!!.bitmap.asImageBitmap(),
-                            contentDescription = "Destination photo",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxWidth().height(170.dp),
-                        )
-                        Text(
-                            "View photo license and attribution on Wikimedia Commons",
-                            modifier = Modifier.clickable {
-                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(photo!!.commonsPage))) }
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = OpenMapsColors.ElectricBlueFilled,
-                        )
-                    }
-                }
+                DestinationDetailsTab.Photos -> VerifiedPlacePhotoGallery(
+                    gallery = gallery,
+                    loading = photosLoading,
+                    streetSourceConfigured = BuildConfig.MAPILLARY_CLIENT_TOKEN.isNotBlank(),
+                )
                 DestinationDetailsTab.Nearby -> {
                     when (nearbyStatus) {
                         "loading" -> Text("Finding places near this destination…", color = OpenMapsColors.TextSecondary)
