@@ -76,6 +76,37 @@ class ManeuverPresentationTest {
     }
 
     @Test
+    fun genericDepartUsesProviderStreetInsteadOfPlaceholder() {
+        val maneuver = RouteManeuver(
+            instruction = "depart", verbalInstruction = null,
+            type = ManeuverType.Start, streetName = "East 81st Street",
+            distanceMeters = 400.0, beginShapeIndex = 0, endShapeIndex = 1,
+        )
+        assertEquals("Depart on East 81st Street", maneuver.displayInstruction())
+    }
+
+    @Test
+    fun genericDepartPrefersRichProviderSpokenInstructionWhenAvailable() {
+        val maneuver = RouteManeuver(
+            instruction = "depart",
+            verbalInstruction = "Drive northwest on East 81st Street",
+            type = ManeuverType.Start, streetName = "East 81st Street",
+            distanceMeters = 400.0, beginShapeIndex = 0, endShapeIndex = 1,
+        )
+        assertEquals("Drive northwest on East 81st Street", maneuver.displayInstruction())
+    }
+
+    @Test
+    fun noInventedBearingWhenProviderOmitsSpokenInstruction() {
+        val maneuver = RouteManeuver(
+            instruction = "turn", verbalInstruction = null,
+            type = ManeuverType.TurnRight, streetName = "Oak Ridge Drive",
+            distanceMeters = 110.0, beginShapeIndex = 0, endShapeIndex = 1,
+        )
+        assertEquals("Turn right", maneuver.displayInstruction())
+    }
+
+    @Test
     fun fallsBackToStreetName() {
         val maneuver = RouteManeuver(
             instruction = "",
