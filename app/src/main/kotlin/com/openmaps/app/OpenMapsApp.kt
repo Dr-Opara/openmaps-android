@@ -285,6 +285,7 @@ private fun AppShell(container: AppContainer) {
                 onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
                 onCommunityReportConfirm = viewModel::onCommunityReportConfirmed,
                 onCommunityReportDismiss = viewModel::onCommunityReportDismissed,
+                onExitNavigation = viewModel::endNavigationToHome,
             )
         }
 
