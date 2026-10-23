@@ -262,6 +262,10 @@ fun MapScreen(
                     state.navigationProgress != null -> ActiveMapNavigationPanel(
                     progress = state.navigationProgress!!,
                     voiceEnabled = state.voiceEnabled,
+                    currentSpeedMetersPerSecond = state.roadIntelligenceState.currentSpeedMetersPerSecond,
+                    speedLimitAlert = state.roadIntelligenceState.activeAlerts
+                        .filterIsInstance<com.openmaps.app.core.roadintelligence.RouteAlert.SpeedLimit>()
+                        .firstOrNull(),
                     driverReportStatus = state.driverReportStatus,
                     tripShareStatus = state.tripShareStatus,
                     onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
