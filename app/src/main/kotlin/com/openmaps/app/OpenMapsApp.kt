@@ -39,6 +39,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.openmaps.app.core.geocoding.LocalFavoriteStore
 import com.openmaps.app.core.camera.CameraPermissions
 import com.openmaps.app.core.designsystem.OpenMapsColors
+import com.openmaps.app.core.designsystem.LocalMapNightMode
 import com.openmaps.app.core.location.LocationPermissions
 import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
@@ -59,6 +60,8 @@ import com.openmaps.app.feature.search.searchViewModelFactory
 import com.openmaps.app.feature.settings.SettingsScreen
 import com.openmaps.app.feature.splash.SplashScreen
 import com.openmaps.app.map.MapMode
+import com.openmaps.app.map.MapAppearanceMode
+import com.openmaps.app.map.rememberAmbientMapNight
 
 private enum class Overlay { None, Search, Settings }
 private enum class SearchPurpose { NewDestination, RouteOrigin, RouteDestination }
@@ -92,6 +95,17 @@ private fun AppShell(container: AppContainer) {
     val favoritesContext = LocalContext.current
     val favoriteStore = remember(container, favoritesContext) { LocalFavoriteStore(favoritesContext) }
     var favorites by remember(container) { mutableStateOf(favoriteStore.load()) }
+    // Auto is the default and follows ambient light. Store overrides locally per device.
+    val appearancePrefs = remember(favoritesContext) {
+        favoritesContext.getSharedPreferences("openmaps_map_appearance", Context.MODE_PRIVATE)
+    }
+    var mapAppearanceMode by remember(appearancePrefs) {
+        mutableStateOf(
+            MapAppearanceMode.entries.firstOrNull {
+                it.name == appearancePrefs.getString("mode", MapAppearanceMode.Auto.name)
+            } ?: MapAppearanceMode.Auto,
+        )
+    }
 
     // Production search: continuously keep the geocoder's ranking bias aligned with the latest
     // device location. This never restricts worldwide search; it only helps ambiguous/local queries
@@ -203,17 +217,28 @@ private fun AppShell(container: AppContainer) {
         if (overlay != Overlay.None) overlay = Overlay.None else viewModel.onModeSelected(MapMode.Map)
     }
 
+    // A single ambient-light observer drives both MapLibre tiles and Compose overlays
+    // (Map, Search, POI, Route Preview and Details), not just the map renderer.
+    val autoNight = rememberAmbientMapNight(mapAppearanceMode == MapAppearanceMode.Auto)
+    val mapNight = when (mapAppearanceMode) {
+        MapAppearanceMode.Auto -> autoNight
+        MapAppearanceMode.Day -> false
+        MapAppearanceMode.Night -> true
+    }
     val styleSource = remember(container) { container.mapStyleProvider.resolve() }
     val appLocale = LocalConfiguration.current.locales[0]
 
     CompositionLocalProvider(
         LocalMeasurementSystem provides state.measurementSystem,
         LocalAppLocale provides appLocale,
+        LocalMapNightMode provides mapNight,
     ) {
         Box(Modifier.fillMaxSize().background(OpenMapsColors.Navy900)) {
         MapScreen(
             viewModel = viewModel,
             styleProvider = container.mapStyleProvider,
+            appearanceMode = mapAppearanceMode,
+            resolvedNightMode = mapNight,
             recentDestinations = searchState.recentSearches,
             favoriteDestinations = favorites,
             placesRepository = container.placesRepository,
@@ -283,14 +308,8 @@ private fun AppShell(container: AppContainer) {
                 environmentProfile = state.activeProfile,
                 voiceEnabled = state.voiceEnabled,
                 onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
-                driverReportStatus = state.driverReportStatus,
-                tripShareStatus = state.tripShareStatus,
-                onReport = viewModel::onDriverReportRequested,
                 onCommunityReportConfirm = viewModel::onCommunityReportConfirmed,
                 onCommunityReportDismiss = viewModel::onCommunityReportDismissed,
-                onShareTrip = viewModel::onTripShareRequested,
-                onDismissExternalStatus = viewModel::onExternalActionStatusDismissed,
-                onReroute = viewModel::onManualRerouteRequested,
                 onExitNavigation = viewModel::endNavigationToHome,
             )
         }
@@ -339,6 +358,11 @@ private fun AppShell(container: AppContainer) {
                 measurementSystem = state.measurementSystem,
                 onMeasurementSystemChanged = viewModel::onMeasurementSystemChanged,
                 onOpenLanguageSettings = { context.openLanguageSettings() },
+                mapAppearanceMode = mapAppearanceMode,
+                onMapAppearanceChanged = { selection ->
+                    mapAppearanceMode = selection
+                    appearancePrefs.edit().putString("mode", selection.name).apply()
+                },
             )
         }
         }

@@ -19,7 +19,22 @@ internal object ARArrowVertexGeometry {
     fun pixelToNdcX(x: Float, width: Int): Float = (2f * x / width) - 1f
     fun pixelToNdcY(y: Float, height: Int): Float = 1f - (2f * y / height)
 
-    fun write(arrows: List<ScreenArrow>, viewportWidthPx: Int, viewportHeightPx: Int, output: FloatArray): Int {
+    /**
+     * @param radiusScale Scales the whole chevron (span and stroke thickness) around each arrow's
+     * own anchor point, without changing its position. `1f` (the default) reproduces the exact
+     * geometry this function always drew, so every existing caller/test is untouched. Values above
+     * `1f` are used to emit a second, larger, enlarged pass ([ARArrowRenderer] draws it underneath
+     * the normal pass with additive blending and low alpha) so the chevrons read as a glowing/neon
+     * path rather than a flat, thin outline — matching the reference design's bold, lit look rather
+     * than inventing a shader-based bloom pass.
+     */
+    fun write(
+        arrows: List<ScreenArrow>,
+        viewportWidthPx: Int,
+        viewportHeightPx: Int,
+        output: FloatArray,
+        radiusScale: Float = 1f,
+    ): Int {
         if (viewportWidthPx <= 0 || viewportHeightPx <= 0 || output.size < FLOATS_PER_ARROW) return 0
         var offset = 0
         fun vertex(x: Float, y: Float) {
@@ -47,11 +62,11 @@ internal object ARArrowVertexGeometry {
 
             // The bottom points fan outward, then both bright arms converge at the
             // upper middle. Unlike the old filled triangle, the center stays transparent.
-            val r = arrow.radiusPx
+            val r = arrow.radiusPx * radiusScale
             val halfWidth = r * 1.16f
             val tipY = arrow.y - r * 0.68f
             val outerY = arrow.y + r * 0.58f
-            val thickness = (r * 0.38f).coerceAtLeast(2f)
+            val thickness = (r * 0.38f).coerceAtLeast(2f * radiusScale)
             quad(arrow.x - halfWidth, outerY, arrow.x, tipY, thickness)
             quad(arrow.x + halfWidth, outerY, arrow.x, tipY, thickness)
         }
