@@ -59,6 +59,7 @@ import com.openmaps.app.feature.search.searchViewModelFactory
 import com.openmaps.app.feature.settings.SettingsScreen
 import com.openmaps.app.feature.splash.SplashScreen
 import com.openmaps.app.map.MapMode
+import com.openmaps.app.map.MapAppearanceMode
 
 private enum class Overlay { None, Search, Settings }
 private enum class SearchPurpose { NewDestination, RouteOrigin, RouteDestination }
@@ -92,6 +93,17 @@ private fun AppShell(container: AppContainer) {
     val favoritesContext = LocalContext.current
     val favoriteStore = remember(container, favoritesContext) { LocalFavoriteStore(favoritesContext) }
     var favorites by remember(container) { mutableStateOf(favoriteStore.load()) }
+    // Auto is the default and follows ambient light. Store overrides locally per device.
+    val appearancePrefs = remember(favoritesContext) {
+        favoritesContext.getSharedPreferences("openmaps_map_appearance", Context.MODE_PRIVATE)
+    }
+    var mapAppearanceMode by remember(appearancePrefs) {
+        mutableStateOf(
+            MapAppearanceMode.entries.firstOrNull {
+                it.name == appearancePrefs.getString("mode", MapAppearanceMode.Auto.name)
+            } ?: MapAppearanceMode.Auto,
+        )
+    }
 
     // Production search: continuously keep the geocoder's ranking bias aligned with the latest
     // device location. This never restricts worldwide search; it only helps ambiguous/local queries
@@ -214,6 +226,7 @@ private fun AppShell(container: AppContainer) {
         MapScreen(
             viewModel = viewModel,
             styleProvider = container.mapStyleProvider,
+            appearanceMode = mapAppearanceMode,
             recentDestinations = searchState.recentSearches,
             favoriteDestinations = favorites,
             placesRepository = container.placesRepository,
@@ -333,6 +346,11 @@ private fun AppShell(container: AppContainer) {
                 measurementSystem = state.measurementSystem,
                 onMeasurementSystemChanged = viewModel::onMeasurementSystemChanged,
                 onOpenLanguageSettings = { context.openLanguageSettings() },
+                mapAppearanceMode = mapAppearanceMode,
+                onMapAppearanceChanged = { selection ->
+                    mapAppearanceMode = selection
+                    appearancePrefs.edit().putString("mode", selection.name).apply()
+                },
             )
         }
         }
