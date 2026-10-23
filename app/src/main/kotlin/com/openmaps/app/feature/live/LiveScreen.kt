@@ -49,6 +49,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -83,7 +86,8 @@ import com.openmaps.app.camera.RearCameraHost
 import com.openmaps.app.camera.RearCameraState
 import com.openmaps.app.core.camera.CameraPermissionState
 import com.openmaps.app.core.designsystem.GlassShapes
-import com.openmaps.app.core.designsystem.ManeuverGlyph
+import com.openmaps.app.core.designsystem.ReferenceManeuverArrow
+import com.openmaps.app.core.designsystem.NavigationVolumePopup
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.OpenMapsWordmark
 import com.openmaps.app.core.designsystem.glass
@@ -282,7 +286,7 @@ fun LiveScreen(
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
                 .padding(top = 64.dp, start = 14.dp, end = 14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+            horizontalAlignment = Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             when (val hud = hudState) {
@@ -1327,21 +1331,22 @@ private fun LiveSideControls(
             }
             // +/- and mute only appear when volume is tapped; never add persistent controls
             // over the camera feed. Navigation voice setting remains the shared MapViewModel state.
-            DropdownMenu(expanded = showVolume, onDismissRequest = { showVolume = false }) {
-                DropdownMenuItem(text = { Text("Volume down") }, onClick = {
+            NavigationVolumePopup(
+                expanded = showVolume,
+                onDismiss = { showVolume = false },
+                guidanceEnabled = voiceEnabled,
+                onLower = {
                     audioManager?.adjustStreamVolume(
                         AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0,
                     )
-                })
-                DropdownMenuItem(text = {
-                    Text(if (voiceEnabled) "Mute guidance" else "Unmute guidance")
-                }, onClick = { onVoiceMuteToggled() })
-                DropdownMenuItem(text = { Text("Volume up") }, onClick = {
+                },
+                onRaise = {
                     audioManager?.adjustStreamVolume(
                         AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0,
                     )
-                })
-            }
+                },
+                onMuteToggle = onVoiceMuteToggled,
+            )
         }
 
         IconButton(
@@ -1411,41 +1416,36 @@ private fun LiveSideControls(
  */
 @Composable
 private fun LiveManeuverHud(hud: LiveHudState.Maneuver, modifier: Modifier = Modifier) {
-    // Original OpenMaps Live reference: large cobalt maneuver tile, dominant distance,
-    // readable full instruction and a dark, translucent rounded container.
+    // Approved navigation-flow image (screen 5): a LARGE WHITE standalone arrow with
+    // a solid head directly on translucent navy. No blue square behind the icon.
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
-            .background(Color(0xE60B1928))
-            .padding(horizontal = 14.dp, vertical = 16.dp),
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color(0xEB0B1A30))
+            .heightIn(min = 104.dp)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(72.dp)
-                .clip(RoundedCornerShape(19.dp))
-                .background(OpenMapsColors.ElectricBlueFilled),
-            contentAlignment = Alignment.Center,
-        ) {
-            ManeuverGlyph(
-                type = hud.type,
-                tint = Color.White,
-                modifier = Modifier.size(46.dp),
-            )
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        ReferenceManeuverArrow(
+            type = hud.type,
+            size = 58.dp,
+            modifier = Modifier.semantics {
+                contentDescription = "Navigation maneuver: ${hud.instruction}"
+            },
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
-                text = formatLiveDistance(hud.distanceToManeuverMeters),
-                style = MaterialTheme.typography.headlineMedium,
-                color = Color.White,
+                text = "in " + formatLiveDistance(hud.distanceToManeuverMeters),
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White.copy(alpha = 0.98f),
                 maxLines = 1,
             )
             Text(
-                text = hud.instruction,
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White.copy(alpha = 0.91f),
+                text = hud.instruction.ifBlank { "Continue following route" },
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1453,13 +1453,7 @@ private fun LiveManeuverHud(hud: LiveHudState.Maneuver, modifier: Modifier = Mod
     }
 }
 
-/**
- * The mockup's separate "Then" card beneath the maneuver card.
- *
- * Split out of [LiveManeuverHud] rather than left as a third line inside it, matching the mockup:
- * the upcoming turn is its own compact pill so it never competes with the current instruction.
- * Mockup: "Then" label, a small white turn icon, a thin divider, then the instruction.
- */
+/** The reference's small separate "Then ↱" pill, not another text-heavy banner. */
 @Composable
 private fun LiveNextManeuverHud(
     nextInstruction: String,
@@ -1468,37 +1462,26 @@ private fun LiveNextManeuverHud(
 ) {
     Row(
         modifier = modifier
-            .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Navy950.copy(alpha = 0.50f))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .clip(RoundedCornerShape(13.dp))
+            .background(Color(0xDE0B1928))
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Then " + nextInstruction
+            }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = stringResource(R.string.live_then_label),
-            style = MaterialTheme.typography.labelLarge,
-            color = OpenMapsColors.TextOnDarkSecondary,
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White,
         )
         if (nextManeuverType != null) {
-            ManeuverGlyph(
-                type = nextManeuverType,
-                tint = Color.White,
-                modifier = Modifier.size(18.dp),
-            )
-            Box(
-                Modifier
-                    .width(1.dp)
-                    .height(16.dp)
-                    .background(Color.White.copy(alpha = 0.3f)),
-            )
+            ReferenceManeuverArrow(type = nextManeuverType, size = 26.dp)
+        } else {
+            Text(nextInstruction, style = MaterialTheme.typography.bodyMedium,
+                color = Color.White, maxLines = 1)
         }
-        Text(
-            text = nextInstruction,
-            style = MaterialTheme.typography.labelLarge,
-            color = Color.White,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
