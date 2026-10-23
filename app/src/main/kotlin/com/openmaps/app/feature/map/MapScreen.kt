@@ -1,6 +1,5 @@
 package com.openmaps.app.feature.map
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +37,8 @@ import com.openmaps.app.map.MapEngine
 import com.openmaps.app.map.MapLibreHost
 import com.openmaps.app.map.MapLibreMapEngine
 import com.openmaps.app.map.MapStyleProvider
+import com.openmaps.app.map.MapAppearanceMode
+import com.openmaps.app.map.rememberAmbientMapNight
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -66,6 +67,7 @@ fun MapScreen(
     onVoiceSearchClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
+    appearanceMode: MapAppearanceMode = MapAppearanceMode.Auto,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -74,14 +76,20 @@ fun MapScreen(
     val engine: MapEngine = remember(viewModel, styleProvider) {
         MapLibreMapEngine(styleProvider = styleProvider, initialCamera = viewModel.uiState.value.cameraState)
     }
-    val useNightMap = isSystemInDarkTheme()
+    // Unlike the old system-theme-only condition, Auto uses the phone's ambient light
+    // sensor with a settling interval. Manual Day and Night overrides are in Settings.
+    val automaticallyNight = rememberAmbientMapNight(appearanceMode == MapAppearanceMode.Auto)
+    val useNightMap = when (appearanceMode) {
+        MapAppearanceMode.Auto -> automaticallyNight
+        MapAppearanceMode.Day -> false
+        MapAppearanceMode.Night -> true
+    }
     LaunchedEffect(engine, state.isNavigating, useNightMap) {
         engine.setCartographyMode(
             when {
                 state.isNavigating && useNightMap -> CartographyMode.NavigationNight
                 state.isNavigating -> CartographyMode.NavigationDay
-                // Browse and Route Preview share one consistent daytime base map.
-                // Night cartography remains available while actively navigating.
+                useNightMap -> CartographyMode.BrowseNight
                 else -> CartographyMode.BrowseDay
             },
         )
@@ -254,6 +262,10 @@ fun MapScreen(
                     state.navigationProgress != null -> ActiveMapNavigationPanel(
                     progress = state.navigationProgress!!,
                     voiceEnabled = state.voiceEnabled,
+                    currentSpeedMetersPerSecond = state.roadIntelligenceState.currentSpeedMetersPerSecond,
+                    speedLimitAlert = state.roadIntelligenceState.activeAlerts
+                        .filterIsInstance<com.openmaps.app.core.roadintelligence.RouteAlert.SpeedLimit>()
+                        .firstOrNull(),
                     driverReportStatus = state.driverReportStatus,
                     tripShareStatus = state.tripShareStatus,
                     onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
@@ -268,6 +280,8 @@ fun MapScreen(
                 // layered above the route summary it belongs to.
                 state.isShowingSteps && state.stepsRouteSummary != null -> RouteStepsSheet(
                     maneuvers = state.stepsRouteSummary?.maneuvers.orEmpty(),
+                    totalDistanceMeters = state.stepsRouteSummary?.distanceMeters,
+                    totalDurationSeconds = state.stepsRouteSummary?.durationSeconds,
                     onDismiss = viewModel::onStepsDismissed,
                 )
 
