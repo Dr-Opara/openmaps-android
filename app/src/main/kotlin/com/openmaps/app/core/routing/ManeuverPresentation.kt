@@ -35,7 +35,7 @@ fun RouteManeuver.displayInstruction(): String {
         "arrive", "destination", "unknown",
     )
     val base = when {
-        raw.isBlank() -> streetName.orEmpty().ifBlank { fallback }
+        raw.isBlank() -> streetName.orEmpty()
         isGeneric -> fallback
         else -> raw
     }
