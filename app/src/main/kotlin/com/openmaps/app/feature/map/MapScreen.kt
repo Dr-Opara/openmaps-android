@@ -158,12 +158,21 @@ fun MapScreen(
             ) {
                 // A stable light capsule protects navy/blue branding over any map tile.
                 OpenMapsWordmark(
-                    Modifier
-                        .background(Color.White.copy(alpha = 0.96f), RoundedCornerShape(24.dp))
+                    modifier = Modifier
+                        .background(
+                            if (useNightMap) OpenMapsColors.Navy900.copy(alpha = 0.90f)
+                            else Color.White.copy(alpha = 0.96f),
+                            RoundedCornerShape(24.dp),
+                        )
                         .padding(horizontal = 10.dp, vertical = 9.dp),
+                    onLight = !useNightMap,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    MapModeToggle(selected = state.selectedMapMode, onSelected = viewModel::onModeSelected)
+                    MapModeToggle(
+                        selected = state.selectedMapMode,
+                        onSelected = viewModel::onModeSelected,
+                        transparent = useNightMap,
+                    )
                     MapSettingsButton(onClick = onSettingsClick)
                 }
             }
