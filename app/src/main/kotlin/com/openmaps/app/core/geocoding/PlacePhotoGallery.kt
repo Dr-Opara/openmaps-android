@@ -2,6 +2,7 @@ package com.openmaps.app.core.geocoding
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -34,6 +35,7 @@ data class PlacePhotoGallery(
  */
 object PlacePhotoGalleryRepository {
     private const val USER_AGENT = "OpenMapsAndroid/1.0 (https://openmaps.tech; photo gallery)"
+    private const val TAG = "OpenMapsPhotos"
     private val GENERIC_WORDS = setOf("airport", "international", "intercontinental", "terminal", "center", "centre", "station", "building", "restaurant", "hotel", "store", "shop")
 
     /** Conservative city token, used for chain locations. */
@@ -67,11 +69,15 @@ object PlacePhotoGalleryRepository {
         if (name.isBlank() || !latitude.isFinite() || !longitude.isFinite() ||
             latitude !in -90.0..90.0 || longitude !in -180.0..180.0
         ) return@withContext PlacePhotoGallery()
-        val placePhotos = runCatching { commons(name, locality) }.getOrDefault(emptyList())
+        val placePhotos = runCatching { commons(name, locality) }
+            .onFailure { Log.w(TAG, "Wikimedia destination photo lookup failed", it) }
+            .getOrDefault(emptyList())
         // Mapillary requires an opt-in client access token. This is a client-visible token,
         // NOT a server-side application secret; never give the mobile app private credentials.
         val street = if (mapillaryClientToken.isBlank()) emptyList() else
-            runCatching { mapillary(latitude, longitude, mapillaryClientToken) }.getOrDefault(emptyList())
+            runCatching { mapillary(latitude, longitude, mapillaryClientToken) }
+                .onFailure { Log.w(TAG, "Optional Mapillary street imagery failed", it) }
+                .getOrDefault(emptyList())
         PlacePhotoGallery(placePhotos, street)
     }
 
@@ -91,13 +97,26 @@ object PlacePhotoGalleryRepository {
         // category gives a stronger identity link than nearby geolocation or fuzzy title search.
         // Never apply category fallback to chain restaurants or generic stores.
         if (!queryName.contains("airport", ignoreCase = true)) return emptyList()
-        val category = URLEncoder.encode("Category:" + queryName, "UTF-8")
-        val categoryEndpoint =
-            "https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers" +
-                "&gcmtitle=$category&gcmtype=file&gcmlimit=35&prop=imageinfo" +
-                "&iiprop=url%7Csize%7Cextmetadata&iiurlwidth=740&format=json"
-        val categoryPages = json(categoryEndpoint).optJSONObject("query")?.optJSONObject("pages")
-        return readCommonsPages(categoryPages, queryName, locality, verifiedCategory = true)
+        // Nominatim and OSM frequently omit the dot after a person's middle initial.
+        // For example SearchResult says "William P Hobby Airport" but the real Commons
+        // category is "William P. Hobby Airport". Try the normalized exact-name variants.
+        for (categoryName in commonsAirportCategoryCandidates(queryName)) {
+            val category = URLEncoder.encode("Category:" + categoryName, "UTF-8")
+            val categoryEndpoint =
+                "https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers" +
+                    "&gcmtitle=$category&gcmtype=file&gcmlimit=35&prop=imageinfo" +
+                    "&iiprop=url%7Csize%7Cextmetadata&iiurlwidth=740&format=json"
+            val categoryPages = json(categoryEndpoint).optJSONObject("query")?.optJSONObject("pages")
+            val photos = readCommonsPages(categoryPages, queryName, locality, verifiedCategory = true)
+            if (photos.isNotEmpty()) return photos
+        }
+        return emptyList()
+    }
+
+    /** Avoid fuzzy city/name matches; only middle-initial punctuation may be normalized. */
+    internal fun commonsAirportCategoryCandidates(name: String): List<String> {
+        val initials = name.replace(Regex("\\b([A-Z]) ([A-Z][a-z]+)"), "$1. $2")
+        return listOf(initials, name).distinct()
     }
 
     private fun readCommonsPages(
@@ -146,7 +165,7 @@ object PlacePhotoGalleryRepository {
 
     internal fun allowedCommonsLicense(license: String): Boolean =
         license.startsWith("CC BY ") || license.startsWith("CC BY-SA ") ||
-            license == "CC0" || license == "Public domain"
+            license.startsWith("CC0") || license.equals("Public domain", ignoreCase = true)
 
     private fun mapillary(lat: Double, lon: Double, token: String): List<GalleryPhoto> {
         // Keep bounding boxes intentionally small: large Mapillary bounding boxes can time out.
@@ -208,7 +227,10 @@ object PlacePhotoGalleryRepository {
         connection.readTimeout = 8_000
         connection.setRequestProperty("User-Agent", USER_AGENT)
         return try {
-            if (connection.responseCode != 200) return JSONObject()
+            val status = connection.responseCode
+            if (status != 200) {
+                throw java.io.IOException("Photo API returned HTTP $status")
+            }
             JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
         } finally {
             connection.disconnect()

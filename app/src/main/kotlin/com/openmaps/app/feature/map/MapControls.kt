@@ -1,6 +1,8 @@
 package com.openmaps.app.feature.map
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -9,7 +11,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,6 +49,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,6 +62,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalConfiguration
@@ -60,6 +72,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
@@ -499,12 +514,60 @@ fun BottomPanel(
     modifier: Modifier = Modifier,
 ) {
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    // Direct finger-following drag, with a spring only after release. The previous handle
+    // accumulated pixels but moved the Route Preview *zero* pixels and only toggled Home/Discover.
+    // Keep the existing Home/Discover expansion behavior independent from Route Preview.
     var discoverExpanded by remember { mutableStateOf(false) }
-    var dragDistance by remember { mutableFloatStateOf(0f) }
+    var discoverDragDistance by remember { mutableFloatStateOf(0f) }
+    var sheetHeightPx by remember { mutableIntStateOf(0) }
+    var sheetOffsetPx by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    val peekPx = with(density) { 118.dp.toPx() }
+    val collapseLimit = (sheetHeightPx.toFloat() - peekPx).coerceAtLeast(0f)
+    val scope = rememberCoroutineScope()
+    var settlingJob by remember { mutableStateOf<Job?>(null) }
+    LaunchedEffect(destination?.id) {
+        settlingJob?.cancel()
+        sheetOffsetPx = 0f
+    }
+    fun settleTo(target: Float) {
+        settlingJob?.cancel()
+        settlingJob = scope.launch {
+            Animatable(sheetOffsetPx).animateTo(
+                targetValue = target.coerceIn(0f, collapseLimit),
+                animationSpec = spring(dampingRatio = 0.83f, stiffness = 470f),
+            ) { sheetOffsetPx = value }
+        }
+    }
+    val previewDragState = rememberDraggableState { delta ->
+        settlingJob?.cancel()
+        sheetOffsetPx = (sheetOffsetPx + delta).coerceIn(0f, collapseLimit)
+    }
+    val routeDragModifier = if (destination != null) {
+        Modifier
+            .onSizeChanged { sheetHeightPx = it.height }
+            .offset { IntOffset(0, sheetOffsetPx.roundToInt()) }
+            .draggable(
+                state = previewDragState,
+                orientation = Orientation.Vertical,
+                onDragStopped = { velocity ->
+                    // A downward fling collapses; an upward fling expands. Normal releases
+                    // settle at the nearer anchor. No "teleport" between endpoints.
+                    val settleCollapsed = when {
+                        velocity > 900f -> true
+                        velocity < -900f -> false
+                        else -> sheetOffsetPx > collapseLimit * 0.45f
+                    }
+                    settleTo(if (settleCollapsed) collapseLimit else 0f)
+                },
+            )
+    } else Modifier
     // Route Preview has its own dark surface. The home/discovery sheet keeps its light treatment.
     // Do not re-theme the shared surfaceCard() modifier used across Map and Search.
     val panelSurface = if (destination != null) {
         modifier.fillMaxWidth()
+            .then(routeDragModifier)
+            .heightIn(max = screenHeight * 0.83f)
             .background(OpenMapsColors.Navy900, GlassShapes.Card)
             .clip(GlassShapes.Card)
     } else {
@@ -514,28 +577,33 @@ fun BottomPanel(
         modifier = panelSurface.padding(horizontal = 18.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Drag only from the handle so category taps and scrolling do not fight sheet gestures.
+        // Larger handle area remains usable even when sheet content is scrollable.
+        val handleModifier = if (destination == null) {
+            Modifier.pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragStart = { discoverDragDistance = 0f },
+                    onVerticalDrag = { change, amount ->
+                        change.consume()
+                        discoverDragDistance += amount
+                    },
+                    onDragEnd = {
+                        if (discoverDragDistance < -35f) discoverExpanded = true
+                        if (discoverDragDistance > 35f) discoverExpanded = false
+                    },
+                )
+            }
+        } else {
+            Modifier.clickable {
+                settleTo(if (sheetOffsetPx > collapseLimit * 0.45f) 0f else collapseLimit)
+            }
+        }
         Box(
-            Modifier
-                .fillMaxWidth()
-                .height(24.dp)
-                .pointerInput(destination) {
-                    detectVerticalDragGestures(
-                        onDragStart = { dragDistance = 0f },
-                        onVerticalDrag = { change, amount ->
-                            change.consume()
-                            dragDistance += amount
-                        },
-                        onDragEnd = {
-                            if (dragDistance < -35f) discoverExpanded = true
-                            if (dragDistance > 35f) discoverExpanded = false
-                        },
-                    )
-                },
+            Modifier.fillMaxWidth().height(28.dp).then(handleModifier),
             contentAlignment = Alignment.Center,
         ) {
             SheetDragHandle(
-                tint = if (destination != null) Color.White.copy(alpha = 0.35f) else OpenMapsColors.SurfaceBorder,
+                tint = if (destination != null) Color.White.copy(alpha = 0.40f)
+                    else OpenMapsColors.SurfaceBorder,
             )
         }
         if (destination == null) {
@@ -557,6 +625,12 @@ fun BottomPanel(
             }
             }
         } else {
+            Column(
+                modifier = Modifier.fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
             Text(
                 text = stringResource(R.string.route_preview_title),
                 style = MaterialTheme.typography.titleLarge,
@@ -582,6 +656,7 @@ fun BottomPanel(
                 onStart = onStart,
                 onStop = onStop,
             )
+            }
         }
     }
 }
