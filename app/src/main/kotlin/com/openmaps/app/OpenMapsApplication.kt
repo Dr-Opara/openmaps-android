@@ -288,5 +288,15 @@ class OpenMapsApplication : Application() {
                 outcome = ReliabilityOutcome.Success,
             ),
         )
+
+        // Google Places UI Kit (Phase 1, Issue #78). Must run once before any Places widget is
+        // used (Google's docs: initialize in Application.onCreate). Skipped entirely when no key
+        // is configured, so a build without credentials never touches the Places SDK at all.
+        if (BuildConfig.GOOGLE_PLACES_UI_KIT_CONFIGURED) {
+            com.google.android.libraries.places.api.Places.initializeWithNewPlacesApiEnabled(
+                this,
+                BuildConfig.GOOGLE_PLACES_API_KEY,
+            )
+        }
     }
 }

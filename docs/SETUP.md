@@ -224,6 +224,102 @@ reaches tracking.
 - **Physical validation remains mandatory.** A successful Gradle credential check proves only that
   the key is present. A real ARCore-capable phone must still reach an authorized Earth state outdoors.
 
+## Google Places UI Kit provisioning (Google Cloud) — Phase 1, Issue #78
+
+Adds Google's native `PlaceDetailsFragment` (Places UI Kit) as a supplementary "More from Google"
+section on the destination sheet's Overview tab — ratings, reviews, phone, website, hours, and
+photos, sourced and rendered entirely by Google's own widget. It is a **separate Google Cloud API
+key from `ARCORE_API_KEY`** above: different API (Places API, New — not ARCore API), and the Places
+SDK is initialized in code (`Places.initializeWithNewPlacesApiEnabled`), not via an
+AndroidManifest meta-data entry the way ARCore's key is.
+
+### What this project needs
+
+| Item | Value |
+|---|---|
+| Android package name | `com.openmaps.app` |
+| Debug signing certificate SHA-1 | `F2:D2:9F:2D:FE:0A:0A:90:80:58:3E:EC:3B:BB:5E:C2:9E:A9:A1:40` |
+| API to enable | **Places API (New)** |
+| Code entry point | `OpenMapsApplication.onCreate()` calls `Places.initializeWithNewPlacesApiEnabled` when configured |
+
+> **Exact paste location:** the repository root `local.properties` file, on a line reading
+> `GOOGLE_PLACES_API_KEY=<your key>`. Already covered by the existing `/local.properties` gitignore
+> entry. Resolution order (first non-empty wins): `-PGOOGLE_PLACES_API_KEY=...` → the
+> `GOOGLE_PLACES_API_KEY` environment variable → `local.properties`. Absent key = the feature stays
+> hidden; nothing crashes and Overview looks exactly as it does today.
+
+> Use a **second, separate** API key from `ARCORE_API_KEY`, restricted to **Places API (New) only**
+> — do not reuse or widen the ARCore key's restrictions.
+
+### Architecture notes (read before changing `GooglePlaceDetailsCard.kt`)
+
+- **The key ships inside the APK.** Unlike every other provider in this app (geocoding, routing,
+  nearby places, lane guidance, traffic — all proxied through the OpenMaps backend gateway so
+  provider secrets never reach the device), the Places UI Kit widget is a native Google-rendered
+  component that calls Google's servers directly from the client. There is no gateway step to put
+  in front of it. Security relies entirely on the Cloud Console Android-app restriction
+  (package + SHA-1) above, exactly like `ARCORE_API_KEY` already does.
+- **Loaded by coordinates, not Place ID.** OpenMaps resolves destinations via OSM/Nominatim, which
+  has no concept of a Google Place ID. `GooglePlaceDetailsCard` calls
+  `PlaceDetailsFragment.loadWithCoordinates(LatLng)`, Google's own nearest-place match for a raw
+  lat/lng — not `loadWithPlaceId`. This can occasionally resolve to the wrong establishment at a
+  shared address (e.g., a strip mall); that is a Google-side matching limit, not a bug in this
+  integration, but is worth knowing before anyone is tempted to treat its result as authoritative
+  for OpenMaps' own place identity.
+- **Each load is billed.** `GooglePlaceDetailsEngine` loads at most once per distinct
+  (latitude, longitude) pair for the composable's lifetime — never on recomposition — specifically
+  because Google bills per `loadWithCoordinates` call. Do not add a `LaunchedEffect`/polling path
+  that re-triggers it.
+- **`MainActivity` now extends `FragmentActivity`, not `ComponentActivity`.** Required because
+  `PlaceDetailsFragment` is an `androidx.fragment.app.Fragment` and needs a `FragmentManager`
+  (`supportFragmentManager`). `FragmentActivity` is itself a `ComponentActivity` subclass, so this
+  is additive — `setContent`, `enableEdgeToEdge`, and `installSplashScreen` are unaffected.
+- **Attribution and display.** The widget renders Google's own required attribution chrome; do not
+  crop, overlay, or restyle its container beyond sizing. Do not persist or cache the `Place` object
+  the widget loads — OpenMaps does not currently store it anywhere, and it should stay that way
+  unless a specific need (and a re-check of Google's caching terms) says otherwise.
+- **Kotlin version floor.** Adding `com.google.android.libraries.places:places` forced a bump of
+  `kotlin` in `gradle/libs.versions.toml` from `2.0.21` to `2.1.0` — the SDK transitively requires
+  `kotlin-stdlib:2.1.0`, and Gradle resolves to the higher version project-wide regardless of this
+  module's own pin, which made `compileDebugKotlin` hard-fail before the bump. The `places` version
+  is pinned to `5.0.0`, not the newer `6.0.2`, because `6.0.2` needs `kotlin-stdlib:2.4.0`, which no
+  available Kotlin Gradle plugin in this project's AGP line can compile against yet.
+- **Lint suppression.** `app/build.gradle.kts`'s `lint { disable += "NotificationPermission" }` is
+  needed because the Places SDK transitively pulls in Glide 4.11.0 for its own photo loading, and
+  lint's `NotificationPermission` check fires on Glide's `NotificationTarget` class merely being on
+  the classpath — not on OpenMaps actually posting a notification (it does not, and should not
+  without a real, deliberate notification feature and the `POST_NOTIFICATIONS` runtime prompt that
+  implies).
+
+### Google Cloud steps
+
+1. In the same Cloud project as `ARCORE_API_KEY` (or a different one — they do not need to match),
+   open **APIs & Services → Library**, search **Places API (New)**, and click **Enable**.
+2. **APIs & Services → Credentials → Create credentials → API key.** Copy the key.
+3. Edit the key → **API restrictions → Restrict key → Places API (New)** only.
+4. **Application restrictions → Android apps** → add package `com.openmaps.app` + the SHA-1 above
+   (and a second key with your release certificate's SHA-1 for release builds, same as ARCore).
+5. Put the key in `local.properties` (git-ignored — never commit it):
+   ```properties
+   GOOGLE_PLACES_API_KEY=AIza...your_key_here
+   ```
+6. Rebuild: `.\gradlew.bat --stop`, `clean`, `assembleDebug`.
+
+### What remains after the key is configured
+
+- **Not yet verified on a real device or emulator.** This phase was built and verified to compile,
+  lint, unit-test, `assembleDebug`, and `bundleRelease` cleanly with no key configured (the feature
+  stays hidden in that state, by design). Nobody has yet opened the destination sheet with a real
+  `GOOGLE_PLACES_API_KEY` configured to confirm the widget actually renders, loads a correct place
+  for a real coordinate, and survives the Fragment/Compose interop (add/replace/remove) across
+  repeated navigation in and out of the sheet. Do that first, on a physical device, before trusting
+  this in front of real users.
+- **Content scope.** Loaded with `PlaceDetailsFragment.ALL_CONTENT`, which Google's SDK (as of
+  `places:5.0.0`) defines to include address, rating, price, type, accessible-entrance icon,
+  open-now status, summary, opening hours, website, phone number, type-specific highlights,
+  reviews, Plus Code, features, and generative summary — all Google-sourced and Google-rendered;
+  OpenMaps does not parse or re-display any of these fields itself.
+
 ## AR route anchors and arrows (Phases 7/8)
 
 These require a physical ARCore device. There is **no emulator substitute**: without the
