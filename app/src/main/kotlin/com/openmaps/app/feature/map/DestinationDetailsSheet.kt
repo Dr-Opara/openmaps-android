@@ -187,13 +187,17 @@ fun DestinationDetailsSheet(
             IconButton(
                 onClick = onDismiss,
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
-                    .clip(CircleShape).background(Color.White.copy(alpha = 0.90f)),
+                    .clip(CircleShape).background(mapSheetSurfaceColor().copy(alpha = 0.93f)),
             ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.cd_back),
+                    tint = mapSheetPrimaryTextColor(),
+                )
             }
             Box(
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
-                    .size(36.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.90f)),
+                    .size(36.dp).clip(CircleShape).background(mapSheetSurfaceColor().copy(alpha = 0.93f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Filled.MoreVert, contentDescription = null, tint = mapSheetSecondaryTextColor())
