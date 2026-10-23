@@ -38,7 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
-import com.openmaps.app.core.designsystem.ManeuverGlyph
+import com.openmaps.app.core.designsystem.ReferenceManeuverArrow
 import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.NavigationUnits
@@ -169,10 +169,10 @@ private fun RouteStepRow(stepNumber: Int, maneuver: RouteManeuver) {
             contentAlignment = Alignment.Center,
         ) {
             // Same real hook/roundabout/U-turn pictogram family as Live guidance.
-            ManeuverGlyph(
+            ReferenceManeuverArrow(
                 type = maneuver.type,
-                tint = Color.White,
-                modifier = Modifier.size(38.dp),
+                size = 38.dp,
+                color = Color.White,
             )
         }
         Spacer(Modifier.width(14.dp))

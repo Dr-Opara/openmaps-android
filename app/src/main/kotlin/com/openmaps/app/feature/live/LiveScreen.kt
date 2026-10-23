@@ -49,6 +49,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -83,7 +86,8 @@ import com.openmaps.app.camera.RearCameraHost
 import com.openmaps.app.camera.RearCameraState
 import com.openmaps.app.core.camera.CameraPermissionState
 import com.openmaps.app.core.designsystem.GlassShapes
-import com.openmaps.app.core.designsystem.ManeuverGlyph
+import com.openmaps.app.core.designsystem.ReferenceManeuverArrow
+import com.openmaps.app.core.designsystem.NavigationVolumePopup
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.OpenMapsWordmark
 import com.openmaps.app.core.designsystem.glass
@@ -282,7 +286,7 @@ fun LiveScreen(
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
                 .padding(top = 64.dp, start = 14.dp, end = 14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+            horizontalAlignment = Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             when (val hud = hudState) {
@@ -584,95 +588,30 @@ private fun LiveSpeedBlock(
 ) {
     val measurementSystem = LocalMeasurementSystem.current
     val locale = LocalAppLocale.current
-    val speedValue = currentSpeedMetersPerSecond?.let {
+    val unit = NavigationUnits.speedUnitLabel(measurementSystem, locale)
+    // Unknown is NOT zero. Keep the speed instrument present for consistency with
+    // the mockup, showing a dash until the device delivers an actual speed fix.
+    val speed = currentSpeedMetersPerSecond?.let {
         NavigationUnits.formatCurrentSpeed(it, measurementSystem, locale).substringBeforeLast(" ")
-    }
-    val limitValue = speedLimitAlert?.let { alert ->
+    } ?: "—"
+    val posted = speedLimitAlert?.let {
         NavigationUnits.formatPostedSpeed(
-            value = alert.info.value,
-            sourceIsMph = alert.info.unit == SpeedUnit.Mph,
+            value = it.info.value,
+            sourceIsMph = it.info.unit == SpeedUnit.Mph,
             preference = measurementSystem,
             locale = locale,
         ).substringBeforeLast(" ")
     }
-    val speedUnit = NavigationUnits.speedUnitLabel(measurementSystem, locale)
-    if (speedValue == null && limitValue == null) return
-
-    Column(
+    LiveSpeedRow(
+        speedValue = speed,
+        speedUnit = unit,
+        arcFraction = speedArcFraction(
+            currentSpeedMetersPerSecond ?: 0f,
+            measurementIsMph = unit.contains("mph", ignoreCase = true),
+        ),
+        limitValue = posted,
         modifier = modifier,
-        horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        // Reference #1: regulatory posted-speed sign ABOVE the circular current-speed dial,
-        // both left-aligned. Never fill either instrument with invented measurements.
-        if (limitValue != null) {
-            Column(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .border(2.dp, OpenMapsColors.Navy900, RoundedCornerShape(8.dp))
-                    .background(Color.White)
-                    .padding(horizontal = 9.dp, vertical = 5.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = stringResource(R.string.live_speed_limit_label),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OpenMapsColors.Navy900,
-                )
-                Text(
-                    text = limitValue,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = OpenMapsColors.Navy900,
-                    maxLines = 1,
-                )
-            }
-        }
-        if (currentSpeedMetersPerSecond != null && speedValue != null) {
-            val arcFraction = speedArcFraction(
-                speedMetersPerSecond = currentSpeedMetersPerSecond,
-                measurementIsMph = speedUnit.contains("mph", ignoreCase = true),
-            )
-            Box(
-                modifier = Modifier
-                    .size(96.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xE3101B2B)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize().padding(5.dp)) {
-                    val stroke = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
-                    drawArc(
-                        color = Color.White.copy(alpha = 0.2f),
-                        startAngle = 132f,
-                        sweepAngle = 276f,
-                        useCenter = false,
-                        style = stroke,
-                    )
-                    drawArc(
-                        color = OpenMapsColors.ElectricBlueFilled,
-                        startAngle = 132f,
-                        sweepAngle = 276f * arcFraction,
-                        useCenter = false,
-                        style = stroke,
-                    )
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = speedValue,
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = Color.White,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = speedUnit,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.8f),
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
-    }
+    )
 }
 
 /** Pure, bounded dial geometry used by Live speed UI and JVM regression tests. */
@@ -1327,21 +1266,22 @@ private fun LiveSideControls(
             }
             // +/- and mute only appear when volume is tapped; never add persistent controls
             // over the camera feed. Navigation voice setting remains the shared MapViewModel state.
-            DropdownMenu(expanded = showVolume, onDismissRequest = { showVolume = false }) {
-                DropdownMenuItem(text = { Text("Volume down") }, onClick = {
+            NavigationVolumePopup(
+                expanded = showVolume,
+                onDismiss = { showVolume = false },
+                guidanceEnabled = voiceEnabled,
+                onLower = {
                     audioManager?.adjustStreamVolume(
                         AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0,
                     )
-                })
-                DropdownMenuItem(text = {
-                    Text(if (voiceEnabled) "Mute guidance" else "Unmute guidance")
-                }, onClick = { onVoiceMuteToggled() })
-                DropdownMenuItem(text = { Text("Volume up") }, onClick = {
+                },
+                onRaise = {
                     audioManager?.adjustStreamVolume(
                         AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0,
                     )
-                })
-            }
+                },
+                onMuteToggle = onVoiceMuteToggled,
+            )
         }
 
         IconButton(
@@ -1411,41 +1351,36 @@ private fun LiveSideControls(
  */
 @Composable
 private fun LiveManeuverHud(hud: LiveHudState.Maneuver, modifier: Modifier = Modifier) {
-    // Original OpenMaps Live reference: large cobalt maneuver tile, dominant distance,
-    // readable full instruction and a dark, translucent rounded container.
+    // Approved navigation-flow image (screen 5): a LARGE WHITE standalone arrow with
+    // a solid head directly on translucent navy. No blue square behind the icon.
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
-            .background(Color(0xE60B1928))
-            .padding(horizontal = 14.dp, vertical = 16.dp),
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color(0xEB0B1A30))
+            .heightIn(min = 104.dp)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(72.dp)
-                .clip(RoundedCornerShape(19.dp))
-                .background(OpenMapsColors.ElectricBlueFilled),
-            contentAlignment = Alignment.Center,
-        ) {
-            ManeuverGlyph(
-                type = hud.type,
-                tint = Color.White,
-                modifier = Modifier.size(46.dp),
-            )
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        ReferenceManeuverArrow(
+            type = hud.type,
+            size = 58.dp,
+            modifier = Modifier.semantics {
+                contentDescription = "Navigation maneuver: ${hud.instruction}"
+            },
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
-                text = formatLiveDistance(hud.distanceToManeuverMeters),
-                style = MaterialTheme.typography.headlineMedium,
-                color = Color.White,
+                text = "in " + formatLiveDistance(hud.distanceToManeuverMeters),
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White.copy(alpha = 0.98f),
                 maxLines = 1,
             )
             Text(
-                text = hud.instruction,
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White.copy(alpha = 0.91f),
+                text = hud.instruction.ifBlank { "Continue following route" },
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1453,13 +1388,7 @@ private fun LiveManeuverHud(hud: LiveHudState.Maneuver, modifier: Modifier = Mod
     }
 }
 
-/**
- * The mockup's separate "Then" card beneath the maneuver card.
- *
- * Split out of [LiveManeuverHud] rather than left as a third line inside it, matching the mockup:
- * the upcoming turn is its own compact pill so it never competes with the current instruction.
- * Mockup: "Then" label, a small white turn icon, a thin divider, then the instruction.
- */
+/** The reference's small separate "Then ↱" pill, not another text-heavy banner. */
 @Composable
 private fun LiveNextManeuverHud(
     nextInstruction: String,
@@ -1468,37 +1397,26 @@ private fun LiveNextManeuverHud(
 ) {
     Row(
         modifier = modifier
-            .clip(MaterialTheme.shapes.large)
-            .background(OpenMapsColors.Navy950.copy(alpha = 0.50f))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .clip(RoundedCornerShape(13.dp))
+            .background(Color(0xDE0B1928))
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Then " + nextInstruction
+            }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = stringResource(R.string.live_then_label),
-            style = MaterialTheme.typography.labelLarge,
-            color = OpenMapsColors.TextOnDarkSecondary,
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White,
         )
         if (nextManeuverType != null) {
-            ManeuverGlyph(
-                type = nextManeuverType,
-                tint = Color.White,
-                modifier = Modifier.size(18.dp),
-            )
-            Box(
-                Modifier
-                    .width(1.dp)
-                    .height(16.dp)
-                    .background(Color.White.copy(alpha = 0.3f)),
-            )
+            ReferenceManeuverArrow(type = nextManeuverType, size = 26.dp)
+        } else {
+            Text(nextInstruction, style = MaterialTheme.typography.bodyMedium,
+                color = Color.White, maxLines = 1)
         }
-        Text(
-            text = nextInstruction,
-            style = MaterialTheme.typography.labelLarge,
-            color = Color.White,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 

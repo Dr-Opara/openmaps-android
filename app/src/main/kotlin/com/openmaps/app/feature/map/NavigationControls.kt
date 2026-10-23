@@ -51,7 +51,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
-import com.openmaps.app.core.designsystem.ManeuverIconTile
+import com.openmaps.app.core.designsystem.ReferenceManeuverArrow
+import com.openmaps.app.core.designsystem.NavigationVolumePopup
 import com.openmaps.app.feature.live.LiveSpeedRow
 import com.openmaps.app.feature.live.speedArcFraction
 import com.openmaps.app.core.roadintelligence.RouteAlert
@@ -209,19 +210,29 @@ private fun ManeuverRow(
     foreground: Color,
 ) {
     val instruction = maneuver.displayInstruction()
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Box(
+    // Exact same standalone arrow and text hierarchy as Live. Bottom trip bar already
+    // contains time/remaining distance; do not squeeze that text next to the direction.
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        ReferenceManeuverArrow(
+            type = maneuver.type,
+            size = 58.dp,
             modifier = Modifier.semantics { contentDescription = maneuver.type.spokenLabel },
-            contentAlignment = Alignment.Center,
+        )
+        Column(
+            Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            ManeuverIconTile(type = maneuver.type, size = 62.dp)
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
             Text(
-                text = stringResource(R.string.nav_maneuver_in_format, formatNavigationDistance(distanceToManeuverMeters)),
+                text = stringResource(
+                    R.string.nav_maneuver_in_format,
+                    formatNavigationDistance(distanceToManeuverMeters),
+                ),
                 style = MaterialTheme.typography.titleMedium,
-                color = foreground.copy(alpha = 0.90f),
+                color = foreground.copy(alpha = 0.92f),
             )
             Text(
                 text = instruction.ifBlank { stringResource(R.string.nav_following) },
@@ -230,38 +241,14 @@ private fun ManeuverRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            val then = progress.nextManeuver
-                ?.displayInstruction()
-                ?.takeIf { it.isNotBlank() && it != instruction }
-            if (then != null) {
-                Text(
-                    text = stringResource(R.string.nav_next_maneuver, then),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = foreground.copy(alpha = 0.8f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
             if (followSuspended) {
                 Text(
                     text = stringResource(R.string.nav_follow_suspended),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = foreground.copy(alpha = 0.9f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = foreground.copy(alpha = 0.85f),
                 )
             }
         }
-        Spacer(Modifier.width(12.dp))
-        // Trip summary: "12 mi · 18 min left". Announces as one phrase rather than two loose
-        // numbers that read ambiguously out of context.
-        Text(
-            text = stringResource(
-                R.string.nav_remaining_format,
-                formatNavigationDistance(progress.remainingDistanceMeters),
-                formatNavigationDuration(progress.remainingDurationSeconds),
-            ),
-            style = MaterialTheme.typography.labelLarge,
-            color = foreground,
-        )
     }
 }
 
@@ -542,9 +529,8 @@ fun ActiveMapNavigationPanel(
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (speedValue != null || postedLimit != null) {
-                LiveSpeedRow(
-                    speedValue = speedValue,
+            LiveSpeedRow(
+                    speedValue = speedValue ?: "—",
                     speedUnit = speedUnit,
                     arcFraction = speedArcFraction(
                         currentSpeedMetersPerSecond ?: 0f,
@@ -553,16 +539,6 @@ fun ActiveMapNavigationPanel(
                     limitValue = postedLimit,
                     modifier = Modifier.weight(1f),
                 )
-            } else {
-                Text(
-                    "Speed unavailable",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.8f),
-                    modifier = Modifier.weight(1f)
-                        .background(OpenMapsColors.Navy900.copy(alpha = 0.85f), GlassShapes.Pill)
-                        .padding(12.dp),
-                )
-            }
             Box {
                 DrivingQuickAction(
                     label = stringResource(R.string.nav_action_volume),
@@ -578,28 +554,22 @@ fun ActiveMapNavigationPanel(
                     )
                 }
                 // +/−/mute stay hidden until the user taps the volume control.
-                DropdownMenu(expanded = showVolume, onDismissRequest = { showVolume = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Volume down") },
-                        onClick = {
-                            audioManager?.adjustStreamVolume(
-                                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0,
-                            )
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (voiceEnabled) "Mute guidance" else "Unmute guidance") },
-                        onClick = { onVoiceMuteToggled() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Volume up") },
-                        onClick = {
-                            audioManager?.adjustStreamVolume(
-                                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0,
-                            )
-                        },
-                    )
-                }
+                NavigationVolumePopup(
+                    expanded = showVolume,
+                    onDismiss = { showVolume = false },
+                    guidanceEnabled = voiceEnabled,
+                    onLower = {
+                        audioManager?.adjustStreamVolume(
+                            AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0,
+                        )
+                    },
+                    onRaise = {
+                        audioManager?.adjustStreamVolume(
+                            AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0,
+                        )
+                    },
+                    onMuteToggle = onVoiceMuteToggled,
+                )
             }
             Box {
                 DrivingQuickAction(label = "More", onClick = { showMoreActions = true }) {
