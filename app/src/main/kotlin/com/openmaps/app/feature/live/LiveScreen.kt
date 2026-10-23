@@ -1,5 +1,7 @@
 package com.openmaps.app.feature.live
 
+import android.media.AudioManager
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -28,6 +30,8 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +55,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -1294,25 +1299,49 @@ private fun LiveSideControls(
     onExitNavigation: () -> Unit = {},
 ) {
     var confirmExit by remember { mutableStateOf(false) }
+    var showVolume by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val audioManager = remember(context) { context.getSystemService(AudioManager::class.java) }
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        IconButton(
-            onClick = onVoiceMuteToggled,
-            modifier = Modifier
-                .size(50.dp)
-                .clip(CircleShape)
-                .background(OpenMapsColors.Navy950.copy(alpha = 0.55f))
-                .border(1.dp, OpenMapsColors.ElectricBlue.copy(alpha = 0.35f), CircleShape),
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_mic),
-                contentDescription = stringResource(if (voiceEnabled) R.string.live_voice_on else R.string.live_voice_off),
-                tint = if (voiceEnabled) OpenMapsColors.ElectricBlue else Color.White.copy(alpha = 0.45f),
-                modifier = Modifier.size(22.dp),
-            )
+        Box {
+            IconButton(
+                onClick = { showVolume = true },
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(CircleShape)
+                    .background(OpenMapsColors.Navy950.copy(alpha = 0.72f))
+                    .border(1.dp, OpenMapsColors.ElectricBlue.copy(alpha = 0.45f), CircleShape),
+            ) {
+                Icon(
+                    painter = painterResource(
+                        if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off,
+                    ),
+                    contentDescription = "Navigation volume",
+                    tint = if (voiceEnabled) OpenMapsColors.ElectricBlue else Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            // +/- and mute only appear when volume is tapped; never add persistent controls
+            // over the camera feed. Navigation voice setting remains the shared MapViewModel state.
+            DropdownMenu(expanded = showVolume, onDismissRequest = { showVolume = false }) {
+                DropdownMenuItem(text = { Text("Volume down") }, onClick = {
+                    audioManager?.adjustStreamVolume(
+                        AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0,
+                    )
+                })
+                DropdownMenuItem(text = {
+                    Text(if (voiceEnabled) "Mute guidance" else "Unmute guidance")
+                }, onClick = { onVoiceMuteToggled() })
+                DropdownMenuItem(text = { Text("Volume up") }, onClick = {
+                    audioManager?.adjustStreamVolume(
+                        AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0,
+                    )
+                })
+            }
         }
 
         IconButton(
