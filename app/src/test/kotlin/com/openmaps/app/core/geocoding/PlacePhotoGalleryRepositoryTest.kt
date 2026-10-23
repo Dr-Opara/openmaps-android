@@ -34,10 +34,23 @@ class PlacePhotoGalleryRepositoryTest {
         ))
     }
 
+    @Test fun hobbyAirportUnpunctuatedNameFindsExactCommonsCategory() {
+        val names = PlacePhotoGalleryRepository.commonsAirportCategoryCandidates("William P Hobby Airport")
+        assertEquals("William P. Hobby Airport", names.first())
+        assertTrue("original name remains a safe second try", names.contains("William P Hobby Airport"))
+    }
+
+    @Test fun punctuationAlreadyPresentIsNotRepeated() {
+        val names = PlacePhotoGalleryRepository.commonsAirportCategoryCandidates("William P. Hobby Airport")
+        assertEquals("William P. Hobby Airport", names.first())
+        assertEquals(1, names.size)
+    }
+
     @Test fun licenseFilterRejectsNonCommercialOrUnclearLicenses() {
         assertTrue(PlacePhotoGalleryRepository.allowedCommonsLicense("CC BY 4.0"))
         assertTrue(PlacePhotoGalleryRepository.allowedCommonsLicense("CC BY-SA 4.0"))
         assertTrue(PlacePhotoGalleryRepository.allowedCommonsLicense("CC0"))
+        assertTrue(PlacePhotoGalleryRepository.allowedCommonsLicense("CC0 1.0"))
         assertFalse(PlacePhotoGalleryRepository.allowedCommonsLicense("CC BY-NC 4.0"))
         assertFalse(PlacePhotoGalleryRepository.allowedCommonsLicense(""))
     }
