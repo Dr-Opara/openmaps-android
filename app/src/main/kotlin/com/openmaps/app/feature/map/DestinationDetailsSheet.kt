@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -119,10 +122,14 @@ fun DestinationDetailsSheet(
         )
     }
 
+    // Place details can contain real nearby results and metadata; bound its height and allow
+    // vertical scrolling instead of pushing the tab content below the physical screen.
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .surfaceCard(GlassShapes.Card),
+            .heightIn(max = (LocalConfiguration.current.screenHeightDp.dp - 145.dp).coerceAtLeast(330.dp))
+            .surfaceCard(GlassShapes.Card)
+            .verticalScroll(rememberScrollState()),
     ) {
         Box(
             modifier = Modifier
@@ -324,34 +331,13 @@ fun DestinationDetailsSheet(
 
             Spacer(Modifier.height(12.dp))
             when (tab) {
-                DestinationDetailsTab.Overview -> {
-                    Text(
-                        text = destination.subtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = OpenMapsColors.TextPrimary,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    val parkingNearby = parkingNearDestination(destination, nearbyPlaces)
-                    if (parkingNearby.isNotEmpty()) {
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = stringResource(R.string.destination_parking_nearby),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = OpenMapsColors.TextPrimary,
-                        )
-                        parkingNearby.take(3).forEach { place ->
-                            Text(
-                                text = parkingLine(place),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = OpenMapsColors.TextSecondary,
-                                modifier = Modifier.padding(top = 4.dp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
+                DestinationDetailsTab.Overview -> DestinationOverview(
+                    destination = destination,
+                    routeState = routeState,
+                    nearbyStatus = nearbyStatus,
+                    nearbyPlaces = destinationNearby,
+                    onSelectNearby = onSelectNearby,
+                )
                 DestinationDetailsTab.Reviews -> Text(
                     stringResource(R.string.place_reviews_unavailable),
                     style = MaterialTheme.typography.bodyMedium,
@@ -395,6 +381,116 @@ fun DestinationDetailsSheet(
                                         )
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A destination-first guide using real geocoding, route and nearby-place data. It deliberately
+ * never invents descriptions, amenities, business hours, prices or ratings.
+ *
+ * SearchResult contains only identity/category/address/coordinates. Rich provider details can
+ * later fill this same component without changing navigation or geocoding models.
+ */
+@Composable
+private fun DestinationOverview(
+    destination: SearchResult,
+    routeState: RouteState,
+    nearbyStatus: String,
+    nearbyPlaces: List<Place>,
+    onSelectNearby: (Place) -> Unit,
+) {
+    val area = listOfNotNull(
+        destination.city?.takeIf { it.isNotBlank() },
+        destination.state?.takeIf { it.isNotBlank() },
+        destination.country?.takeIf { it.isNotBlank() },
+    ).distinct().joinToString(", ")
+    val address = destination.address?.takeIf { it.isNotBlank() } ?: destination.subtitle.takeIf { it.isNotBlank() }
+    val category = destination.category?.takeIf { it.isNotBlank() }?.replace('_', ' ')
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("About this destination", style = MaterialTheme.typography.titleMedium, color = OpenMapsColors.TextPrimary)
+            if (category != null) {
+                Text(category.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodyMedium, color = OpenMapsColors.ElectricBlueFilled)
+            }
+            if (area.isNotEmpty()) {
+                Text("Located in $area", style = MaterialTheme.typography.bodyMedium, color = OpenMapsColors.TextSecondary)
+            }
+            if (category == null && area.isEmpty()) {
+                Text("Explore this destination on the map or get directions to plan your visit.",
+                    style = MaterialTheme.typography.bodyMedium, color = OpenMapsColors.TextSecondary)
+            }
+        }
+        if (address != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+                    .padding(14.dp),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(Icons.Filled.Place, contentDescription = null, tint = OpenMapsColors.ElectricBlueFilled,
+                    modifier = Modifier.size(20.dp))
+                Column {
+                    Text("Location", style = MaterialTheme.typography.titleSmall, color = OpenMapsColors.TextPrimary)
+                    Text(address, style = MaterialTheme.typography.bodyMedium, color = OpenMapsColors.TextSecondary)
+                }
+            }
+        }
+        if (routeState !is RouteState.Ready) {
+            Text(
+                "Tap Directions to see available routes, travel time, distance and estimated arrival.",
+                style = MaterialTheme.typography.bodySmall,
+                color = OpenMapsColors.TextSecondary,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Text("Explore nearby", style = MaterialTheme.typography.titleMedium, color = OpenMapsColors.TextPrimary)
+            when {
+                nearbyStatus == "loading" -> Text("Finding places near this destination…",
+                    style = MaterialTheme.typography.bodySmall, color = OpenMapsColors.TextSecondary)
+                nearbyStatus == "error" -> Text("Nearby place details are temporarily unavailable.",
+                    style = MaterialTheme.typography.bodySmall, color = OpenMapsColors.TextSecondary)
+                nearbyPlaces.isEmpty() -> Text("No nearby places returned by the map provider yet.",
+                    style = MaterialTheme.typography.bodySmall, color = OpenMapsColors.TextSecondary)
+                else -> {
+                    nearbyPlaces.take(4).forEach { nearby ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .clickable { onSelectNearby(nearby) }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(Icons.Filled.Place, contentDescription = null,
+                                tint = OpenMapsColors.ElectricBlueFilled, modifier = Modifier.size(18.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(nearby.name, style = MaterialTheme.typography.bodyMedium,
+                                    color = OpenMapsColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(nearby.category.name.replaceFirstChar { it.uppercase() },
+                                    style = MaterialTheme.typography.bodySmall, color = OpenMapsColors.TextSecondary)
+                            }
+                            nearby.distanceMeters?.let { meters ->
+                                Text(
+                                    NavigationUnits.formatDistance(meters, LocalMeasurementSystem.current, LocalAppLocale.current),
+                                    style = MaterialTheme.typography.labelSmall, color = OpenMapsColors.TextSecondary,
+                                )
                             }
                         }
                     }

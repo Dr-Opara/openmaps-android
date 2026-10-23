@@ -351,65 +351,54 @@ fun NavigationControls(
                     Text(
                         text = stringResource(R.string.nav_stop),
                         style = MaterialTheme.typography.labelLarge,
-                        color = OpenMapsColors.TextSecondary,
+                        color = Color.White,
                     )
                 }
             }
         } else {
-            NavigationModeSelector(
-                selected = selectedNavigationMode,
-                onSelected = onNavigationModeSelected,
+            Text(
+                text = stringResource(R.string.nav_choose_experience),
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                modifier = Modifier.padding(bottom = 2.dp),
             )
-            Spacer(Modifier.width(1.dp))
-            Button(
-                onClick = onStart,
-                enabled = canStart,
-                shape = GlassShapes.Pill,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = OpenMapsColors.ElectricBlueFilled,
-                    contentColor = Color.White,
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 54.dp)
-                    .semantics { contentDescription = startLabel },
+            Text(
+                text = stringResource(R.string.nav_choose_experience_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = OpenMapsColors.TextOnDarkSecondary,
+                modifier = Modifier.padding(bottom = 10.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = -90f },
+                NavigationViewOptionCard(
+                    title = stringResource(R.string.nav_mode_map_title),
+                    subtitle = stringResource(R.string.nav_mode_map_body),
+                    selected = selectedNavigationMode == NavigationMode.Map,
+                    onClick = { onNavigationModeSelected(NavigationMode.Map) },
+                    icon = painterResource(R.drawable.ic_map),
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = if (selectedNavigationMode == NavigationMode.Live) {
-                        stringResource(R.string.nav_start_live)
-                    } else {
-                        stringResource(R.string.nav_start_map)
-                    },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White,
+                NavigationViewOptionCard(
+                    title = stringResource(R.string.nav_mode_live_title),
+                    subtitle = stringResource(R.string.nav_mode_live_body),
+                    selected = selectedNavigationMode == NavigationMode.Live,
+                    onClick = { onNavigationModeSelected(NavigationMode.Live) },
+                    modifier = Modifier.weight(1f),
                 )
             }
-            TextButton(
-                onClick = onSteps,
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .semantics { contentDescription = stepsLabel },
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.List,
-                    contentDescription = null,
-                    tint = OpenMapsColors.ElectricBlueFilled,
-                    modifier = Modifier.size(17.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = stringResource(R.string.nav_steps),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = OpenMapsColors.ElectricBlueFilled,
-                )
-            }
+            RoutePreviewCtaRow(
+                startLabel = if (selectedNavigationMode == NavigationMode.Live) {
+                    stringResource(R.string.nav_start_live)
+                } else {
+                    stringResource(R.string.nav_start_map)
+                },
+                onStart = onStart,
+                stepsLabel = stringResource(R.string.nav_steps),
+                onSteps = onSteps,
+                startEnabled = canStart,
+            )
         }
     }
 }
