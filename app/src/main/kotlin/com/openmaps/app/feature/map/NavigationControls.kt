@@ -19,10 +19,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,6 +50,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
+import com.openmaps.app.core.designsystem.ManeuverIconTile
+import com.openmaps.app.feature.live.LiveSpeedRow
+import com.openmaps.app.feature.live.speedArcFraction
+import com.openmaps.app.core.roadintelligence.RouteAlert
+import com.openmaps.app.core.roadintelligence.SpeedUnit
 import com.openmaps.app.core.designsystem.OpenMapsColors
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.navigation.RouteProgress
@@ -163,16 +171,18 @@ fun NavigationBanner(
     // Warning is a light amber, so it takes navy type rather than white — white on #FFB84D is
     // ~1.9:1 and effectively unreadable on a phone in daylight.
     val isWarning = navigationState is NavigationState.OffRoute || navigationState is NavigationState.Rerouting
-    val background = if (isWarning) OpenMapsColors.Warning else OpenMapsColors.ElectricBlueFilled
-    val foreground = if (isWarning) OpenMapsColors.Navy900 else Color.White
+    // Map guidance matches Live: dark readable glass with cobalt maneuver tile.
+    // Critical off-route/reroute states use a dark red-amber alert surface.
+    val background = if (isWarning) Color(0xEF4A3022) else Color(0xE60B1928)
+    val foreground = Color.White
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .surfaceCard(GlassShapes.Card)
+            .clip(GlassShapes.Card)
             .background(background)
-            .heightIn(min = 64.dp)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .heightIn(min = 86.dp)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         when (navigationState) {
             is NavigationState.Rerouting -> ReroutingRow(foreground)
@@ -200,21 +210,21 @@ private fun ManeuverRow(
     val instruction = maneuver.displayInstruction()
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Box(
-            modifier = Modifier.size(44.dp).semantics { contentDescription = maneuver.type.spokenLabel },
+            modifier = Modifier.semantics { contentDescription = maneuver.type.spokenLabel },
             contentAlignment = Alignment.Center,
         ) {
-            ManeuverGlyph(maneuver.type, foreground)
+            ManeuverIconTile(type = maneuver.type, size = 62.dp)
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 text = stringResource(R.string.nav_maneuver_in_format, formatNavigationDistance(distanceToManeuverMeters)),
-                style = MaterialTheme.typography.labelLarge,
-                color = foreground.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.titleMedium,
+                color = foreground.copy(alpha = 0.90f),
             )
             Text(
                 text = instruction.ifBlank { stringResource(R.string.nav_following) },
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 color = foreground,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
