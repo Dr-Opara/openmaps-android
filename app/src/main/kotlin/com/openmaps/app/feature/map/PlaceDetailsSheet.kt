@@ -65,8 +65,10 @@ import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.localization.NavigationUnits
-import com.openmaps.app.core.geocoding.LicensedDestinationPhoto
-import com.openmaps.app.core.geocoding.WikimediaDestinationPhotos
+import com.openmaps.app.BuildConfig
+import com.openmaps.app.core.geocoding.GalleryPhoto
+import com.openmaps.app.core.geocoding.PlacePhotoGallery
+import com.openmaps.app.core.geocoding.PlacePhotoGalleryRepository
 import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PlaceRepository
@@ -269,7 +271,10 @@ fun PlaceDetailsSheet(
     onSelectNearbyPlace: (Place) -> Unit = {},
 ) {
     var tab by rememberSaveable(place.id) { mutableStateOf(PlaceDetailsTab.Overview) }
-    var photo by remember(place.id) { mutableStateOf<LicensedDestinationPhoto?>(null) }
+    var gallery by remember(place.id) { mutableStateOf(PlacePhotoGallery()) }
+    var photosLoading by remember(place.id) { mutableStateOf(true) }
+    val coverPhoto = gallery.destinationPhotos.firstOrNull() ?: gallery.nearbyStreetViews.firstOrNull()
+    val streetContextCover = coverPhoto?.kind == com.openmaps.app.core.geocoding.GalleryPhotoKind.NearbyStreet
     var destinationNearby by remember(place.id) { mutableStateOf<List<Place>>(emptyList()) }
     var nearbyStatus by remember(place.id) { mutableStateOf("loading") }
     LaunchedEffect(place.id, place.latitude, place.longitude, placesRepository) {
@@ -286,12 +291,17 @@ fun PlaceDetailsSheet(
             onFailure = { nearbyStatus = "error" },
         )
     }
-    // A Wikimedia image for a chain name alone can depict a different store on another
-    // continent. Only show it when its file title also matches the locality of this POI.
-    LaunchedEffect(place.id, place.address) {
-        val locality = WikimediaDestinationPhotos.localityFromAddress(place.address)
-        photo = if (locality == null) null else
-            runCatching { WikimediaDestinationPhotos.forPlace(place.name, locality) }.getOrNull()
+    // A chain name without locality is ambiguous; return no photo rather than a wrong shop.
+    LaunchedEffect(place.id, place.latitude, place.longitude, place.address) {
+        photosLoading = true
+        gallery = PlacePhotoGalleryRepository.load(
+            name = place.name,
+            latitude = place.latitude,
+            longitude = place.longitude,
+            locality = PlacePhotoGalleryRepository.localityFromAddress(place.address),
+            mapillaryClientToken = BuildConfig.MAPILLARY_CLIENT_TOKEN,
+        )
+        photosLoading = false
     }
     val context = LocalContext.current
     Column(
@@ -304,7 +314,7 @@ fun PlaceDetailsSheet(
         // Hero image, or a clean category placeholder when no real image exists. Never a fabricated
         // photo: no wired provider (Overpass/OSM) supplies imagery today. Mockup: full-bleed, flush
         // with the card's top corners, not inset.
-        PlaceHeroImage(place = place, onDismiss = onDismiss, photo = photo)
+        PlaceHeroImage(place = place, onDismiss = onDismiss, photo = coverPhoto, onPhotoClicked = { tab = PlaceDetailsTab.Photos })
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Text(
                 text = place.name,
@@ -337,16 +347,14 @@ fun PlaceDetailsSheet(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            photo?.let { licensed ->
-                // Attribution remains visible and links to the original license/author page,
-                // but can never crowd out the business name at the top of the card.
+            coverPhoto?.let { licensed ->
                 Text(
-                    "Photo: ${licensed.attribution} · ${licensed.license} · Wikimedia Commons",
-                    modifier = Modifier
-                        .padding(top = 7.dp)
-                        .clickable {
-                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.commonsPage))) }
-                        },
+                    (if (streetContextCover) "Nearby street view: " else "Photo: ") +
+                        licensed.author + " · " + licensed.license + " · " +
+                        (if (streetContextCover) "Mapillary" else "Wikimedia Commons"),
+                    modifier = Modifier.padding(top = 6.dp).clickable {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.sourceUrl))) }
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = OpenMapsColors.TextSecondary,
                     maxLines = 2,
@@ -432,26 +440,11 @@ fun PlaceDetailsSheet(
             when (tab) {
                 PlaceDetailsTab.Overview -> OverviewTabContent(place)
                 PlaceDetailsTab.Reviews -> UnavailableTabContent(stringResource(R.string.place_reviews_unavailable))
-                PlaceDetailsTab.Photos -> if (photo == null) {
-                    UnavailableTabContent("No verified, licensed photo available for this place yet.")
-                } else {
-                    Column {
-                        Image(
-                            bitmap = photo!!.bitmap.asImageBitmap(),
-                            contentDescription = "Photo of ${place.name}",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxWidth().height(170.dp),
-                        )
-                        Text(
-                            "Open image license and attribution on Wikimedia Commons",
-                            modifier = Modifier.clickable {
-                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(photo!!.commonsPage))) }
-                            },
-                            color = OpenMapsColors.ElectricBlueFilled,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
+                PlaceDetailsTab.Photos -> VerifiedPlacePhotoGallery(
+                    gallery = gallery,
+                    loading = photosLoading,
+                    streetSourceConfigured = BuildConfig.MAPILLARY_CLIENT_TOKEN.isNotBlank(),
+                )
                 PlaceDetailsTab.Nearby -> when (nearbyStatus) {
                     "loading" -> UnavailableTabContent("Finding places around this destination…")
                     "error" -> UnavailableTabContent("Nearby places are temporarily unavailable.")
@@ -476,7 +469,7 @@ fun PlaceDetailsSheet(
  * codebase's rule is that a control never renders unless it does something real.
  */
 @Composable
-private fun PlaceHeroImage(place: Place, onDismiss: () -> Unit, photo: LicensedDestinationPhoto?) {
+private fun PlaceHeroImage(place: Place, onDismiss: () -> Unit, photo: GalleryPhoto?, onPhotoClicked: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -488,10 +481,24 @@ private fun PlaceHeroImage(place: Place, onDismiss: () -> Unit, photo: LicensedD
         if (photo != null) {
             Image(
                 bitmap = photo.bitmap.asImageBitmap(),
-                contentDescription = "Photo of ${place.name}",
+                contentDescription = if (photo.kind == com.openmaps.app.core.geocoding.GalleryPhotoKind.NearbyStreet)
+                    "Nearby street view, may not show ${place.name}; open gallery"
+                else "Photo of ${place.name}; open gallery",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier.matchParentSize().clickable { onPhotoClicked() },
             )
+            if (photo.kind == com.openmaps.app.core.geocoding.GalleryPhotoKind.NearbyStreet) {
+                Text(
+                    "Nearby street view",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .clip(GlassShapes.Pill)
+                        .background(OpenMapsColors.Navy900.copy(alpha = 0.85f))
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                )
+            }
         } else {
             Icon(
                 painter = painterResource(place.category.iconRes()),
