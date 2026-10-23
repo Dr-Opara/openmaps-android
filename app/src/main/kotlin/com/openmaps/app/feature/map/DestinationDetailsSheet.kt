@@ -357,6 +357,7 @@ fun DestinationDetailsSheet(
                     // is false, so destinations keep today's Overview unchanged until a key exists.
                     Spacer(Modifier.height(12.dp))
                     GooglePlaceDetailsCard(
+                        expectedName = destination.name.ifBlank { destination.displayName },
                         latitude = destination.latitude,
                         longitude = destination.longitude,
                     )
