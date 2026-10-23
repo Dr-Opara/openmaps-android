@@ -588,95 +588,30 @@ private fun LiveSpeedBlock(
 ) {
     val measurementSystem = LocalMeasurementSystem.current
     val locale = LocalAppLocale.current
-    val speedValue = currentSpeedMetersPerSecond?.let {
+    val unit = NavigationUnits.speedUnitLabel(measurementSystem, locale)
+    // Unknown is NOT zero. Keep the speed instrument present for consistency with
+    // the mockup, showing a dash until the device delivers an actual speed fix.
+    val speed = currentSpeedMetersPerSecond?.let {
         NavigationUnits.formatCurrentSpeed(it, measurementSystem, locale).substringBeforeLast(" ")
-    }
-    val limitValue = speedLimitAlert?.let { alert ->
+    } ?: "—"
+    val posted = speedLimitAlert?.let {
         NavigationUnits.formatPostedSpeed(
-            value = alert.info.value,
-            sourceIsMph = alert.info.unit == SpeedUnit.Mph,
+            value = it.info.value,
+            sourceIsMph = it.info.unit == SpeedUnit.Mph,
             preference = measurementSystem,
             locale = locale,
         ).substringBeforeLast(" ")
     }
-    val speedUnit = NavigationUnits.speedUnitLabel(measurementSystem, locale)
-    if (speedValue == null && limitValue == null) return
-
-    Column(
+    LiveSpeedRow(
+        speedValue = speed,
+        speedUnit = unit,
+        arcFraction = speedArcFraction(
+            currentSpeedMetersPerSecond ?: 0f,
+            measurementIsMph = unit.contains("mph", ignoreCase = true),
+        ),
+        limitValue = posted,
         modifier = modifier,
-        horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        // Reference #1: regulatory posted-speed sign ABOVE the circular current-speed dial,
-        // both left-aligned. Never fill either instrument with invented measurements.
-        if (limitValue != null) {
-            Column(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .border(2.dp, OpenMapsColors.Navy900, RoundedCornerShape(8.dp))
-                    .background(Color.White)
-                    .padding(horizontal = 9.dp, vertical = 5.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = stringResource(R.string.live_speed_limit_label),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OpenMapsColors.Navy900,
-                )
-                Text(
-                    text = limitValue,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = OpenMapsColors.Navy900,
-                    maxLines = 1,
-                )
-            }
-        }
-        if (currentSpeedMetersPerSecond != null && speedValue != null) {
-            val arcFraction = speedArcFraction(
-                speedMetersPerSecond = currentSpeedMetersPerSecond,
-                measurementIsMph = speedUnit.contains("mph", ignoreCase = true),
-            )
-            Box(
-                modifier = Modifier
-                    .size(96.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xE3101B2B)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize().padding(5.dp)) {
-                    val stroke = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
-                    drawArc(
-                        color = Color.White.copy(alpha = 0.2f),
-                        startAngle = 132f,
-                        sweepAngle = 276f,
-                        useCenter = false,
-                        style = stroke,
-                    )
-                    drawArc(
-                        color = OpenMapsColors.ElectricBlueFilled,
-                        startAngle = 132f,
-                        sweepAngle = 276f * arcFraction,
-                        useCenter = false,
-                        style = stroke,
-                    )
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = speedValue,
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = Color.White,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = speedUnit,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.8f),
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
-    }
+    )
 }
 
 /** Pure, bounded dial geometry used by Live speed UI and JVM regression tests. */
