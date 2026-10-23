@@ -413,4 +413,57 @@ class RouteAnchorManagerTest {
         assertTrue("createdCount should track real anchor creation", manager.createdCount > 0)
         assertFalse("nothing has moved yet, so nothing should be detached", manager.detachedCount > 0)
     }
+
+    // region Phase 1 guidance gate
+
+    @Test
+    fun update_notStarted_createsNoAnchors() {
+        // Destination selected but navigation never started: the gate is off from the first
+        // update, so no anchor may be created for a route nobody is driving.
+        val backend = FakeAnchorBackend()
+        val manager = RouteAnchorManager(backend)
+        repeat(RouteAnchorConfig().qualityHysteresisSteps + 1) {
+            update(manager, geometry = straightNorth(300.0), isNavigating = false)
+        }
+        assertEquals("no anchors may exist before Start", 0, manager.size)
+        assertEquals("no anchor creation may even be attempted", 0, backend.createCallCount)
+    }
+
+    @Test
+    fun update_activeOffRouteReroutingActiveReplacement_keepsOnlyReplacementAnchors() {
+        // The Live call site passes guidance-active (NavigationState.Active) as isNavigating:
+        // OffRoute and Rerouting arrive here as false. The stale route's anchors must be released
+        // at the OffRoute transition — not kept until the replacement route happens to arrive —
+        // and the replacement route must then build a set that sits on the new road only.
+        val backend = FakeAnchorBackend()
+        val manager = RouteAnchorManager(backend)
+        val geometryA = straightNorth(300.0)
+        repeat(RouteAnchorConfig().qualityHysteresisSteps + 1) {
+            update(manager, geometry = geometryA, routeKey = "route-a")
+        }
+        val oldKeys = backend.created.keys.toSet()
+        assertTrue("precondition: anchors exist", oldKeys.isNotEmpty())
+
+        // OffRoute: guidance inactive, same (stale) route still supplied.
+        update(manager, geometry = geometryA, routeKey = "route-a", isNavigating = false)
+        assertEquals("OffRoute must release the stale route's anchors", 0, manager.size)
+        assertTrue("every old anchor must be detached", oldKeys.all { it in backend.detached })
+
+        // Rerouting: still inactive, no new route yet.
+        update(manager, geometry = geometryA, routeKey = "route-a", isNavigating = false)
+        assertEquals("Rerouting must stay anchor-free", 0, manager.size)
+
+        // Replacement route arrives and guidance resumes: only the new road's anchors may exist.
+        val geometryB = (0..300).map { Coordinate(0.0, it / mpd) }
+        repeat(RouteAnchorConfig().qualityHysteresisSteps + 1) {
+            update(manager, geometry = geometryB, routeKey = "route-b")
+        }
+        assertTrue("the replacement route must have its own anchors", manager.size > 0)
+        assertTrue(
+            "the new anchors must sit on the new (eastward) road",
+            manager.anchorPoints().any { it.longitude != 0.0 },
+        )
+    }
+
+    // endregion
 }

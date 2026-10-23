@@ -90,6 +90,12 @@ open class RouteAnchorManager(
      * Call when route/progress/quality materially change — never per frame: creating an ARCore
      * anchor is a real cost and must not sit in the render loop.
      *
+     * Phase 1 guidance gate: `isNavigating` here is the *guidance* gate, not the broad
+     * trip-in-progress flag. Callers must pass true only while guidance is valid
+     * (`NavigationState.Active`); passing broad trip-in-progress would keep anchors for a stale
+     * route through OffRoute, Rerouting and Arrived. When false, the whole set is released
+     * immediately by the `!isNavigating` branch below.
+     *
      * @return the active anchored points, refreshed from the backend.
      */
     fun update(
