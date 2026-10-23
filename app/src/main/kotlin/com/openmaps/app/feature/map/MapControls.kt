@@ -997,11 +997,13 @@ private fun RoutePreviewSummary(
                 Spacer(Modifier.height(10.dp))
                 Text(
                     text = stringResource(R.string.route_other_routes),
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Start,
                 )
                 Spacer(Modifier.height(6.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     routeState.route.alternatives.take(2).forEachIndexed { index, alternative ->
                         RoutePreviewDarkAlternateRow(
                             label = alternative.label ?: stringResource(R.string.route_alternate_fallback),
@@ -1024,7 +1026,7 @@ private fun RoutePreviewSummary(
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     color = OpenMapsColors.TextOnDarkSecondary,
-                    modifier = Modifier.padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
             }
         }

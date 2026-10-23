@@ -1,5 +1,7 @@
 package com.openmaps.app.feature.live
 
+import android.media.AudioManager
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -28,6 +30,8 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +55,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -107,6 +112,7 @@ import com.openmaps.app.feature.map.iconRes
 import com.openmaps.app.feature.map.markerColor
 import com.openmaps.app.map.MapMode
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 /**
@@ -156,6 +162,16 @@ fun LiveScreen(
     // Reactive: flips from Spatial to CameraX mid-session if AR fails, which is what guarantees a
     // camera is always available in Live.
     val previewProvider by viewModel.previewProvider.collectAsState()
+    // The first five seconds explain route/localization context. Afterwards declutter
+    // non-critical street and traffic overlays, but NEVER hide routing safety warnings.
+    var showStartupContext by remember { mutableStateOf(true) }
+    LaunchedEffect(isNavigating) {
+        showStartupContext = true
+        if (isNavigating) {
+            delay(5_000)
+            showStartupContext = false
+        }
+    }
 
     Box(
         modifier
@@ -246,17 +262,21 @@ fun LiveScreen(
         val spatialState by viewModel.spatialLocalization.state
             .collectAsState(initial = SpatialLocalizationState.Idle)
         val localizationStatus = remember(spatialState) { LiveLocalizationStatusMapper.of(spatialState) }
-        LiveArDiagnosticsOverlay(
-            previewProvider = previewProvider,
-            spatialState = spatialState,
-            hasRoute = route != null,
-            isNavigating = isNavigating,
-            arrowPipeline = viewModel.arrowPipeline,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(start = 8.dp, top = 8.dp),
-        )
+        // Debug status is useful during the initial positioning window but should never
+        // persist over active guidance or ship as part of the production visual surface.
+        if (BuildConfig.DEBUG && showStartupContext) {
+            LiveArDiagnosticsOverlay(
+                previewProvider = previewProvider,
+                spatialState = spatialState,
+                hasRoute = route != null,
+                isNavigating = isNavigating,
+                arrowPipeline = viewModel.arrowPipeline,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(start = 8.dp, top = 8.dp),
+            )
+        }
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -289,7 +309,11 @@ fun LiveScreen(
                 LiveHudState.Idle -> LiveArPreviewLabel(modifier = Modifier.fillMaxWidth())
                 is LiveHudState.Arrived -> Unit
             }
-            if (localizationStatus != LiveLocalizationStatus.None) {
+            if (localizationStatus != LiveLocalizationStatus.None &&
+                (showStartupContext || localizationStatus == LiveLocalizationStatus.Locating ||
+                    localizationStatus == LiveLocalizationStatus.Improving)
+            ) {
+                // Keep accuracy warnings visible while AR arrows cannot safely be placed.
                 LocalizationChip(status = localizationStatus)
             }
             if (isNavigating) {
@@ -305,6 +329,7 @@ fun LiveScreen(
                 }
                 LiveRoadAlertHud(
                     roadState = roadIntelligenceState,
+                    showInformationalTraffic = showStartupContext,
                     onCommunityConfirm = onCommunityReportConfirm,
                     onCommunityDismiss = onCommunityReportDismiss,
                 )
@@ -317,7 +342,7 @@ fun LiveScreen(
         // feed, roughly where the chevron path is passing in the reference. [currentStreetName] is
         // the routing provider's own street_names field (never derived from the instruction text),
         // so the tag is simply absent rather than guessed when the provider omits it.
-        if (hudState is LiveHudState.Maneuver) {
+        if (showStartupContext && hudState is LiveHudState.Maneuver) {
             hudState.currentStreetName?.let { streetName ->
                 LiveStreetNameTag(
                     streetName = streetName,
@@ -372,6 +397,7 @@ fun LiveScreen(
                 LiveTripSummary(
                     hud = hudState,
                     roadIntelligenceState = roadIntelligenceState,
+                    showInformationalTraffic = showStartupContext,
                 )
             }
         }
@@ -483,6 +509,7 @@ private fun LocalizationChip(status: LiveLocalizationStatus, modifier: Modifier 
 @Composable
 private fun LiveRoadAlertHud(
     roadState: RoadIntelligenceState,
+    showInformationalTraffic: Boolean = true,
     onCommunityConfirm: (String) -> Unit = {},
     onCommunityDismiss: (String) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -496,7 +523,8 @@ private fun LiveRoadAlertHud(
         it !is RouteAlert.SpeedLimit &&
             it !is RouteAlert.Lane &&
             // Static/historical congestion is not a current traffic condition.
-            (it !is RouteAlert.Congestion || it.condition.isLive)
+            (it !is RouteAlert.Congestion ||
+                (showInformationalTraffic && it.condition.isLive))
     } ?: return
 
     val measurementSystem = LocalMeasurementSystem.current
@@ -1271,25 +1299,49 @@ private fun LiveSideControls(
     onExitNavigation: () -> Unit = {},
 ) {
     var confirmExit by remember { mutableStateOf(false) }
+    var showVolume by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val audioManager = remember(context) { context.getSystemService(AudioManager::class.java) }
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        IconButton(
-            onClick = onVoiceMuteToggled,
-            modifier = Modifier
-                .size(50.dp)
-                .clip(CircleShape)
-                .background(OpenMapsColors.Navy950.copy(alpha = 0.55f))
-                .border(1.dp, OpenMapsColors.ElectricBlue.copy(alpha = 0.35f), CircleShape),
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_mic),
-                contentDescription = stringResource(if (voiceEnabled) R.string.live_voice_on else R.string.live_voice_off),
-                tint = if (voiceEnabled) OpenMapsColors.ElectricBlue else Color.White.copy(alpha = 0.45f),
-                modifier = Modifier.size(22.dp),
-            )
+        Box {
+            IconButton(
+                onClick = { showVolume = true },
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(CircleShape)
+                    .background(OpenMapsColors.Navy950.copy(alpha = 0.72f))
+                    .border(1.dp, OpenMapsColors.ElectricBlue.copy(alpha = 0.45f), CircleShape),
+            ) {
+                Icon(
+                    painter = painterResource(
+                        if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off,
+                    ),
+                    contentDescription = "Navigation volume",
+                    tint = if (voiceEnabled) OpenMapsColors.ElectricBlue else Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            // +/- and mute only appear when volume is tapped; never add persistent controls
+            // over the camera feed. Navigation voice setting remains the shared MapViewModel state.
+            DropdownMenu(expanded = showVolume, onDismissRequest = { showVolume = false }) {
+                DropdownMenuItem(text = { Text("Volume down") }, onClick = {
+                    audioManager?.adjustStreamVolume(
+                        AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0,
+                    )
+                })
+                DropdownMenuItem(text = {
+                    Text(if (voiceEnabled) "Mute guidance" else "Unmute guidance")
+                }, onClick = { onVoiceMuteToggled() })
+                DropdownMenuItem(text = { Text("Volume up") }, onClick = {
+                    audioManager?.adjustStreamVolume(
+                        AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0,
+                    )
+                })
+            }
         }
 
         IconButton(
@@ -1508,6 +1560,7 @@ private fun LiveTripSummary(
     hud: LiveHudState.Maneuver,
     roadIntelligenceState: RoadIntelligenceState,
     modifier: Modifier = Modifier,
+    showInformationalTraffic: Boolean = true,
 ) {
     val measurementSystem = LocalMeasurementSystem.current
     val locale = LocalAppLocale.current
@@ -1550,7 +1603,7 @@ private fun LiveTripSummary(
                 )
             }
         }
-        liveCongestion?.let { congestion ->
+        if (showInformationalTraffic) liveCongestion?.let { congestion ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(7.dp),

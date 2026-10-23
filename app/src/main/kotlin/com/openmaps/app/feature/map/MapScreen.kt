@@ -262,6 +262,10 @@ fun MapScreen(
                     state.navigationProgress != null -> ActiveMapNavigationPanel(
                     progress = state.navigationProgress!!,
                     voiceEnabled = state.voiceEnabled,
+                    currentSpeedMetersPerSecond = state.roadIntelligenceState.currentSpeedMetersPerSecond,
+                    speedLimitAlert = state.roadIntelligenceState.activeAlerts
+                        .filterIsInstance<com.openmaps.app.core.roadintelligence.RouteAlert.SpeedLimit>()
+                        .firstOrNull(),
                     driverReportStatus = state.driverReportStatus,
                     tripShareStatus = state.tripShareStatus,
                     onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
@@ -276,6 +280,8 @@ fun MapScreen(
                 // layered above the route summary it belongs to.
                 state.isShowingSteps && state.stepsRouteSummary != null -> RouteStepsSheet(
                     maneuvers = state.stepsRouteSummary?.maneuvers.orEmpty(),
+                    totalDistanceMeters = state.stepsRouteSummary?.distanceMeters,
+                    totalDurationSeconds = state.stepsRouteSummary?.durationSeconds,
                     onDismiss = viewModel::onStepsDismissed,
                 )
 
