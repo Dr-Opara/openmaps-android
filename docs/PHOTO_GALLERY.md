@@ -1,5 +1,44 @@
 # OpenMaps destination photos — gallery v1
 
+## Product behavior: UNIVERSAL, not airport-specific
+
+Every supported destination-details flow — typed street address, map pin, restaurant,
+hotel, workplace, airport, landmark, business or other POI — must automatically request
+a photo preview based on the selected destination's identity and coordinates.
+William P. Hobby Airport is only one test case, not a hardcoded feature.
+
+**Source precedence for the default top thumbnail:**
+
+1. **Exact place**: Verified/licensed destination photo (currently Wikimedia Commons).
+2. **Nearby streets**: When no verified venue image is found, optionally show nearby
+   Mapillary street imagery at the selected coordinate, prominently labelled
+   **"Nearby street view"**. It may not depict the building or entry itself.
+3. **No trustworthy image**: Keep the attractive neutral placeholder. Never use
+   unrelated stock imagery or say an image shows a specific home/business without proof.
+
+The Photos tab groups exact photos and street views separately, each with source/credit.
+A user should never need to open the Photos tab before the photo preview appears.
+Mapillary is *optional*, configured with a public token, and is not necessary to
+retrieve Wikimedia images. Coverage is best effort: free providers cannot guarantee
+a photograph exists for every address or business.
+
+**Device acceptance matrix (check each on an actual Android phone):**
+- Named airport: real exact-place hero or clearly labelled nearby street view.
+- Restaurant and hotel: correctly identified exact-place image, distinct location, no
+  false chain-brand match.
+- Popular landmark or park: recognizable, attributed Commons picture when available.
+- Full street address: context street view if available; never mislabel a nearby house
+  or unrelated road image as the exact property.
+- Unnamed point/pin: no fake photo if no source or trustworthy identity.
+- No Mapillary token: exact Wikimedia lookup still runs and the page still works.
+- Offline/no network: placeholders remain responsive and navigation actions still work.
+- Selecting multiple destinations in succession: never show the prior destination's
+  cover while loading the next.
+
+Future expansion: provider-neutral Wikidata/OSM identity, attributed Wikidata P18,
+licensed business-photo feeds, and opt-in user submissions with moderation. The
+current exact-name matching is limited for small businesses and street addresses.
+
 ## What is built
 
 - The top image area on Destination Details and Place Details shows the **first verified destination image** as a clickable hero thumbnail. It opens the Photos tab; it never displays a nearby street scene as the venue's cover.
