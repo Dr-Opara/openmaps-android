@@ -115,6 +115,14 @@ val defaultTripShareGatewayUrl = "$backendBaseUrl/trip-share"
 val defaultCommunityReportsGatewayUrl = "$backendBaseUrl/community-reports"
 val defaultVoiceGatewayUrl = "$backendBaseUrl/voice"
 val defaultReliabilityGatewayUrl = "$backendBaseUrl/reliability"
+// Public Mapillary client token. Optional, for nearby street imagery only.
+// It is intentionally not a private server secret; mobile build constants are inspectable.
+val mapillaryClientToken = providers.gradleProperty("MAPILLARY_CLIENT_TOKEN")
+    .orElse(providers.environmentVariable("MAPILLARY_CLIENT_TOKEN"))
+    .orElse(localProperties.getProperty("MAPILLARY_CLIENT_TOKEN") ?: "")
+    .getOrElse("")
+    .trim()
+
 val defaultBackendPublishableKey =
     "sb_publishable_gF9KreSTfMY24vhsaVd_bQ_WVGEqRYH"
 
@@ -233,6 +241,7 @@ android {
         buildConfigField("boolean", "OFFLINE_MAP_CACHE_ENABLED", (!styleDevOnly && usingStadiaMaps).toString())
         buildConfigField("long", "OFFLINE_MAP_CACHE_LIMIT_BYTES", "94371840L")
         buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
+        buildConfigField("String", "MAPILLARY_CLIENT_TOKEN", "\"$mapillaryClientToken\"")
         buildConfigField("String", "BACKEND_PUBLISHABLE_KEY", "\"$backendPublishableKey\"")
         buildConfigField("String", "MAP_STYLE_NAME", "\"$styleName\"")
         buildConfigField("boolean", "MAP_STYLE_DEV_ONLY", styleDevOnly.toString())
