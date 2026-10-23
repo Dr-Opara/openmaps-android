@@ -29,6 +29,16 @@ jobs:
       - name: Assemble debug
         run: ./gradlew assembleDebug
 
+      # Device acceptance only: make the tested APK available without requiring a local build.
+      # This test branch is never approved for merging into production.
+      - name: Upload debug APK for device QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: openmaps-live-ui-device-test-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Compile release bundle
         run: ./gradlew bundleRelease
 

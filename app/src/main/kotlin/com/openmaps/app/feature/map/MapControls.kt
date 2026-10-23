@@ -64,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
+import com.openmaps.app.core.designsystem.SheetDragHandle
 import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
@@ -500,11 +501,17 @@ fun BottomPanel(
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     var discoverExpanded by remember { mutableStateOf(false) }
     var dragDistance by remember { mutableFloatStateOf(0f) }
+    // Route Preview has its own dark surface. The home/discovery sheet keeps its light treatment.
+    // Do not re-theme the shared surfaceCard() modifier used across Map and Search.
+    val panelSurface = if (destination != null) {
+        modifier.fillMaxWidth()
+            .background(OpenMapsColors.Navy900, GlassShapes.Card)
+            .clip(GlassShapes.Card)
+    } else {
+        modifier.fillMaxWidth().surfaceCard(GlassShapes.Card)
+    }
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .surfaceCard(GlassShapes.Card)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+        modifier = panelSurface.padding(horizontal = 18.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Drag only from the handle so category taps and scrolling do not fight sheet gestures.
@@ -527,8 +534,9 @@ fun BottomPanel(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.width(36.dp).height(4.dp).clip(CircleShape)
-                .background(OpenMapsColors.SurfaceBorder))
+            SheetDragHandle(
+                tint = if (destination != null) Color.White.copy(alpha = 0.35f) else OpenMapsColors.SurfaceBorder,
+            )
         }
         if (destination == null) {
             Box(
@@ -552,13 +560,13 @@ fun BottomPanel(
             Text(
                 text = stringResource(R.string.route_preview_title),
                 style = MaterialTheme.typography.titleLarge,
-                color = OpenMapsColors.TextPrimary,
+                color = Color.White,
                 modifier = Modifier.align(Alignment.Start),
             )
             Text(
                 text = stringResource(R.string.route_preview_subtitle),
                 style = MaterialTheme.typography.bodySmall,
-                color = OpenMapsColors.TextSecondary,
+                color = OpenMapsColors.TextOnDarkSecondary,
                 modifier = Modifier.align(Alignment.Start).padding(top = 2.dp),
             )
             Spacer(Modifier.height(12.dp))
@@ -882,83 +890,49 @@ private fun RoutePreviewSummary(
 ) {
     when (routeState) {
         RouteState.Idle -> Unit
-        RouteState.WaitingForLocation -> RouteStatusText(stringResource(R.string.route_waiting_for_location))
-        RouteState.Loading -> RouteLoadingRow()
-        is RouteState.Error -> RouteStatusText(stringResource(routeState.reason.toMessageRes()))
+        RouteState.WaitingForLocation -> Text(
+            text = stringResource(R.string.route_waiting_for_location),
+            style = MaterialTheme.typography.bodySmall,
+            color = OpenMapsColors.TextOnDarkSecondary,
+        )
+        RouteState.Loading -> RouteLoadingRow(color = OpenMapsColors.TextOnDarkSecondary)
+        is RouteState.Error -> Text(
+            text = stringResource(routeState.reason.toMessageRes()),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
         is RouteState.Ready -> {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                RouteMetricCard(
-                    value = formatDuration(routeState.route.durationSeconds),
-                    label = stringResource(R.string.route_preview_duration),
-                    modifier = Modifier.weight(1f),
-                )
-                RouteMetricCard(
-                    value = formatDistance(routeState.route.distanceMeters),
-                    label = stringResource(R.string.route_preview_distance),
-                    modifier = Modifier.weight(1f),
-                )
-                RouteMetricCard(
-                    value = ArrivalTimeFormatter.format(
-                        routeState.route.durationSeconds,
-                        System.currentTimeMillis(),
-                        locale = LocalAppLocale.current,
-                    ),
-                    label = stringResource(R.string.route_preview_arrival),
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            routeState.route.trafficDelaySeconds
+            val trafficStatus = routeState.route.trafficDelaySeconds
                 ?.takeIf { routeState.route.isTrafficAware && it >= 60.0 }
                 ?.let { delay ->
-                    Text(
-                        text = stringResource(R.string.route_traffic_delay_format, (delay / 60.0).roundToInt()),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = OpenMapsColors.TextSecondary,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
+                    stringResource(R.string.route_traffic_delay_format, (delay / 60.0).roundToInt())
                 }
+            RoutePreviewDarkMetricsRow(
+                durationText = formatDuration(routeState.route.durationSeconds),
+                distanceText = formatDistance(routeState.route.distanceMeters),
+                arrivalText = ArrivalTimeFormatter.format(
+                    routeState.route.durationSeconds,
+                    System.currentTimeMillis(),
+                    locale = LocalAppLocale.current,
+                ),
+                statusText = trafficStatus,
+            )
 
             if (routeState.route.alternatives.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 Text(
                     text = stringResource(R.string.route_other_routes),
                     style = MaterialTheme.typography.labelLarge,
-                    color = OpenMapsColors.TextPrimary,
+                    color = Color.White,
                 )
                 Spacer(Modifier.height(6.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     routeState.route.alternatives.take(2).forEachIndexed { index, alternative ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(OpenMapsColors.SurfaceMuted, GlassShapes.Row)
-                                .clickable { onAlternativeSelected(index) }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    text = alternative.label ?: stringResource(R.string.route_alternate_fallback),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = OpenMapsColors.TextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = "${formatDuration(alternative.durationSeconds)} · ${formatDistance(alternative.distanceMeters)}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = OpenMapsColors.TextSecondary,
-                                )
-                            }
-                            Text(
-                                text = stringResource(R.string.route_use_action),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = OpenMapsColors.ElectricBlueFilled,
-                            )
-                        }
+                        RoutePreviewDarkAlternateRow(
+                            label = alternative.label ?: stringResource(R.string.route_alternate_fallback),
+                            detail = "${formatDuration(alternative.durationSeconds)} · ${formatDistance(alternative.distanceMeters)}",
+                            onUseClick = { onAlternativeSelected(index) },
+                        )
                     }
                 }
             }
@@ -967,12 +941,14 @@ private fun RoutePreviewSummary(
                 Text(
                     text = stringResource(
                         R.string.route_preview_turn_count,
-                        routeState.route.maneuvers.count { it.type != com.openmaps.app.core.routing.ManeuverType.Start &&
-                            it.type != com.openmaps.app.core.routing.ManeuverType.Continue &&
-                            it.type != com.openmaps.app.core.routing.ManeuverType.Destination },
+                        routeState.route.maneuvers.count {
+                            it.type != com.openmaps.app.core.routing.ManeuverType.Start &&
+                                it.type != com.openmaps.app.core.routing.ManeuverType.Continue &&
+                                it.type != com.openmaps.app.core.routing.ManeuverType.Destination
+                        },
                     ),
                     style = MaterialTheme.typography.bodySmall,
-                    color = OpenMapsColors.TextSecondary,
+                    color = OpenMapsColors.TextOnDarkSecondary,
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
@@ -1066,14 +1042,14 @@ private fun RouteStatusText(text: String, color: Color = OpenMapsColors.TextSeco
 }
 
 @Composable
-private fun RouteLoadingRow() {
+private fun RouteLoadingRow(color: Color = OpenMapsColors.TextSecondary) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
         CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = OpenMapsColors.ElectricBlue)
         Spacer(Modifier.width(6.dp))
         Text(
             text = stringResource(R.string.route_loading),
             style = MaterialTheme.typography.labelLarge,
-            color = OpenMapsColors.TextSecondary,
+            color = color,
         )
     }
 }
