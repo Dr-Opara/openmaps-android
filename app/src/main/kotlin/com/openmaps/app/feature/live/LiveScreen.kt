@@ -107,6 +107,7 @@ import com.openmaps.app.feature.map.iconRes
 import com.openmaps.app.feature.map.markerColor
 import com.openmaps.app.map.MapMode
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 /**
@@ -156,6 +157,16 @@ fun LiveScreen(
     // Reactive: flips from Spatial to CameraX mid-session if AR fails, which is what guarantees a
     // camera is always available in Live.
     val previewProvider by viewModel.previewProvider.collectAsState()
+    // The first five seconds explain route/localization context. Afterwards declutter
+    // non-critical street and traffic overlays, but NEVER hide routing safety warnings.
+    var showStartupContext by remember { mutableStateOf(true) }
+    LaunchedEffect(isNavigating) {
+        showStartupContext = true
+        if (isNavigating) {
+            delay(5_000)
+            showStartupContext = false
+        }
+    }
 
     Box(
         modifier
@@ -246,17 +257,21 @@ fun LiveScreen(
         val spatialState by viewModel.spatialLocalization.state
             .collectAsState(initial = SpatialLocalizationState.Idle)
         val localizationStatus = remember(spatialState) { LiveLocalizationStatusMapper.of(spatialState) }
-        LiveArDiagnosticsOverlay(
-            previewProvider = previewProvider,
-            spatialState = spatialState,
-            hasRoute = route != null,
-            isNavigating = isNavigating,
-            arrowPipeline = viewModel.arrowPipeline,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(start = 8.dp, top = 8.dp),
-        )
+        // Debug status is useful during the initial positioning window but should never
+        // persist over active guidance or ship as part of the production visual surface.
+        if (BuildConfig.DEBUG && showStartupContext) {
+            LiveArDiagnosticsOverlay(
+                previewProvider = previewProvider,
+                spatialState = spatialState,
+                hasRoute = route != null,
+                isNavigating = isNavigating,
+                arrowPipeline = viewModel.arrowPipeline,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(start = 8.dp, top = 8.dp),
+            )
+        }
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -289,7 +304,11 @@ fun LiveScreen(
                 LiveHudState.Idle -> LiveArPreviewLabel(modifier = Modifier.fillMaxWidth())
                 is LiveHudState.Arrived -> Unit
             }
-            if (localizationStatus != LiveLocalizationStatus.None) {
+            if (localizationStatus != LiveLocalizationStatus.None &&
+                (showStartupContext || localizationStatus == LiveLocalizationStatus.Locating ||
+                    localizationStatus == LiveLocalizationStatus.Improving)
+            ) {
+                // Keep accuracy warnings visible while AR arrows cannot safely be placed.
                 LocalizationChip(status = localizationStatus)
             }
             if (isNavigating) {
@@ -305,6 +324,7 @@ fun LiveScreen(
                 }
                 LiveRoadAlertHud(
                     roadState = roadIntelligenceState,
+                    showInformationalTraffic = showStartupContext,
                     onCommunityConfirm = onCommunityReportConfirm,
                     onCommunityDismiss = onCommunityReportDismiss,
                 )
@@ -317,7 +337,7 @@ fun LiveScreen(
         // feed, roughly where the chevron path is passing in the reference. [currentStreetName] is
         // the routing provider's own street_names field (never derived from the instruction text),
         // so the tag is simply absent rather than guessed when the provider omits it.
-        if (hudState is LiveHudState.Maneuver) {
+        if (showStartupContext && hudState is LiveHudState.Maneuver) {
             hudState.currentStreetName?.let { streetName ->
                 LiveStreetNameTag(
                     streetName = streetName,
@@ -372,6 +392,7 @@ fun LiveScreen(
                 LiveTripSummary(
                     hud = hudState,
                     roadIntelligenceState = roadIntelligenceState,
+                    showInformationalTraffic = showStartupContext,
                 )
             }
         }
@@ -483,6 +504,7 @@ private fun LocalizationChip(status: LiveLocalizationStatus, modifier: Modifier 
 @Composable
 private fun LiveRoadAlertHud(
     roadState: RoadIntelligenceState,
+    showInformationalTraffic: Boolean = true,
     onCommunityConfirm: (String) -> Unit = {},
     onCommunityDismiss: (String) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -496,7 +518,8 @@ private fun LiveRoadAlertHud(
         it !is RouteAlert.SpeedLimit &&
             it !is RouteAlert.Lane &&
             // Static/historical congestion is not a current traffic condition.
-            (it !is RouteAlert.Congestion || it.condition.isLive)
+            (it !is RouteAlert.Congestion ||
+                (showInformationalTraffic && it.condition.isLive))
     } ?: return
 
     val measurementSystem = LocalMeasurementSystem.current
@@ -1508,6 +1531,7 @@ private fun LiveTripSummary(
     hud: LiveHudState.Maneuver,
     roadIntelligenceState: RoadIntelligenceState,
     modifier: Modifier = Modifier,
+    showInformationalTraffic: Boolean = true,
 ) {
     val measurementSystem = LocalMeasurementSystem.current
     val locale = LocalAppLocale.current
@@ -1550,7 +1574,7 @@ private fun LiveTripSummary(
                 )
             }
         }
-        liveCongestion?.let { congestion ->
+        if (showInformationalTraffic) liveCongestion?.let { congestion ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
