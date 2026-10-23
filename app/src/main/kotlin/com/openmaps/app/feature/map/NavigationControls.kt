@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -506,8 +507,11 @@ fun ActiveMapNavigationPanel(
     onReroute: () -> Unit,
     onExitNavigation: () -> Unit,
     modifier: Modifier = Modifier,
+    currentSpeedMetersPerSecond: Float? = null,
+    speedLimitAlert: RouteAlert.SpeedLimit? = null,
 ) {
     var showVolume by remember { mutableStateOf(false) }
+    var showMoreActions by remember { mutableStateOf(false) }
     var showReports by remember { mutableStateOf(false) }
     var confirmExit by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -517,84 +521,107 @@ fun ActiveMapNavigationPanel(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // Mockup-consistent current driving speed and *provider-sourced* posted speed limit.
+        // An unknown limit is omitted, not guessed. The same instrument is used in Live.
+        val measurementSystem = LocalMeasurementSystem.current
+        val locale = LocalAppLocale.current
+        val speedUnit = NavigationUnits.speedUnitLabel(measurementSystem, locale)
+        val speedValue = currentSpeedMetersPerSecond?.let {
+            NavigationUnits.formatCurrentSpeed(it, measurementSystem, locale).substringBeforeLast(" ")
+        }
+        val postedLimit = speedLimitAlert?.let {
+            NavigationUnits.formatPostedSpeed(
+                value = it.info.value,
+                sourceIsMph = it.info.unit == SpeedUnit.Mph,
+                preference = measurementSystem,
+                locale = locale,
+            ).substringBeforeLast(" ")
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            DrivingQuickAction(
-                label = stringResource(R.string.nav_action_report),
-                onClick = { showReports = true },
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_warning),
-                    contentDescription = null,
-                    tint = OpenMapsColors.Warning,
-                    modifier = Modifier.size(20.dp),
+            if (speedValue != null || postedLimit != null) {
+                LiveSpeedRow(
+                    speedValue = speedValue,
+                    speedUnit = speedUnit,
+                    arcFraction = speedArcFraction(
+                        currentSpeedMetersPerSecond ?: 0f,
+                        measurementIsMph = speedUnit.contains("mph", ignoreCase = true),
+                    ),
+                    limitValue = postedLimit,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                Text(
+                    "Speed unavailable",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.weight(1f)
+                        .background(OpenMapsColors.Navy900.copy(alpha = 0.85f), GlassShapes.Pill)
+                        .padding(12.dp),
                 )
             }
-            DrivingQuickAction(
-                label = stringResource(R.string.nav_action_volume),
-                onClick = { showVolume = !showVolume },
-            ) {
-                Icon(
-                    painter = painterResource(if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off),
-                    contentDescription = null,
-                    tint = OpenMapsColors.TextPrimary,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            DrivingQuickAction(
-                label = stringResource(R.string.nav_action_share),
-                onClick = onShareTrip,
-                enabled = tripShareStatus != ExternalActionStatus.Working,
-            ) {
-                Text("↗", style = MaterialTheme.typography.titleMedium, color = OpenMapsColors.TextPrimary)
-            }
-            DrivingQuickAction(
-                label = stringResource(R.string.nav_action_reroute),
-                onClick = onReroute,
-            ) {
-                Text("↻", style = MaterialTheme.typography.titleLarge, color = OpenMapsColors.ElectricBlueFilled)
-            }
-        }
-
-        if (showVolume) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .background(OpenMapsColors.Surface, GlassShapes.Pill)
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
-                    onClick = {
-                        audioManager?.adjustStreamVolume(
-                            AudioManager.STREAM_MUSIC,
-                            AudioManager.ADJUST_LOWER,
-                            0,
-                        )
-                    },
+            Box {
+                DrivingQuickAction(
+                    label = stringResource(R.string.nav_action_volume),
+                    onClick = { showVolume = true },
                 ) {
-                    Text("−", style = MaterialTheme.typography.titleLarge, color = OpenMapsColors.TextPrimary)
-                }
-                TextButton(onClick = onVoiceMuteToggled) {
                     Icon(
-                        painter = painterResource(if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off),
-                        contentDescription = stringResource(if (voiceEnabled) R.string.live_voice_on else R.string.live_voice_off),
-                        tint = OpenMapsColors.TextPrimary,
+                        painter = painterResource(
+                            if (voiceEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off,
+                        ),
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp),
                     )
                 }
-                TextButton(
-                    onClick = {
-                        audioManager?.adjustStreamVolume(
-                            AudioManager.STREAM_MUSIC,
-                            AudioManager.ADJUST_RAISE,
-                            0,
-                        )
-                    },
+                // +/−/mute stay hidden until the user taps the volume control.
+                DropdownMenu(expanded = showVolume, onDismissRequest = { showVolume = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Volume down") },
+                        onClick = {
+                            audioManager?.adjustStreamVolume(
+                                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0,
+                            )
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (voiceEnabled) "Mute guidance" else "Unmute guidance") },
+                        onClick = { onVoiceMuteToggled() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Volume up") },
+                        onClick = {
+                            audioManager?.adjustStreamVolume(
+                                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0,
+                            )
+                        },
+                    )
+                }
+            }
+            Box {
+                DrivingQuickAction(label = "More", onClick = { showMoreActions = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = null,
+                        tint = Color.White, modifier = Modifier.size(24.dp))
+                }
+                DropdownMenu(
+                    expanded = showMoreActions,
+                    onDismissRequest = { showMoreActions = false },
                 ) {
-                    Text("+", style = MaterialTheme.typography.titleLarge, color = OpenMapsColors.TextPrimary)
+                    DropdownMenuItem(text = { Text("Report hazard") }, onClick = {
+                        showMoreActions = false
+                        showReports = true
+                    })
+                    DropdownMenuItem(text = { Text("Share trip") }, onClick = {
+                        showMoreActions = false
+                        onShareTrip()
+                    }, enabled = tripShareStatus != ExternalActionStatus.Working)
+                    DropdownMenuItem(text = { Text("Reroute") }, onClick = {
+                        showMoreActions = false
+                        onReroute()
+                    })
                 }
             }
         }
@@ -602,8 +629,9 @@ fun ActiveMapNavigationPanel(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .surfaceCard(GlassShapes.Card)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .clip(GlassShapes.Card)
+                .background(Color(0xE60B1928))
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -716,7 +744,7 @@ private fun DrivingQuickAction(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = if (enabled) OpenMapsColors.TextPrimary else OpenMapsColors.TextSecondary.copy(alpha = 0.45f),
+            color = if (enabled) Color.White else Color.White.copy(alpha = 0.45f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -729,13 +757,13 @@ private fun TripMetric(value: String, label: String, modifier: Modifier = Modifi
         Text(
             text = value,
             style = MaterialTheme.typography.titleMedium,
-            color = OpenMapsColors.TextPrimary,
+            color = Color.White,
             maxLines = 1,
         )
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = OpenMapsColors.TextSecondary,
+            color = Color.White.copy(alpha = 0.75f),
             maxLines = 1,
         )
     }
