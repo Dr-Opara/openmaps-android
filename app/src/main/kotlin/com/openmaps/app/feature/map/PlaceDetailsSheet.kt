@@ -60,6 +60,11 @@ import androidx.compose.ui.unit.dp
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
+import com.openmaps.app.core.designsystem.mapSheetSurfaceColor
+import com.openmaps.app.core.designsystem.mapSheetMutedColor
+import com.openmaps.app.core.designsystem.mapSheetPrimaryTextColor
+import com.openmaps.app.core.designsystem.mapSheetSecondaryTextColor
+import com.openmaps.app.core.designsystem.mapSheetBorderColor
 import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.localization.LocalAppLocale
@@ -308,7 +313,7 @@ fun PlaceDetailsSheet(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(max = (LocalConfiguration.current.screenHeightDp.dp - 235.dp).coerceAtLeast(280.dp))
-            .surfaceCard(GlassShapes.Card)
+            .clip(GlassShapes.Card).background(mapSheetSurfaceColor())
             .verticalScroll(rememberScrollState()),
     ) {
         // Hero image, or a clean category placeholder when no real image exists. Never a fabricated
@@ -319,7 +324,7 @@ fun PlaceDetailsSheet(
             Text(
                 text = place.name,
                 style = MaterialTheme.typography.headlineSmall,
-                color = OpenMapsColors.TextPrimary,
+                color = mapSheetPrimaryTextColor(),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -336,7 +341,7 @@ fun PlaceDetailsSheet(
                 Text(
                     text = place.category.displayName(),
                     style = MaterialTheme.typography.labelMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                 )
             }
             place.openNow?.let { open ->
@@ -356,7 +361,7 @@ fun PlaceDetailsSheet(
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(licensed.sourceUrl))) }
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -577,7 +582,7 @@ private fun PlaceDetailsTabRow(selected: PlaceDetailsTab, onSelected: (PlaceDeta
                     Text(
                         text = stringResource(entry.labelRes()),
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (isSelected) OpenMapsColors.ElectricBlueFilled else OpenMapsColors.TextSecondary,
+                        color = if (isSelected) OpenMapsColors.ElectricBlueFilled else mapSheetSecondaryTextColor(),
                     )
                     Spacer(Modifier.height(4.dp))
                     // Mockup: a short blue underline beneath only the selected tab.
@@ -590,7 +595,7 @@ private fun PlaceDetailsTabRow(selected: PlaceDetailsTab, onSelected: (PlaceDeta
                 }
             }
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(OpenMapsColors.SurfaceBorder))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(mapSheetBorderColor()))
     }
 }
 
@@ -612,7 +617,7 @@ private fun OverviewTabContent(place: Place) {
                 Text(
                     text = summary,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -632,7 +637,7 @@ private fun OverviewTabContent(place: Place) {
             Text(
                 text = hours,
                 style = MaterialTheme.typography.bodySmall,
-                color = OpenMapsColors.TextSecondary,
+                color = mapSheetSecondaryTextColor(),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 8.dp),
@@ -642,7 +647,7 @@ private fun OverviewTabContent(place: Place) {
             Text(
                 text = phone,
                 style = MaterialTheme.typography.bodyMedium,
-                color = OpenMapsColors.TextPrimary,
+                color = mapSheetPrimaryTextColor(),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 8.dp),
@@ -675,7 +680,7 @@ private fun OverviewTabContent(place: Place) {
                 Text(
                     text = address,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextPrimary,
+                    color = mapSheetPrimaryTextColor(),
                 )
             }
         }
@@ -688,7 +693,7 @@ private fun UnavailableTabContent(message: String) {
     Text(
         text = message,
         style = MaterialTheme.typography.bodyMedium,
-        color = OpenMapsColors.TextSecondary,
+        color = mapSheetSecondaryTextColor(),
         modifier = Modifier.padding(vertical = 12.dp),
     )
 }
@@ -720,7 +725,7 @@ private fun NearbyTabContent(place: Place, nearbyPlaces: List<Place>, onSelect: 
                     Text(
                         text = nearby.name,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = OpenMapsColors.TextPrimary,
+                        color = mapSheetPrimaryTextColor(),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -728,7 +733,7 @@ private fun NearbyTabContent(place: Place, nearbyPlaces: List<Place>, onSelect: 
                         Text(
                             text = summary,
                             style = MaterialTheme.typography.labelSmall,
-                            color = OpenMapsColors.TextSecondary,
+                            color = mapSheetSecondaryTextColor(),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )

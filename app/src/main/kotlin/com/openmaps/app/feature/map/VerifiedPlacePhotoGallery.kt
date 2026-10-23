@@ -32,6 +32,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.openmaps.app.core.designsystem.OpenMapsColors
+import com.openmaps.app.core.designsystem.mapSheetSurfaceColor
+import com.openmaps.app.core.designsystem.mapSheetMutedColor
+import com.openmaps.app.core.designsystem.mapSheetPrimaryTextColor
+import com.openmaps.app.core.designsystem.mapSheetSecondaryTextColor
+import com.openmaps.app.core.designsystem.mapSheetBorderColor
 import com.openmaps.app.core.geocoding.GalleryPhoto
 import com.openmaps.app.core.geocoding.GalleryPhotoKind
 import com.openmaps.app.core.geocoding.PlacePhotoGallery
@@ -49,28 +54,28 @@ internal fun VerifiedPlacePhotoGallery(
     val context = LocalContext.current
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Destination photos", style = MaterialTheme.typography.titleMedium,
-            color = OpenMapsColors.TextPrimary)
+            color = mapSheetPrimaryTextColor())
         when {
-            loading -> Text("Finding licensed photos…", color = OpenMapsColors.TextSecondary)
+            loading -> Text("Finding licensed photos…", color = mapSheetSecondaryTextColor())
             gallery.destinationPhotos.isEmpty() ->
                 Text("No verified photos of this destination have been found yet.",
-                    color = OpenMapsColors.TextSecondary, style = MaterialTheme.typography.bodyMedium)
+                    color = mapSheetSecondaryTextColor(), style = MaterialTheme.typography.bodyMedium)
             else -> PhotoTiles(gallery.destinationPhotos) { selected = it }
         }
         Text("Nearby street views", style = MaterialTheme.typography.titleMedium,
-            color = OpenMapsColors.TextPrimary)
+            color = mapSheetPrimaryTextColor())
         when {
-            loading -> Text("Checking nearby street imagery…", color = OpenMapsColors.TextSecondary)
+            loading -> Text("Checking nearby street imagery…", color = mapSheetSecondaryTextColor())
             gallery.nearbyStreetViews.isNotEmpty() ->
                 PhotoTiles(gallery.nearbyStreetViews) { selected = it }
             !streetSourceConfigured ->
                 Text("Nearby street views are optional and need a Mapillary token. Destination photos use Wikimedia Commons and need no token.",
-                    color = OpenMapsColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    color = mapSheetSecondaryTextColor(), style = MaterialTheme.typography.bodySmall)
             else -> Text("No street-level photos found close to this location.",
-                color = OpenMapsColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                color = mapSheetSecondaryTextColor(), style = MaterialTheme.typography.bodySmall)
         }
         Text("Nearby street photos may not show the destination itself.",
-            style = MaterialTheme.typography.labelSmall, color = OpenMapsColors.TextSecondary)
+            style = MaterialTheme.typography.labelSmall, color = mapSheetSecondaryTextColor())
     }
     selected?.let { photo ->
         Dialog(
