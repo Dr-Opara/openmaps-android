@@ -12,6 +12,9 @@ function Add-Result([string]$Check, [bool]$Passed, [string]$Detail) {
 $cartography = Get-Content "app/src/main/kotlin/com/openmaps/app/map/OpenMapsCartography.kt" -Raw
 $engine = Get-Content "app/src/main/kotlin/com/openmaps/app/map/MapLibreMapEngine.kt" -Raw
 $screen = Get-Content "app/src/main/kotlin/com/openmaps/app/feature/map/MapScreen.kt" -Raw
+$ambient = Get-Content "app/src/main/kotlin/com/openmaps/app/map/AmbientMapLightPolicy.kt" -Raw
+$nightStyle = Get-Content "app/src/main/kotlin/com/openmaps/app/map/OpenMapsNightStyle.kt" -Raw
+$appShell = Get-Content "app/src/main/kotlin/com/openmaps/app/OpenMapsApp.kt" -Raw
 $build = Get-Content "app/build.gradle.kts" -Raw
 $offline = Get-Content "app/src/main/kotlin/com/openmaps/app/map/MapLibreOfflineMapCorridorCache.kt" -Raw
 $policy = Get-Content "app/src/main/kotlin/com/openmaps/app/map/OfflineCorridorPolicy.kt" -Raw
@@ -23,7 +26,30 @@ Add-Result "Route casing" ($engine.Contains("ROUTE_CASING_LAYER_ID") -and $engin
 Add-Result "POI density tuning" ($engine.Contains("circleOpacity(palette.poiOpacity)")) "custom places opacity"
 Add-Result "Base label tuning" ($engine.Contains("textOpacity(palette.baseLabelOpacity)")) "label opacity"
 Add-Result "Dynamic navigation mode" ($screen.Contains("state.isNavigating") -and $screen.Contains("CartographyMode.NavigationDay")) "navigation switches palette"
-Add-Result "Dynamic night mode" ($screen.Contains("isSystemInDarkTheme")) "system night signal"
+# Night mode was originally controlled only by the system theme inside MapScreen.
+# It now uses the ambient light sensor with system-theme fallback, user overrides and
+# hysteresis. Check the actual call chain rather than one obsolete file-local symbol.
+Add-Result "Dynamic night mode" (
+  $screen.Contains("rememberAmbientMapNight") -and
+  $screen.Contains("MapAppearanceMode.Auto") -and
+  $screen.Contains("CartographyMode.BrowseNight") -and
+  $screen.Contains("CartographyMode.NavigationNight") -and
+  $ambient.Contains("Sensor.TYPE_LIGHT") -and
+  $ambient.Contains("isSystemInDarkTheme") -and
+  $appShell.Contains("appearanceMode = mapAppearanceMode") -and
+  $appShell.Contains("onMapAppearanceChanged")
+) "ambient sensor + system fallback + manual override across browse/navigation"
+Add-Result "Night mode anti-flicker" (
+  $ambient.Contains("lux <= 12f") -and
+  $ambient.Contains("lux >= 85f") -and
+  $ambient.Contains("AmbientMapLightPolicy.SETTLE_MILLIS") -and
+  $ambient.Contains("delay(AmbientMapLightPolicy.SETTLE_MILLIS)")
+) "threshold hysteresis with timed settling"
+Add-Result "Night vector style provider" (
+  $engine.Contains("OpenMapsNightStyle.resolve") -and
+  $nightStyle.Contains("alidade_smooth_dark.json") -and
+  $nightStyle.Contains("if (!isSupported(source)) return source")
+) "official Stadia night style with other providers left unchanged"
 Add-Result "Provider remains configurable" ($build.Contains("openmaps.style.url") -and $build.Contains("openmaps.style.devOnly")) "provider-neutral build config"
 Add-Result "Stadia production provider" ($build.Contains("STADIA_MAPS_API_KEY") -and $build.Contains("https://tiles.stadiamaps.com/styles/")) "approved mobile vector tile provider"
 Add-Result "Production provider verification task" ($build.Contains('tasks.register("verifyProductionMapConfiguration")')) "release build cannot silently use dev tiles"
