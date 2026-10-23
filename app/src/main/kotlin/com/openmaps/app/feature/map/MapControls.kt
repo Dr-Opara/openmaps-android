@@ -191,7 +191,7 @@ fun MapSearchBar(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 50.dp)
-            .surfaceCard(GlassShapes.Pill)
+            .clip(GlassShapes.Pill).background(mapSheetSurfaceColor())
             .clickable(role = Role.Button, onClick = onSearchClick)
             .padding(start = 16.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -246,7 +246,7 @@ fun RecenterButton(
         onClick = onClick,
         modifier = modifier
             .size(52.dp)
-            .surfaceCard(GlassShapes.Circle),
+            .clip(GlassShapes.Circle).background(mapSheetSurfaceColor()),
     ) {
         Icon(
             painter = painterResource(R.drawable.ic_my_location),
@@ -1256,7 +1256,7 @@ fun LiveFallbackBanner(message: String, onDismiss: () -> Unit, modifier: Modifie
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .surfaceCard(GlassShapes.Pill)
+            .clip(GlassShapes.Pill).background(mapSheetSurfaceColor())
             .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1287,7 +1287,7 @@ fun DegradedRouteBanner(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .surfaceCard(GlassShapes.Pill)
+            .clip(GlassShapes.Pill).background(mapSheetSurfaceColor())
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
