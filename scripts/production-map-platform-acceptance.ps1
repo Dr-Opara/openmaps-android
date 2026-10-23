@@ -30,15 +30,17 @@ Add-Result "Dynamic navigation mode" ($screen.Contains("state.isNavigating") -an
 # It now uses the ambient light sensor with system-theme fallback, user overrides and
 # hysteresis. Check the actual call chain rather than one obsolete file-local symbol.
 Add-Result "Dynamic night mode" (
-  $screen.Contains("rememberAmbientMapNight") -and
+  $appShell.Contains("rememberAmbientMapNight") -and
   $screen.Contains("MapAppearanceMode.Auto") -and
   $screen.Contains("CartographyMode.BrowseNight") -and
   $screen.Contains("CartographyMode.NavigationNight") -and
   $ambient.Contains("Sensor.TYPE_LIGHT") -and
   $ambient.Contains("isSystemInDarkTheme") -and
   $appShell.Contains("appearanceMode = mapAppearanceMode") -and
-  $appShell.Contains("onMapAppearanceChanged")
-) "ambient sensor + system fallback + manual override across browse/navigation"
+  $appShell.Contains("onMapAppearanceChanged") -and
+  $appShell.Contains("LocalMapNightMode provides mapNight") -and
+  $screen.Contains("resolvedNightMode")
+) "shared ambient sensor + fallback + manual override across map and overlays"
 Add-Result "Night mode anti-flicker" (
   $ambient.Contains("lux <= 12f") -and
   $ambient.Contains("lux >= 85f") -and
