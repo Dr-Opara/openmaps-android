@@ -38,7 +38,6 @@ import com.openmaps.app.map.MapLibreHost
 import com.openmaps.app.map.MapLibreMapEngine
 import com.openmaps.app.map.MapStyleProvider
 import com.openmaps.app.map.MapAppearanceMode
-import com.openmaps.app.map.rememberAmbientMapNight
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -68,6 +67,7 @@ fun MapScreen(
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
     appearanceMode: MapAppearanceMode = MapAppearanceMode.Auto,
+    resolvedNightMode: Boolean = false,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -76,14 +76,9 @@ fun MapScreen(
     val engine: MapEngine = remember(viewModel, styleProvider) {
         MapLibreMapEngine(styleProvider = styleProvider, initialCamera = viewModel.uiState.value.cameraState)
     }
-    // Unlike the old system-theme-only condition, Auto uses the phone's ambient light
-    // sensor with a settling interval. Manual Day and Night overrides are in Settings.
-    val automaticallyNight = rememberAmbientMapNight(appearanceMode == MapAppearanceMode.Auto)
-    val useNightMap = when (appearanceMode) {
-        MapAppearanceMode.Auto -> automaticallyNight
-        MapAppearanceMode.Day -> false
-        MapAppearanceMode.Night -> true
-    }
+    // Appearance is resolved once in AppShell and shared across all Map-related overlays.
+    // Never register a second light-sensor listener only for the basemap.
+    val useNightMap = resolvedNightMode
     LaunchedEffect(engine, state.isNavigating, useNightMap) {
         engine.setCartographyMode(
             when {
