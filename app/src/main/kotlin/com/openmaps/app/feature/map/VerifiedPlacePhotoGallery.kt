@@ -64,7 +64,7 @@ internal fun VerifiedPlacePhotoGallery(
             gallery.nearbyStreetViews.isNotEmpty() ->
                 PhotoTiles(gallery.nearbyStreetViews) { selected = it }
             !streetSourceConfigured ->
-                Text("Street imagery isn't connected yet. A Mapillary client token is needed.",
+                Text("Nearby street views are optional and need a Mapillary token. Destination photos use Wikimedia Commons and need no token.",
                     color = OpenMapsColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
             else -> Text("No street-level photos found close to this location.",
                 color = OpenMapsColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
