@@ -340,13 +340,15 @@ fun RouteEndpointFields(
     onDestinationClick: () -> Unit = {},
 ) {
     val connectorX = 14.dp + 9.dp // icon column padding + half the 18dp icon
+    // Resolve CompositionLocal-backed color in composable scope, not DrawScope.
+    val connectorColor = mapSheetBorderColor()
     Column(
         modifier = modifier
             .fillMaxWidth()
             .drawBehind {
                 val x = connectorX.toPx()
                 drawLine(
-                    color = mapSheetBorderColor(),
+                    color = connectorColor,
                     start = androidx.compose.ui.geometry.Offset(x, 46.dp.toPx()),
                     end = androidx.compose.ui.geometry.Offset(x, size.height - 46.dp.toPx()),
                     strokeWidth = 2.dp.toPx(),
