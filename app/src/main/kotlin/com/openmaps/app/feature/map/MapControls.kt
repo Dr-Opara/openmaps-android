@@ -1,6 +1,8 @@
 package com.openmaps.app.feature.map
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -9,7 +11,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,6 +49,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,6 +62,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalConfiguration
@@ -60,10 +72,19 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
+import com.openmaps.app.core.designsystem.mapSheetSurfaceColor
+import com.openmaps.app.core.designsystem.mapSheetMutedColor
+import com.openmaps.app.core.designsystem.mapSheetPrimaryTextColor
+import com.openmaps.app.core.designsystem.mapSheetSecondaryTextColor
+import com.openmaps.app.core.designsystem.mapSheetBorderColor
+import com.openmaps.app.core.designsystem.SheetDragHandle
 import com.openmaps.app.core.designsystem.glass
 import com.openmaps.app.core.designsystem.surfaceCard
 import com.openmaps.app.core.geocoding.SearchResult
@@ -108,7 +129,7 @@ fun MapModeToggle(
             .background(container)
             .border(
                 1.dp,
-                if (transparent) Color.White.copy(alpha = 0.10f) else OpenMapsColors.SurfaceBorder,
+                if (transparent) Color.White.copy(alpha = 0.10f) else mapSheetBorderColor(),
                 GlassShapes.Pill,
             )
             .padding(3.dp),
@@ -143,7 +164,7 @@ fun MapModeToggle(
                     color = when {
                         isSelected -> Color.White
                         transparent -> Color.White
-                        else -> OpenMapsColors.TextSecondary
+                        else -> mapSheetSecondaryTextColor()
                     },
                 )
             }
@@ -170,17 +191,17 @@ fun MapSearchBar(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 50.dp)
-            .surfaceCard(GlassShapes.Pill)
+            .clip(GlassShapes.Pill).background(mapSheetSurfaceColor())
             .clickable(role = Role.Button, onClick = onSearchClick)
             .padding(start = 16.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Filled.Search, contentDescription = null, tint = OpenMapsColors.TextSecondary)
+        Icon(Icons.Filled.Search, contentDescription = null, tint = mapSheetSecondaryTextColor())
         Spacer(Modifier.width(12.dp))
         Text(
             text = stringResource(R.string.map_search_hint),
             style = MaterialTheme.typography.bodyLarge,
-            color = OpenMapsColors.TextSecondary,
+            color = mapSheetSecondaryTextColor(),
             modifier = Modifier.weight(1f),
         )
         onVoiceSearchClick?.let { onVoice ->
@@ -188,7 +209,7 @@ fun MapSearchBar(
                 Icon(
                     painter = painterResource(R.drawable.ic_mic),
                     contentDescription = stringResource(R.string.cd_voice_search),
-                    tint = OpenMapsColors.TextSecondary,
+                    tint = mapSheetSecondaryTextColor(),
                 )
             }
         }
@@ -206,7 +227,7 @@ fun MapSettingsButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
         Icon(
             Icons.Filled.Settings,
             contentDescription = stringResource(R.string.cd_settings),
-            tint = OpenMapsColors.TextSecondary,
+            tint = mapSheetSecondaryTextColor(),
         )
     }
 }
@@ -225,12 +246,12 @@ fun RecenterButton(
         onClick = onClick,
         modifier = modifier
             .size(52.dp)
-            .surfaceCard(GlassShapes.Circle),
+            .clip(GlassShapes.Circle).background(mapSheetSurfaceColor()),
     ) {
         Icon(
             painter = painterResource(R.drawable.ic_my_location),
             contentDescription = stringResource(R.string.cd_recenter),
-            tint = if (hasLocation) OpenMapsColors.ElectricBlueFilled else OpenMapsColors.TextSecondary,
+            tint = if (hasLocation) OpenMapsColors.ElectricBlueFilled else mapSheetSecondaryTextColor(),
         )
     }
 }
@@ -319,13 +340,15 @@ fun RouteEndpointFields(
     onDestinationClick: () -> Unit = {},
 ) {
     val connectorX = 14.dp + 9.dp // icon column padding + half the 18dp icon
+    // Resolve CompositionLocal-backed color in composable scope, not DrawScope.
+    val connectorColor = mapSheetBorderColor()
     Column(
         modifier = modifier
             .fillMaxWidth()
             .drawBehind {
                 val x = connectorX.toPx()
                 drawLine(
-                    color = OpenMapsColors.SurfaceBorder,
+                    color = connectorColor,
                     start = androidx.compose.ui.geometry.Offset(x, 46.dp.toPx()),
                     end = androidx.compose.ui.geometry.Offset(x, size.height - 46.dp.toPx()),
                     strokeWidth = 2.dp.toPx(),
@@ -337,8 +360,8 @@ fun RouteEndpointFields(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(OpenMapsColors.Surface, GlassShapes.Row)
-                .border(1.dp, OpenMapsColors.SurfaceBorder, GlassShapes.Row)
+                .background(mapSheetSurfaceColor(), GlassShapes.Row)
+                .border(1.dp, mapSheetBorderColor(), GlassShapes.Row)
                 .clickable(role = Role.Button, onClick = onOriginClick)
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -353,14 +376,14 @@ fun RouteEndpointFields(
             Text(
                 text = origin?.name?.ifBlank { origin.displayName } ?: stringResource(R.string.route_origin_your_location),
                 style = MaterialTheme.typography.bodyMedium,
-                color = OpenMapsColors.TextPrimary,
+                color = mapSheetPrimaryTextColor(),
             )
         }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(OpenMapsColors.Surface, GlassShapes.Row)
-                .border(1.dp, OpenMapsColors.SurfaceBorder, GlassShapes.Row)
+                .background(mapSheetSurfaceColor(), GlassShapes.Row)
+                .border(1.dp, mapSheetBorderColor(), GlassShapes.Row)
                 .clickable(role = Role.Button, onClick = onDestinationClick)
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -376,7 +399,7 @@ fun RouteEndpointFields(
                 text = destination?.name?.ifBlank { destination.displayName }
                     ?: stringResource(R.string.route_destination_placeholder),
                 style = MaterialTheme.typography.bodyMedium,
-                color = OpenMapsColors.TextPrimary,
+                color = mapSheetPrimaryTextColor(),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -425,7 +448,7 @@ fun RouteModeRow(
                     tint = when {
                         isDriving -> Color.White
                         enabled -> OpenMapsColors.ElectricBlueFilled
-                        else -> OpenMapsColors.TextSecondary
+                        else -> mapSheetSecondaryTextColor()
                     },
                     modifier = Modifier.size(16.dp),
                 )
@@ -439,7 +462,7 @@ fun RouteModeRow(
                     overflow = TextOverflow.Ellipsis,
                     color = when {
                         isDriving -> Color.White
-                        else -> OpenMapsColors.TextSecondary
+                        else -> mapSheetSecondaryTextColor()
                     },
                 )
             }
@@ -498,37 +521,97 @@ fun BottomPanel(
     modifier: Modifier = Modifier,
 ) {
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    // Direct finger-following drag, with a spring only after release. The previous handle
+    // accumulated pixels but moved the Route Preview *zero* pixels and only toggled Home/Discover.
+    // Keep the existing Home/Discover expansion behavior independent from Route Preview.
     var discoverExpanded by remember { mutableStateOf(false) }
-    var dragDistance by remember { mutableFloatStateOf(0f) }
+    var discoverDragDistance by remember { mutableFloatStateOf(0f) }
+    var sheetHeightPx by remember { mutableIntStateOf(0) }
+    var sheetOffsetPx by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    val peekPx = with(density) { 118.dp.toPx() }
+    val collapseLimit = (sheetHeightPx.toFloat() - peekPx).coerceAtLeast(0f)
+    val scope = rememberCoroutineScope()
+    var settlingJob by remember { mutableStateOf<Job?>(null) }
+    LaunchedEffect(destination?.id) {
+        settlingJob?.cancel()
+        sheetOffsetPx = 0f
+    }
+    fun settleTo(target: Float) {
+        settlingJob?.cancel()
+        settlingJob = scope.launch {
+            Animatable(sheetOffsetPx).animateTo(
+                targetValue = target.coerceIn(0f, collapseLimit),
+                animationSpec = spring(dampingRatio = 0.83f, stiffness = 470f),
+            ) { sheetOffsetPx = value }
+        }
+    }
+    val previewDragState = rememberDraggableState { delta ->
+        settlingJob?.cancel()
+        sheetOffsetPx = (sheetOffsetPx + delta).coerceIn(0f, collapseLimit)
+    }
+    val routeDragModifier = if (destination != null) {
+        Modifier
+            .onSizeChanged { sheetHeightPx = it.height }
+            .offset { IntOffset(0, sheetOffsetPx.roundToInt()) }
+            .draggable(
+                state = previewDragState,
+                orientation = Orientation.Vertical,
+                onDragStopped = { velocity ->
+                    // A downward fling collapses; an upward fling expands. Normal releases
+                    // settle at the nearer anchor. No "teleport" between endpoints.
+                    val settleCollapsed = when {
+                        velocity > 900f -> true
+                        velocity < -900f -> false
+                        else -> sheetOffsetPx > collapseLimit * 0.45f
+                    }
+                    settleTo(if (settleCollapsed) collapseLimit else 0f)
+                },
+            )
+    } else Modifier
+    // Route Preview has its own dark surface. The home/discovery sheet keeps its light treatment.
+    // Do not re-theme the shared surfaceCard() modifier used across Map and Search.
+    val panelSurface = if (destination != null) {
+        modifier.fillMaxWidth()
+            .then(routeDragModifier)
+            .heightIn(max = screenHeight * 0.83f)
+            .background(OpenMapsColors.Navy900, GlassShapes.Card)
+            .clip(GlassShapes.Card)
+    } else {
+        modifier.fillMaxWidth().clip(GlassShapes.Card).background(mapSheetSurfaceColor())
+    }
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .surfaceCard(GlassShapes.Card)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+        modifier = panelSurface.padding(horizontal = 18.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Drag only from the handle so category taps and scrolling do not fight sheet gestures.
+        // Larger handle area remains usable even when sheet content is scrollable.
+        val handleModifier = if (destination == null) {
+            Modifier.pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragStart = { discoverDragDistance = 0f },
+                    onVerticalDrag = { change, amount ->
+                        change.consume()
+                        discoverDragDistance += amount
+                    },
+                    onDragEnd = {
+                        if (discoverDragDistance < -35f) discoverExpanded = true
+                        if (discoverDragDistance > 35f) discoverExpanded = false
+                    },
+                )
+            }
+        } else {
+            Modifier.clickable {
+                settleTo(if (sheetOffsetPx > collapseLimit * 0.45f) 0f else collapseLimit)
+            }
+        }
         Box(
-            Modifier
-                .fillMaxWidth()
-                .height(24.dp)
-                .pointerInput(destination) {
-                    detectVerticalDragGestures(
-                        onDragStart = { dragDistance = 0f },
-                        onVerticalDrag = { change, amount ->
-                            change.consume()
-                            dragDistance += amount
-                        },
-                        onDragEnd = {
-                            if (dragDistance < -35f) discoverExpanded = true
-                            if (dragDistance > 35f) discoverExpanded = false
-                        },
-                    )
-                },
+            Modifier.fillMaxWidth().height(28.dp).then(handleModifier),
             contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.width(36.dp).height(4.dp).clip(CircleShape)
-                .background(OpenMapsColors.SurfaceBorder))
+            SheetDragHandle(
+                tint = if (destination != null) Color.White.copy(alpha = 0.40f)
+                    else mapSheetBorderColor(),
+            )
         }
         if (destination == null) {
             Box(
@@ -549,16 +632,22 @@ fun BottomPanel(
             }
             }
         } else {
+            Column(
+                modifier = Modifier.fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
             Text(
                 text = stringResource(R.string.route_preview_title),
                 style = MaterialTheme.typography.titleLarge,
-                color = OpenMapsColors.TextPrimary,
+                color = Color.White,
                 modifier = Modifier.align(Alignment.Start),
             )
             Text(
                 text = stringResource(R.string.route_preview_subtitle),
                 style = MaterialTheme.typography.bodySmall,
-                color = OpenMapsColors.TextSecondary,
+                color = OpenMapsColors.TextOnDarkSecondary,
                 modifier = Modifier.align(Alignment.Start).padding(top = 2.dp),
             )
             Spacer(Modifier.height(12.dp))
@@ -574,6 +663,7 @@ fun BottomPanel(
                 onStart = onStart,
                 onStop = onStop,
             )
+            }
         }
     }
 }
@@ -604,12 +694,12 @@ private fun HomeDiscoveryPanel(
                 Text(
                     text = stringResource(R.string.home_explore_title),
                     style = MaterialTheme.typography.titleLarge,
-                    color = OpenMapsColors.TextPrimary,
+                    color = mapSheetPrimaryTextColor(),
                 )
                 Text(
                     text = stringResource(R.string.home_explore_subtitle),
                     style = MaterialTheme.typography.bodySmall,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                 )
             }
             Text(
@@ -673,7 +763,7 @@ private fun HomeDiscoveryPanel(
                     Text(
                         text = place.name.ifBlank { place.category.displayName() },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = OpenMapsColors.TextPrimary,
+                        color = mapSheetPrimaryTextColor(),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
@@ -682,7 +772,7 @@ private fun HomeDiscoveryPanel(
                         Text(
                             text = homeDistanceLabel(meters),
                             style = MaterialTheme.typography.labelMedium,
-                            color = OpenMapsColors.TextSecondary,
+                            color = mapSheetSecondaryTextColor(),
                         )
                     }
                 }
@@ -712,7 +802,7 @@ private fun HomeDiscoveryPanel(
                     Text(
                         text = favorite.name.ifBlank { favorite.displayName },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = OpenMapsColors.TextPrimary,
+                        color = mapSheetPrimaryTextColor(),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -745,7 +835,7 @@ private fun HomeDiscoveryPanel(
                         Text(
                             text = recent.name.ifBlank { recent.displayName },
                             style = MaterialTheme.typography.bodyMedium,
-                            color = OpenMapsColors.TextPrimary,
+                            color = mapSheetPrimaryTextColor(),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -753,7 +843,7 @@ private fun HomeDiscoveryPanel(
                             Text(
                                 text = it,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = OpenMapsColors.TextSecondary,
+                                color = mapSheetSecondaryTextColor(),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -771,12 +861,12 @@ private fun HomeSectionHeader(title: String, subtitle: String) {
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = OpenMapsColors.TextPrimary,
+            color = mapSheetPrimaryTextColor(),
         )
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodySmall,
-            color = OpenMapsColors.TextSecondary,
+            color = mapSheetSecondaryTextColor(),
         )
     }
 }
@@ -789,7 +879,7 @@ private fun HomePlaceCard(
 ) {
     Column(
         modifier = modifier
-            .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+            .background(mapSheetMutedColor(), GlassShapes.Card)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
@@ -804,13 +894,13 @@ private fun HomePlaceCard(
             Text(
                 text = place.category.displayName(),
                 style = MaterialTheme.typography.labelSmall,
-                color = OpenMapsColors.TextSecondary,
+                color = mapSheetSecondaryTextColor(),
             )
         }
         Text(
             text = place.name.ifBlank { place.category.displayName() },
             style = MaterialTheme.typography.titleSmall,
-            color = OpenMapsColors.TextPrimary,
+            color = mapSheetPrimaryTextColor(),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 5.dp),
@@ -882,83 +972,51 @@ private fun RoutePreviewSummary(
 ) {
     when (routeState) {
         RouteState.Idle -> Unit
-        RouteState.WaitingForLocation -> RouteStatusText(stringResource(R.string.route_waiting_for_location))
-        RouteState.Loading -> RouteLoadingRow()
-        is RouteState.Error -> RouteStatusText(stringResource(routeState.reason.toMessageRes()))
+        RouteState.WaitingForLocation -> Text(
+            text = stringResource(R.string.route_waiting_for_location),
+            style = MaterialTheme.typography.bodySmall,
+            color = OpenMapsColors.TextOnDarkSecondary,
+        )
+        RouteState.Loading -> RouteLoadingRow(color = OpenMapsColors.TextOnDarkSecondary)
+        is RouteState.Error -> Text(
+            text = stringResource(routeState.reason.toMessageRes()),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
         is RouteState.Ready -> {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                RouteMetricCard(
-                    value = formatDuration(routeState.route.durationSeconds),
-                    label = stringResource(R.string.route_preview_duration),
-                    modifier = Modifier.weight(1f),
-                )
-                RouteMetricCard(
-                    value = formatDistance(routeState.route.distanceMeters),
-                    label = stringResource(R.string.route_preview_distance),
-                    modifier = Modifier.weight(1f),
-                )
-                RouteMetricCard(
-                    value = ArrivalTimeFormatter.format(
-                        routeState.route.durationSeconds,
-                        System.currentTimeMillis(),
-                        locale = LocalAppLocale.current,
-                    ),
-                    label = stringResource(R.string.route_preview_arrival),
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            routeState.route.trafficDelaySeconds
+            val trafficStatus = routeState.route.trafficDelaySeconds
                 ?.takeIf { routeState.route.isTrafficAware && it >= 60.0 }
                 ?.let { delay ->
-                    Text(
-                        text = stringResource(R.string.route_traffic_delay_format, (delay / 60.0).roundToInt()),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = OpenMapsColors.TextSecondary,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
+                    stringResource(R.string.route_traffic_delay_format, (delay / 60.0).roundToInt())
                 }
+            RoutePreviewDarkMetricsRow(
+                durationText = formatDuration(routeState.route.durationSeconds),
+                distanceText = formatDistance(routeState.route.distanceMeters),
+                arrivalText = ArrivalTimeFormatter.format(
+                    routeState.route.durationSeconds,
+                    System.currentTimeMillis(),
+                    locale = LocalAppLocale.current,
+                ),
+                statusText = trafficStatus,
+            )
 
             if (routeState.route.alternatives.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 Text(
                     text = stringResource(R.string.route_other_routes),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = OpenMapsColors.TextPrimary,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Start,
                 )
                 Spacer(Modifier.height(6.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     routeState.route.alternatives.take(2).forEachIndexed { index, alternative ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(OpenMapsColors.SurfaceMuted, GlassShapes.Row)
-                                .clickable { onAlternativeSelected(index) }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    text = alternative.label ?: stringResource(R.string.route_alternate_fallback),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = OpenMapsColors.TextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = "${formatDuration(alternative.durationSeconds)} · ${formatDistance(alternative.distanceMeters)}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = OpenMapsColors.TextSecondary,
-                                )
-                            }
-                            Text(
-                                text = stringResource(R.string.route_use_action),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = OpenMapsColors.ElectricBlueFilled,
-                            )
-                        }
+                        RoutePreviewDarkAlternateRow(
+                            label = alternative.label ?: stringResource(R.string.route_alternate_fallback),
+                            detail = "${formatDuration(alternative.durationSeconds)} · ${formatDistance(alternative.distanceMeters)}",
+                            onUseClick = { onAlternativeSelected(index) },
+                        )
                     }
                 }
             }
@@ -967,13 +1025,15 @@ private fun RoutePreviewSummary(
                 Text(
                     text = stringResource(
                         R.string.route_preview_turn_count,
-                        routeState.route.maneuvers.count { it.type != com.openmaps.app.core.routing.ManeuverType.Start &&
-                            it.type != com.openmaps.app.core.routing.ManeuverType.Continue &&
-                            it.type != com.openmaps.app.core.routing.ManeuverType.Destination },
+                        routeState.route.maneuvers.count {
+                            it.type != com.openmaps.app.core.routing.ManeuverType.Start &&
+                                it.type != com.openmaps.app.core.routing.ManeuverType.Continue &&
+                                it.type != com.openmaps.app.core.routing.ManeuverType.Destination
+                        },
                     ),
                     style = MaterialTheme.typography.bodySmall,
-                    color = OpenMapsColors.TextSecondary,
-                    modifier = Modifier.padding(top = 8.dp),
+                    color = OpenMapsColors.TextOnDarkSecondary,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
             }
         }
@@ -988,21 +1048,21 @@ private fun RouteMetricCard(
 ) {
     Column(
         modifier = modifier
-            .background(OpenMapsColors.SurfaceMuted, GlassShapes.Card)
+            .background(mapSheetMutedColor(), GlassShapes.Card)
             .padding(horizontal = 10.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             text = value,
             style = MaterialTheme.typography.titleMedium,
-            color = OpenMapsColors.TextPrimary,
+            color = mapSheetPrimaryTextColor(),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = OpenMapsColors.TextSecondary,
+            color = mapSheetSecondaryTextColor(),
             maxLines = 1,
         )
     }
@@ -1029,13 +1089,13 @@ private fun RouteSummaryLine(routeState: RouteState) {
                 Text(
                     text = formatDuration(routeState.route.durationSeconds),
                     style = MaterialTheme.typography.displaySmall,
-                    color = OpenMapsColors.TextPrimary,
+                    color = mapSheetPrimaryTextColor(),
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
                     text = formatDistance(routeState.route.distanceMeters),
                     style = MaterialTheme.typography.titleMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
             }
@@ -1048,7 +1108,7 @@ private fun RouteSummaryLine(routeState: RouteState) {
                         locale = LocalAppLocale.current,
                     ),
                 ),
-                color = OpenMapsColors.TextSecondary,
+                color = mapSheetSecondaryTextColor(),
             )
         }
         is RouteState.Error -> RouteStatusText(stringResource(routeState.reason.toMessageRes()))
@@ -1056,7 +1116,7 @@ private fun RouteSummaryLine(routeState: RouteState) {
 }
 
 @Composable
-private fun RouteStatusText(text: String, color: Color = OpenMapsColors.TextSecondary) {
+private fun RouteStatusText(text: String, color: Color = mapSheetSecondaryTextColor()) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelLarge,
@@ -1066,14 +1126,14 @@ private fun RouteStatusText(text: String, color: Color = OpenMapsColors.TextSeco
 }
 
 @Composable
-private fun RouteLoadingRow() {
+private fun RouteLoadingRow(color: Color = mapSheetSecondaryTextColor()) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
         CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = OpenMapsColors.ElectricBlue)
         Spacer(Modifier.width(6.dp))
         Text(
             text = stringResource(R.string.route_loading),
             style = MaterialTheme.typography.labelLarge,
-            color = OpenMapsColors.TextSecondary,
+            color = color,
         )
     }
 }
@@ -1118,7 +1178,7 @@ fun LocationPromptCard(
             Text(
                 text = stringResource(R.string.location_loading),
                 style = MaterialTheme.typography.bodyMedium,
-                color = OpenMapsColors.TextPrimary,
+                color = mapSheetPrimaryTextColor(),
             )
         }
         return
@@ -1128,7 +1188,7 @@ fun LocationPromptCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .surfaceCard(GlassShapes.Card)
+            .clip(GlassShapes.Card).background(mapSheetSurfaceColor())
             .padding(start = 18.dp, top = 14.dp, end = 6.dp, bottom = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.Top) {
@@ -1136,20 +1196,20 @@ fun LocationPromptCard(
                 Text(
                     text = stringResource(copy.title),
                     style = MaterialTheme.typography.titleMedium,
-                    color = OpenMapsColors.TextPrimary,
+                    color = mapSheetPrimaryTextColor(),
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = stringResource(copy.body),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                 )
             }
             IconButton(onClick = onDismiss) {
                 Icon(
                     Icons.Filled.Close,
                     contentDescription = stringResource(R.string.cd_dismiss),
-                    tint = OpenMapsColors.TextSecondary,
+                    tint = mapSheetSecondaryTextColor(),
                 )
             }
         }
@@ -1198,7 +1258,7 @@ fun LiveFallbackBanner(message: String, onDismiss: () -> Unit, modifier: Modifie
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .surfaceCard(GlassShapes.Pill)
+            .clip(GlassShapes.Pill).background(mapSheetSurfaceColor())
             .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1206,14 +1266,14 @@ fun LiveFallbackBanner(message: String, onDismiss: () -> Unit, modifier: Modifie
         Text(
             text = message,
             style = MaterialTheme.typography.labelMedium,
-            color = OpenMapsColors.TextPrimary,
+            color = mapSheetPrimaryTextColor(),
             modifier = Modifier.weight(1f),
         )
         IconButton(onClick = onDismiss) {
             Icon(
                 Icons.Filled.Close,
                 contentDescription = stringResource(R.string.cd_dismiss),
-                tint = OpenMapsColors.TextSecondary,
+                tint = mapSheetSecondaryTextColor(),
             )
         }
     }
@@ -1229,7 +1289,7 @@ fun DegradedRouteBanner(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .surfaceCard(GlassShapes.Pill)
+            .clip(GlassShapes.Pill).background(mapSheetSurfaceColor())
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1262,12 +1322,12 @@ fun MapUnavailableOverlay(
             Text(
                 text = stringResource(R.string.map_unavailable_title),
                 style = MaterialTheme.typography.titleLarge,
-                color = OpenMapsColors.TextPrimary,
+                color = mapSheetPrimaryTextColor(),
             )
             Text(
                 text = stringResource(R.string.map_unavailable_body),
                 style = MaterialTheme.typography.bodyMedium,
-                color = OpenMapsColors.TextSecondary,
+                color = mapSheetSecondaryTextColor(),
             )
             Button(onClick = onRetry) {
                 Text(stringResource(R.string.action_retry))

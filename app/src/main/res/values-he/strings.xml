@@ -160,7 +160,7 @@
     <string name="nav_error_no_location">נדרש המיקום שלכם כדי להתחיל ניווט.</string>
     <string name="nav_error_no_route">למסלול הזה עדיין אין הוראות שלב אחר שלב.</string>
     <string name="nav_action_report">דיווח</string>
-    <string name="nav_action_volume">קול AI</string>
+    <string name="nav_action_volume">עוצמת קול</string>
     <string name="nav_action_share">שיתוף</string>
     <string name="nav_action_reroute">מסלול מחדש</string>
     <string name="nav_exit">יציאה</string>
