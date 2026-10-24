@@ -224,6 +224,224 @@ reaches tracking.
 - **Physical validation remains mandatory.** A successful Gradle credential check proves only that
   the key is present. A real ARCore-capable phone must still reach an authorized Earth state outdoors.
 
+## Google Places UI Kit provisioning (Google Cloud) — Phase 1, Issue #78
+
+**Status: prototype, not a finished feature.** This adds Google's native `PlaceDetailsFragment`
+(Places UI Kit) as a supplementary, clearly-labeled "More from Google" section on the destination
+sheet's Overview tab. It is **not** the implementation of OpenMaps' own Reviews/Photos tabs — those
+stay on their own real, licensed, source-attributed provider roadmap (Issue #78's phases 2+).
+Nothing here reads from or writes to those tabs.
+
+It is a **separate Google Cloud API key from `ARCORE_API_KEY`** above, and the Places SDK is
+initialized in code (`Places.initializeWithNewPlacesApiEnabled`), not via an AndroidManifest
+meta-data entry the way ARCore's key is.
+
+### What this project needs
+
+| Item | Value |
+|---|---|
+| Android package name | `com.openmaps.app` |
+| Debug signing certificate SHA-1 | `F2:D2:9F:2D:FE:0A:0A:90:80:58:3E:EC:3B:BB:5E:C2:9E:A9:A1:40` |
+| APIs to enable | **Places UI Kit API** (`placewidgets.googleapis.com`) **and** Places API (New) |
+| Code entry point | `OpenMapsApplication.onCreate()` calls `Places.initializeWithNewPlacesApiEnabled` when configured |
+
+> **Correction from an earlier draft of this doc:** this previously said to restrict the key to
+> "Places API (New)" alone. Google's own Android Places UI Kit "Get started" guide is explicit that
+> the widget's product is **Places UI Kit API** (`placewidgets.googleapis.com`), a distinct Cloud
+> Console entry from "Places API (New)" (`places.googleapis.com`) — enabling only the latter is not
+> confirmed sufficient. `Places.initializeWithNewPlacesApiEnabled` is the client library's own
+> initializer and does reference the "New" Places API by name, so **enable and restrict the key to
+> both** rather than guessing which one the widget's actual network calls need; there is no cost to
+> enabling both, and under-restricting risks the widget silently failing to load on real devices.
+> This has not yet been confirmed end-to-end against a real key — do that as part of the Samsung
+> test procedure below, and tighten this doc to whichever is actually sufficient once confirmed.
+
+> **Exact paste location:** the repository root `local.properties` file, on a line reading
+> `GOOGLE_PLACES_API_KEY=<your key>`. Already covered by the existing `/local.properties` gitignore
+> entry. Resolution order (first non-empty wins): `-PGOOGLE_PLACES_API_KEY=...` → the
+> `GOOGLE_PLACES_API_KEY` environment variable → `local.properties`. Absent key = the feature stays
+> hidden; nothing crashes and Overview looks exactly as it does today.
+
+> Use a **second, separate** API key from `ARCORE_API_KEY` — do not reuse or widen the ARCore key's
+> restrictions.
+
+### Architecture notes (read before changing `GooglePlaceDetailsCard.kt`)
+
+- **The key ships inside the APK.** Unlike every other provider in this app (geocoding, routing,
+  nearby places, lane guidance, traffic — all proxied through the OpenMaps backend gateway so
+  provider secrets never reach the device), the Places UI Kit widget is a native Google-rendered
+  component that calls Google's servers directly from the client. There is no gateway step to put
+  in front of it. Security relies entirely on the Cloud Console Android-app restriction
+  (package + SHA-1) above, exactly like `ARCORE_API_KEY` already does.
+- **Loaded by coordinates, not Place ID — and checked before display.** OpenMaps resolves
+  destinations via OSM/Nominatim, which has no concept of a Google Place ID. `GooglePlaceDetailsCard`
+  calls `PlaceDetailsFragment.loadWithCoordinates(LatLng)`, Google's own nearest-place match for a
+  raw lat/lng — not `loadWithPlaceId`. This can resolve to the wrong establishment at a shared
+  address (a strip mall, food court, or a different branch of the same chain a few blocks over).
+  `placeLikelyMatches()` in `GooglePlaceDetailsCard.kt` rejects the result (same outcome as a load
+  failure — the section hides) unless **both** hold: the resolved place is within 300m of the
+  requested point, and its name shares at least 40% of its significant words (stopwords like
+  "the"/"a"/"of" excluded) with OpenMaps' own name for the destination. Both thresholds are
+  judgment calls, not values from any spec — `significantNameOverlapRatio()` has unit coverage in
+  `GooglePlaceDetailsCardTest.kt`, but the thresholds themselves are only as good as real-world
+  testing confirms (see the Samsung test procedure below, which specifically includes a multi-
+  tenant/shared-address case).
+- **Each load is billed.** `GooglePlaceDetailsEngine` loads at most once per distinct
+  (latitude, longitude) pair for the composable's lifetime — never on recomposition — specifically
+  because Google bills per `loadWithCoordinates` call. Do not add a `LaunchedEffect`/polling path
+  that re-triggers it.
+- **`MainActivity` now extends `FragmentActivity`, not `ComponentActivity`.** Required because
+  `PlaceDetailsFragment` is an `androidx.fragment.app.Fragment` and needs a `FragmentManager`
+  (`supportFragmentManager`). `FragmentActivity` is itself a `ComponentActivity` subclass, so this
+  is additive — `setContent`, `enableEdgeToEdge`, and `installSplashScreen` are unaffected.
+- **Attribution and display.** The widget renders Google's own required attribution chrome; do not
+  crop, overlay, or restyle its container beyond sizing. Do not persist or cache the `Place` object
+  the widget loads — OpenMaps does not currently store it anywhere, and it should stay that way
+  unless a specific need (and a re-check of Google's caching terms) says otherwise.
+- **Day/night, and why the theme resource is `OpenMapsPlacesDetailsTheme`, not
+  `PlacesMaterialTheme`.** The library's own `PlacesMaterialTheme` *is* present in the merged
+  resource table (confirmed in `app/build/intermediates/runtime_symbol_list/debug/
+  processDebugResources/R.txt`, non-zero id), but `com.openmaps.app.R.style.PlacesMaterialTheme`
+  does not compile — AGP's non-transitive R class means a dependency's (AAR's) own resources are
+  not re-exported through the app module's R class; only an XML `parent=` reference (resolved
+  against the full merged table, not a module's R symbols) can reach it. `res/values/styles.xml`
+  defines `OpenMapsPlacesDetailsTheme` as a zero-item extension of it purely to get a compilable
+  `R.style` symbol. Because `PlacesMaterialTheme` extends `Theme.AppCompat.DayNight` and carries its
+  own night-qualified attributes inside the library AAR, `OpenMapsPlacesDetailsTheme` inherits
+  correct day/night switching for free — tied to the **device's** actual system dark/light setting.
+  **That is a real, known mismatch, not a hypothetical one:** `themes.xml`'s own comment says
+  `Theme.OpenMaps` is "dark-only: the map is always the backdrop for dark glass controls" — the
+  rest of this app never varies with system light/dark at all. A user with the device in system
+  light mode will see this one card render in a light theme embedded in OpenMaps' permanently-dark
+  sheet. Fixing that for real means forcing the widget into dark mode regardless of system setting
+  (wrapping the Fragment's effective Context with a `Configuration` override of `uiMode`, since the
+  Fragment resolves its theme from the host Activity's Context, not the `FragmentContainerView`'s) —
+  deliberately not done here because it wasn't part of this round's scope and deserves its own
+  verification rather than a guessed fix; flagging precisely rather than leaving it to be
+  rediscovered. Revisit this once this branch is integrated with the separate night-mode work in
+  progress elsewhere in the repo, which will make "OpenMaps' appearance" an explicit, independent
+  decision rather than implicitly "dark always."
+- **FragmentManager lifecycle.** The fragment's tag is derived from its container's own
+  `View.generateViewId()` (unique per `GooglePlaceDetailsCard` instance), not a shared constant —
+  two cards alive at once under the same `FragmentManager` (e.g. `DestinationDetailsSheet` and
+  `PlaceDetailsSheet` both mounted) must not be able to remove each other's fragment.
+  `GooglePlaceDetailsEngine` also tracks its own `disposed` flag, checked at the top of both
+  `PlaceLoadListener` callbacks, so a network response that lands after the card has already left
+  composition (sheet closed mid-load) is a no-op rather than writing into a `MutableState` nobody
+  is reading anymore. None of this has been exercised against a real rapid open/close/scroll cycle
+  on a device yet — see the Samsung test procedure below.
+- **No blank widget on failure.** The `AndroidView` hosting the fragment collapses to `height(0.dp)`
+  (not removed from composition — the Fragment/container relationship must stay consistent) whenever
+  the load fails *or* `placeLikelyMatches()` rejects the result; only the short "aren't available"
+  text shows in either case.
+- **Kotlin version floor.** Adding `com.google.android.libraries.places:places` forced a bump of
+  `kotlin` in `gradle/libs.versions.toml` from `2.0.21` to `2.1.0` — the SDK transitively requires
+  `kotlin-stdlib:2.1.0`, and Gradle resolves to the higher version project-wide regardless of this
+  module's own pin, which made `compileDebugKotlin` hard-fail before the bump. The `places` version
+  is pinned to `5.0.0`, not the newer `6.0.2`, because `6.0.2` needs `kotlin-stdlib:2.4.0`, which no
+  available Kotlin Gradle plugin in this project's AGP line can compile against yet.
+- **Lint suppression.** `app/build.gradle.kts`'s `lint { disable += "NotificationPermission" }` is
+  needed because the Places SDK transitively pulls in Glide 4.11.0 for its own photo loading, and
+  lint's `NotificationPermission` check fires on Glide's `NotificationTarget` class merely being on
+  the classpath — not on OpenMaps actually posting a notification (it does not, and should not
+  without a real, deliberate notification feature and the `POST_NOTIFICATIONS` runtime prompt that
+  implies).
+
+### Google Cloud steps
+
+1. In the same Cloud project as `ARCORE_API_KEY` (or a different one — they do not need to match),
+   open **APIs & Services → Library**, search **Places UI Kit API**, and click **Enable**. Do the
+   same for **Places API (New)** — see the correction note above on why both, for now.
+2. **APIs & Services → Credentials → Create credentials → API key.** Copy the key.
+3. Edit the key → **API restrictions → Restrict key** → select both **Places UI Kit API** and
+   **Places API (New)**.
+4. **Application restrictions → Android apps** → add package `com.openmaps.app` + the SHA-1 above
+   (and a second key with your release certificate's SHA-1 for release builds, same as ARCore).
+5. Put the key in `local.properties` (git-ignored — never commit it):
+   ```properties
+   GOOGLE_PLACES_API_KEY=AIza...your_key_here
+   ```
+6. Rebuild: `.\gradlew.bat --stop`, `clean`, `assembleDebug`.
+
+### What remains after the key is configured
+
+- **Not yet verified on a real device or emulator.** This phase was built and verified to compile,
+  lint, unit-test, `assembleDebug`, and `bundleRelease` cleanly with no key configured (the feature
+  stays hidden in that state, by design). Nobody has yet opened the destination sheet with a real
+  `GOOGLE_PLACES_API_KEY` configured to confirm the widget actually renders, loads a correct place
+  for a real coordinate, respects day/night, degrades cleanly on a rejected/failed match, and
+  survives the Fragment/Compose interop (add/replace/remove) across repeated navigation in and out
+  of the sheet. The Samsung procedure below is exactly that check — do it before trusting this in
+  front of real users.
+- **Content scope.** Loaded with `PlaceDetailsFragment.ALL_CONTENT`, which Google's SDK (as of
+  `places:5.0.0`) defines to include address, rating, price, type, accessible-entrance icon,
+  open-now status, summary, opening hours, website, phone number, type-specific highlights,
+  reviews, Plus Code, features, and generative summary — all Google-sourced and Google-rendered;
+  OpenMaps does not parse or re-display any of these fields itself.
+
+### Samsung device test procedure
+
+Prerequisites: a Samsung Android device (API 26+, matching this project's `minSdk`), the device's
+debug-keystore SHA-1 added to the `GOOGLE_PLACES_API_KEY`'s Android-app restriction (step 4 above —
+use **that machine's** fingerprint if it differs from the one in the table), and both APIs enabled
+and selected on the key's restrictions.
+
+1. **Configure the key.** On the machine you'll build from, add
+   `GOOGLE_PLACES_API_KEY=<your key>` to the repo-root `local.properties`. Confirm it reached the
+   build: `.\gradlew.bat --stop`, then `clean assembleDebug`, then check for the string (without
+   printing the key itself) —
+   ```powershell
+   Select-String -Path app\build\generated\source\buildConfig\debug\com\openmaps\app\BuildConfig.java -Pattern "GOOGLE_PLACES_UI_KIT_CONFIGURED"
+   ```
+   should show `= true`.
+2. **Install and launch.** `adb install -r app\build\outputs\apk\debug\app-debug.apk`, open OpenMaps
+   on the Samsung device.
+3. **Known-good single-tenant business.** Search for a standalone business you can verify
+   independently (not in a shared plaza) near your current location. Open its destination sheet,
+   Overview tab. Expect: the "More from Google" card appears below "Explore nearby" within a few
+   seconds, shows the correct business's rating/hours/phone/website/photos, and the surrounding
+   OpenMaps chrome is unaffected (nav, map, ARCore entry points still present and functional).
+4. **Shared-address / multi-tenant case — the identity-matching check.** Search for a business
+   known to share a building or plaza with others (a strip mall unit, a food-court stall, or one
+   branch of a chain within ~300m of a different branch or an unrelated business). Expect one of
+   two outcomes, both correct: either the card shows the *right* business, or the card doesn't
+   appear at all (collapses to the short "aren't available" line, no blank space) because
+   `placeLikelyMatches()` rejected a weak match. **If the card ever shows the wrong business's
+   name, photos, or reviews for the selected destination, that's a real bug** — note the exact
+   destination name/address and the business the card actually showed, and tighten
+   `MAX_MATCH_DISTANCE_METERS`/`MIN_NAME_OVERLAP_RATIO` in `GooglePlaceDetailsCard.kt` accordingly.
+5. **No-match case.** Search for an address with no real nearby business (e.g. a residential
+   address or an empty lot). Expect: no blank widget — just the short "aren't available" text,
+   with no leftover empty space above it.
+6. **Day/night.** With the device in system **dark** mode, open a destination sheet and confirm
+   the Google card renders in a dark theme matching the sheet around it — this is the common case
+   and should look fully correct. Then switch the device to system **light** mode (Settings →
+   Display, or Quick Settings) and reopen the same destination. Expect the card to switch to a
+   *light* theme (it will — `OpenMapsPlacesDetailsTheme` extends `Theme.AppCompat.DayNight`) while
+   the rest of the sheet stays its usual permanent dark (`Theme.OpenMaps` is dark-only by design on
+   this branch). **This specific light-card-in-a-dark-sheet seam is a known, already-documented
+   limitation for this round** (see "Day/night" under Architecture notes above) — confirm it looks
+   like a theme mismatch, not a crash, broken layout, or unreadable text, and don't re-report it as
+   a new finding. Do flag anything beyond that mismatch (clipped content, overlapping text, a
+   genuinely broken light-theme rendering) as a real bug.
+7. **Repeated open/close.** Open the same destination's sheet, let the card load, close the sheet,
+   reopen it (same destination), close and reopen 4-5 times quickly. Expect: no crash, no visual
+   duplication/ghosting, each reopen shows the card again (a fresh load is expected and correct —
+   see the billing note above). Watch `adb logcat` for any uncaught exception during this.
+8. **Large font / accessibility scale.** Settings → Accessibility → font size → largest. Reopen a
+   destination sheet. Expect: the card's content reflows without being clipped or overlapping
+   OpenMaps' own text; if it looks broken, note which specific Content field (rating/hours/reviews
+   text, etc.) overflows.
+9. **Confirm the rest of the app is untouched.** With the key configured, exercise Live navigation
+   (AR chevrons still only appear geographically anchored during active navigation, unchanged),
+   Map navigation, and the MapLibre map view generally. None of this phase's changes should have
+   altered their behavior — if anything did, note it precisely (file/behavior), since that would be
+   a real regression, not an expected side effect of this work.
+
+Report results (pass/fail per step, with device model and Android/One UI version) rather than a
+single "works" — several of these steps are specifically designed to catch failure modes a quick
+happy-path check would miss.
+
 ## AR route anchors and arrows (Phases 7/8)
 
 These require a physical ARCore device. There is **no emulator substitute**: without the

@@ -74,6 +74,7 @@ import com.openmaps.app.core.places.Place
 import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.places.PlaceRepository
 import com.openmaps.app.core.places.RouteCorridor
+import com.openmaps.app.core.places.google.GooglePlaceDetailsCard
 import com.openmaps.app.core.routing.Coordinate
 import com.openmaps.app.core.routing.ManeuverType
 import java.util.Locale
@@ -369,13 +370,26 @@ fun DestinationDetailsSheet(
 
             Spacer(Modifier.height(12.dp))
             when (tab) {
-                DestinationDetailsTab.Overview -> DestinationOverview(
-                    destination = destination,
-                    routeState = routeState,
-                    nearbyStatus = nearbyStatus,
-                    nearbyPlaces = destinationNearby,
-                    onSelectNearby = onSelectNearby,
-                )
+                DestinationDetailsTab.Overview -> {
+                    DestinationOverview(
+                        destination = destination,
+                        routeState = routeState,
+                        nearbyStatus = nearbyStatus,
+                        nearbyPlaces = destinationNearby,
+                        onSelectNearby = onSelectNearby,
+                    )
+                    // Phase 1, Issue #78: additional business details sourced from Google's Places
+                    // UI Kit. Entirely optional — renders nothing when GOOGLE_PLACES_UI_KIT_CONFIGURED
+                    // is false, so destinations keep today's Overview unchanged until a key exists.
+                    // The old inline subtitle/parking-nearby text this replaced is now covered by
+                    // DestinationOverview + ArrivalIntelligenceCard above, from the HUD redesign.
+                    Spacer(Modifier.height(12.dp))
+                    GooglePlaceDetailsCard(
+                        expectedName = destination.name.ifBlank { destination.displayName },
+                        latitude = destination.latitude,
+                        longitude = destination.longitude,
+                    )
+                }
                 DestinationDetailsTab.Reviews -> Text(
                     stringResource(R.string.place_reviews_unavailable),
                     style = MaterialTheme.typography.bodyMedium,

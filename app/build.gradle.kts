@@ -90,6 +90,36 @@ val arcoreApiKey = providers.gradleProperty("ARCORE_API_KEY")
 val arcoreProductionConfigured = arcoreApiKey.isNotBlank()
 
 // ---------------------------------------------------------------------------
+// Google Places UI Kit API key (Phase 1, Issue #78).
+//
+// A separate Google Cloud API key from ARCORE_API_KEY above — restricted to the
+// Places API (New) rather than the ARCore API, with its own Android app
+// (package + SHA-1) restriction. See docs/SETUP.md "Google Places UI Kit
+// provisioning" for the Cloud Console side.
+//
+// Unlike the other providers in this file, the Places UI Kit widget
+// (PlaceDetailsFragment) is a native Google-rendered client component: it
+// calls Google's servers directly from the device, so this key necessarily
+// ships inside the APK (restricted by package+fingerprint in Cloud Console,
+// not hidden behind the OpenMaps backend gateway the way provider secrets
+// for geocoding/routing/places-nearby are).
+//
+// Resolution order (first non-empty wins), same convention as ARCORE_API_KEY:
+//   1. -PGOOGLE_PLACES_API_KEY=...   (CI / one-off)
+//   2. GOOGLE_PLACES_API_KEY          (environment)
+//   3. local.properties               -> GOOGLE_PLACES_API_KEY=...   (dev, git-ignored)
+//
+// Deliberately never committed, and defaults to empty so a build without
+// credentials still compiles and installs; the feature stays hidden rather
+// than crashing (see GooglePlaceDetailsCard.kt).
+// ---------------------------------------------------------------------------
+val googlePlacesApiKey = providers.gradleProperty("GOOGLE_PLACES_API_KEY")
+    .orElse(providers.environmentVariable("GOOGLE_PLACES_API_KEY"))
+    .orElse(localProperties.getProperty("GOOGLE_PLACES_API_KEY") ?: "")
+    .getOrElse("")
+val googlePlacesUiKitConfigured = googlePlacesApiKey.isNotBlank()
+
+// ---------------------------------------------------------------------------
 // OpenMaps production backend gateway.
 //
 // One base URL identifies the OpenMaps service layer. Individual endpoint overrides remain for
@@ -258,6 +288,12 @@ android {
         buildConfigField("String", "GEOCODING_PUBLISHABLE_KEY", "\"$backendPublishableKey\"")
         buildConfigField("boolean", "ARCORE_GEOSPATIAL_CONFIGURED", arcoreProductionConfigured.toString())
 
+        // Google Places UI Kit (Phase 1, Issue #78). No manifest meta-data entry: unlike ARCore,
+        // the Places SDK (New) is initialized in code via Places.initializeWithNewPlacesApiEnabled,
+        // not an AndroidManifest meta-data key.
+        buildConfigField("String", "GOOGLE_PLACES_API_KEY", "\"$googlePlacesApiKey\"")
+        buildConfigField("boolean", "GOOGLE_PLACES_UI_KIT_CONFIGURED", googlePlacesUiKitConfigured.toString())
+
         // Feeds the `com.google.android.ar.API_KEY` meta-data in AndroidManifest.xml.
         manifestPlaceholders["ARCORE_API_KEY"] = arcoreApiKey
     }
@@ -292,6 +328,15 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+    }
+
+    lint {
+        // Places UI Kit (Phase 1, Issue #78) transitively pulls in Glide 4.11.0 for the widget's
+        // own photo loading. Lint's NotificationPermission check fires on the mere presence of
+        // Glide's NotificationTarget class on the classpath — it does not mean OpenMaps posts
+        // notifications. Confirmed: no OpenMaps code references NotificationTarget or any
+        // notification API; grep the repo before ever removing this if that changes.
+        disable += "NotificationPermission"
     }
 }
 
@@ -405,6 +450,16 @@ dependencies {
     // Session.configure(GeospatialMode.ENABLED) throws
     // GooglePlayServicesLocationLibraryNotLinkedException and the session never starts.
     implementation(libs.google.play.services.location)
+
+    // androidx.fragment: MainActivity hosts FragmentManager-backed children (Phase 1, Issue #78)
+    // for the Google Places UI Kit's PlaceDetailsFragment.
+    implementation(libs.androidx.fragment.ktx)
+
+    // Google Places UI Kit (Phase 1, Issue #78). Place Details widget only; runtime-gated on
+    // BuildConfig.GOOGLE_PLACES_UI_KIT_CONFIGURED. MapLibre remains the map renderer.
+    implementation(libs.google.places)
+    // LatLng only, for PlaceDetailsCompactFragment.loadWithCoordinates — see libs.versions.toml.
+    implementation(libs.google.play.services.maps)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 
