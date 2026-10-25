@@ -50,6 +50,7 @@ import com.openmaps.app.core.roadintelligence.RoadAlertPriority
 import com.openmaps.app.core.roadintelligence.RoadEventSeverity
 import com.openmaps.app.core.roadintelligence.RoadEventType
 import com.openmaps.app.core.roadintelligence.LaneGuidanceRepository
+import com.openmaps.app.core.roadintelligence.LaneGuidanceReleaseGate
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RouteAlert
 import com.openmaps.app.core.roadintelligence.SpeedLimitInfo
@@ -1266,7 +1267,7 @@ class MapViewModel(
         roadState.weather?.let { weather ->
             if (weather.severity >= RoadEventSeverity.Moderate) candidates += RouteAlert.Weather(weather)
         }
-        roadState.laneGuidance?.let { candidates += RouteAlert.Lane(it) }
+        roadState.laneGuidance?.takeIf(LaneGuidanceReleaseGate::mayDisplay)?.let { candidates += RouteAlert.Lane(it) }
         roadState.speedLimit?.let { candidates += RouteAlert.SpeedLimit(it) }
         roadState.traffic?.let { candidates += RouteAlert.Congestion(it) }
 
@@ -1908,6 +1909,20 @@ class MapViewModel(
      * and returns null whenever the evidence is missing, conflicting, or not maneuver-compatible.
      */
     private fun maybeFetchLaneGuidance(progress: RouteProgress) {
+        // Release containment for #88: never request/display lane hints until road identity,
+        // intersection and maneuver timing are proven on real roads. Navigation stays available.
+        if (!LaneGuidanceReleaseGate.FIELD_VALIDATED) {
+            if (_uiState.value.roadIntelligenceState.laneGuidance != null) {
+                laneGuidanceJob?.cancel()
+                laneGuidanceJob = null
+                lastLaneGuidanceKey = null
+                _uiState.update {
+                    it.copy(roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null))
+                }
+                recomputeRoadAlerts()
+            }
+            return
+        }
         val repository = laneGuidanceRepository ?: return
         val route = (_uiState.value.routeState as? RouteState.Ready)?.route ?: return
         val maneuver = progress.currentManeuver
