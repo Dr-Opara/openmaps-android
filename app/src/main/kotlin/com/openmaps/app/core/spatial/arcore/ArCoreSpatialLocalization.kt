@@ -200,6 +200,15 @@ class ArCoreSpatialLocalization(
         boundOwner?.lifecycle?.removeObserver(this)
         boundOwner = lifecycleOwner
         lifecycleOwner.lifecycle.addObserver(this)
+        // Live may be entered while the Activity is *already* RESUMED. In that case
+        // LifecycleRegistry does not dispatch another ON_RESUME to this new observer.
+        // The persistent GLSurfaceView was paused on our previous stop(), so explicitly
+        // resume its GL render thread before resuming the new ARCore Session. Without
+        // this the camera image and Earth frame pump can remain black/TrackingNotReady
+        // until the entire Activity is backgrounded and foregrounded.
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            surfaceView?.onResume()
+        }
         resumeSession()
     }
 
@@ -336,7 +345,12 @@ class ArCoreSpatialLocalization(
             Log.w(TAG, "ARCore close failed", t)
         }
         session = null
-        cameraTextureId = NO_TEXTURE
+        // Do NOT clear cameraTextureId here. GLSurfaceView uses
+        // preserveEGLContextOnPause=true, so its OES texture may still exist after
+        // stop() closes the Session. Clearing the ID while retaining the GL context
+        // means the *next* Session has no camera texture and cannot render frames.
+        // CameraBackgroundRenderer.onSurfaceCreated() replaces this ID if EGL actually
+        // recreates the context. No Session holds onto the old texture on close.
         // The world frame dies with the session; a pose left over from it would place arrows in a
         // frame that no longer exists.
         cameraTransform = null
