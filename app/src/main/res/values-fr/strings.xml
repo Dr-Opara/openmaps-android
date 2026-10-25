@@ -160,7 +160,7 @@
     <string name="nav_error_no_location">Votre position est nécessaire pour démarrer la navigation.</string>
     <string name="nav_error_no_route">Cet itinéraire n’a pas encore d’indications détaillées.</string>
     <string name="nav_action_report">Signaler</string>
-    <string name="nav_action_volume">Voix IA</string>
+    <string name="nav_action_volume">Volume</string>
     <string name="nav_action_share">Partager</string>
     <string name="nav_action_reroute">Recalculer</string>
     <string name="nav_exit">QUITTER</string>
