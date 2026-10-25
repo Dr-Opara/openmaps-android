@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -571,6 +572,20 @@ fun ActiveMapNavigationPanel(
                     onMuteToggle = onVoiceMuteToggled,
                 )
             }
+            // First-class road reporting: accessible without the More menu.
+            // The existing backend handles geotagging, moderation and expiration.
+            DrivingQuickAction(
+                label = stringResource(R.string.nav_report_title),
+                onClick = { showReports = true },
+                enabled = driverReportStatus != ExternalActionStatus.Working,
+            ) {
+                Icon(
+                    Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = Color(0xFFFFB84D),
+                    modifier = Modifier.size(24.dp),
+                )
+            }
             Box {
                 DrivingQuickAction(label = "More", onClick = { showMoreActions = true }) {
                     Icon(Icons.Filled.MoreVert, contentDescription = null,
@@ -580,10 +595,6 @@ fun ActiveMapNavigationPanel(
                     expanded = showMoreActions,
                     onDismissRequest = { showMoreActions = false },
                 ) {
-                    DropdownMenuItem(text = { Text("Report hazard") }, onClick = {
-                        showMoreActions = false
-                        showReports = true
-                    })
                     DropdownMenuItem(text = { Text("Share trip") }, onClick = {
                         showMoreActions = false
                         onShareTrip()
@@ -740,7 +751,7 @@ private fun TripMetric(value: String, label: String, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun DriverReportDialog(
+internal fun DriverReportDialog(
     status: ExternalActionStatus,
     onReport: (DriverReportType) -> Unit,
     onDismiss: () -> Unit,
@@ -777,12 +788,12 @@ private fun DriverReportDialog(
                             Button(
                                 onClick = { onReport(type) },
                                 enabled = status != ExternalActionStatus.Working,
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                 shape = GlassShapes.Pill,
                             ) {
                                 Text(
                                     text = stringResource(label),
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.bodySmall,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
