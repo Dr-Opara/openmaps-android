@@ -584,6 +584,57 @@ class MapViewModelTest {
     }
 
     @Test
+    fun stopNavigation_notifiesNavigationEndedExactlyOnce() = runTest(dispatcher) {
+        // Phase 1 lifecycle: a user-initiated stop must release the AR content immediately,
+        // exactly as endNavigationToHome() and arrival already do — not leave it until the
+        // next pipeline update happens to observe Idle.
+        var ended = 0
+        viewModel.onNavigationEnded = { ended++ }
+
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        assertEquals(0, ended)
+
+        viewModel.stopNavigation()
+
+        assertEquals("stopping must release the AR content exactly once", 1, ended)
+        assertEquals(NavigationState.Idle, viewModel.uiState.value.navigationState)
+    }
+
+    @Test
+    fun stopNavigationTwice_notifiesNavigationEndedOnlyOnce() = runTest(dispatcher) {
+        // Idempotence: a repeated stop must not re-fire the teardown callback.
+        var ended = 0
+        viewModel.onNavigationEnded = { ended++ }
+
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+
+        viewModel.stopNavigation()
+        viewModel.stopNavigation()
+
+        assertEquals(1, ended)
+    }
+
+    @Test
+    fun stopNavigationWhenIdle_doesNotNotifyNavigationEnded() = runTest(dispatcher) {
+        // No trip, no teardown: stopping without ever starting must not fire the callback.
+        var ended = 0
+        viewModel.onNavigationEnded = { ended++ }
+
+        startWithPermission()
+        viewModel.stopNavigation()
+
+        assertEquals(0, ended)
+    }
+
+    @Test
     fun stoppedNavigation_ignoresLaterLocationFixes() = runTest(dispatcher) {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))

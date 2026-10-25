@@ -175,7 +175,9 @@ class MapLibreMapEngine(
     private fun loadStyle(readyMap: MapLibreMap) {
         styleLoaded = false
         val builder = Style.Builder()
-        when (val source = styleProvider.resolve()) {
+        val nighttime = cartographyMode == CartographyMode.BrowseNight ||
+            cartographyMode == CartographyMode.NavigationNight
+        when (val source = OpenMapsNightStyle.resolve(styleProvider.resolve(), nighttime)) {
             is MapStyleSource.Url -> builder.fromUri(source.url)
             is MapStyleSource.InlineJson -> builder.fromJson(source.json)
         }
@@ -518,8 +520,20 @@ class MapLibreMapEngine(
 
     override fun setCartographyMode(mode: CartographyMode) {
         if (cartographyMode == mode) return
+        val wasNight = cartographyMode == CartographyMode.BrowseNight ||
+            cartographyMode == CartographyMode.NavigationNight
+        val nowNight = mode == CartographyMode.BrowseNight ||
+            mode == CartographyMode.NavigationNight
         cartographyMode = mode
-        val style = map?.style ?: return
+        val currentMap = map ?: return
+        if (wasNight != nowNight && OpenMapsNightStyle.isSupported(styleProvider.resolve())) {
+            // Only reload the style when switching between Stadia's verified companion
+            // light/dark styles, not on navigation start/stop. loadStyle restores route,
+            // destination, location puck, places and hazard layers after async completion.
+            loadStyle(currentMap)
+            return
+        }
+        val style = currentMap.style ?: return
         if (!styleLoaded) return
         applyCartography(style)
     }
