@@ -308,6 +308,8 @@ private fun AppShell(container: AppContainer) {
                 environmentProfile = state.activeProfile,
                 voiceEnabled = state.voiceEnabled,
                 onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
+                driverReportStatus = state.driverReportStatus,
+                onReport = viewModel::onDriverReportRequested,
                 onCommunityReportConfirm = viewModel::onCommunityReportConfirmed,
                 onCommunityReportDismiss = viewModel::onCommunityReportDismissed,
                 onExitNavigation = viewModel::endNavigationToHome,
