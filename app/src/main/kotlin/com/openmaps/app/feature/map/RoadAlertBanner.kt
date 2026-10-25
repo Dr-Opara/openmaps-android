@@ -38,7 +38,8 @@ fun RoadAlertBanner(
 ) {
     // Reject even a lane alert held by the alert-hysteresis cache.
     val topAlert = roadState.activeAlerts.firstOrNull {
-        it !is RouteAlert.SpeedLimit && it !is RouteAlert.Lane
+        it !is RouteAlert.SpeedLimit &&
+            (it !is RouteAlert.Lane || LaneGuidanceSafetyGate.canShow(it.guidance))
     }
     val speedLimitAlert = roadState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull()
     val measurementSystem = LocalMeasurementSystem.current
