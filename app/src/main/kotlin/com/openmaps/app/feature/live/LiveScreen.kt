@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -78,6 +79,9 @@ import com.openmaps.app.core.routing.RouteResult
 import com.openmaps.app.core.spatial.GeoProjector
 import com.openmaps.app.core.spatial.arcore.ArCoreSpatialLocalization
 import com.openmaps.app.feature.map.NavigationState
+import com.openmaps.app.feature.map.ExternalActionStatus
+import com.openmaps.app.feature.map.DriverReportDialog
+import com.openmaps.app.core.reporting.DriverReportType
 import com.openmaps.app.R
 import com.openmaps.app.camera.CameraEngineEvent
 import com.openmaps.app.camera.CameraFailure
@@ -157,6 +161,8 @@ fun LiveScreen(
     /** Delta-spec section 25: the compact mute control, state owned by the one `MapViewModel`. */
     voiceEnabled: Boolean = true,
     onVoiceMuteToggled: () -> Unit = {},
+    driverReportStatus: ExternalActionStatus = ExternalActionStatus.Idle,
+    onReport: (DriverReportType) -> Unit = {},
     onCommunityReportConfirm: (String) -> Unit = {},
     onCommunityReportDismiss: (String) -> Unit = {},
     /** Ends the active trip, unlike the Map toggle which keeps navigation running. */
@@ -394,6 +400,8 @@ fun LiveScreen(
                             onBackToMap = { onModeSelected(MapMode.Map) },
                             voiceEnabled = voiceEnabled,
                             onVoiceMuteToggled = onVoiceMuteToggled,
+                            driverReportStatus = driverReportStatus,
+                            onReport = onReport,
                             onExitNavigation = onExitNavigation,
                         )
                     }
@@ -1235,9 +1243,12 @@ private fun LiveSideControls(
     modifier: Modifier = Modifier,
     voiceEnabled: Boolean = true,
     onVoiceMuteToggled: () -> Unit = {},
+    driverReportStatus: ExternalActionStatus = ExternalActionStatus.Idle,
+    onReport: (DriverReportType) -> Unit = {},
     onExitNavigation: () -> Unit = {},
 ) {
     var confirmExit by remember { mutableStateOf(false) }
+    var showReports by remember { mutableStateOf(false) }
     var showVolume by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val audioManager = remember(context) { context.getSystemService(AudioManager::class.java) }
@@ -1300,6 +1311,25 @@ private fun LiveSideControls(
             )
         }
 
+        // First-class community report action, backed by the same repository as Map mode.
+        // An explicit tap opens choices; no ambient microphone recording or automatic submission.
+        IconButton(
+            onClick = { showReports = true },
+            enabled = driverReportStatus != ExternalActionStatus.Working,
+            modifier = Modifier
+                .size(50.dp)
+                .clip(CircleShape)
+                .background(OpenMapsColors.Navy950.copy(alpha = 0.72f))
+                .border(1.dp, Color(0xFFFFB84D).copy(alpha = 0.7f), CircleShape),
+        ) {
+            Icon(
+                Icons.Filled.Warning,
+                contentDescription = stringResource(R.string.nav_report_title),
+                tint = Color(0xFFFFB84D),
+                modifier = Modifier.size(23.dp),
+            )
+        }
+
         // A Map switch retains the trip. This distinct End control terminates navigation
         // only after confirmation, preventing accidental route dismissal.
         IconButton(
@@ -1317,6 +1347,17 @@ private fun LiveSideControls(
                 modifier = Modifier.size(23.dp),
             )
         }
+    }
+
+    if (showReports) {
+        DriverReportDialog(
+            status = driverReportStatus,
+            onReport = { type ->
+                onReport(type)
+                showReports = false
+            },
+            onDismiss = { showReports = false },
+        )
     }
 
     if (confirmExit) {
