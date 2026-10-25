@@ -417,6 +417,12 @@ tasks.register("verifyReleaseSigningConfiguration") {
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
 
+    // Developer-only Android Auto host-discovery foundation (#83). The manifest service is
+    // disabled in release; no vehicle navigation or map surface is exposed yet.
+    // 1.8.0-rc01 includes the August 2026 security fix missing from 1.7.0.
+    implementation("androidx.car.app:app:1.8.0-rc01")
+    implementation("androidx.car.app:app-projected:1.8.0-rc01")
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.activity.compose)
