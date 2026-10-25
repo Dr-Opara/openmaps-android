@@ -103,6 +103,7 @@ import com.openmaps.app.core.places.PlaceCategory
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceState
 import com.openmaps.app.core.roadintelligence.SpeedUnit
 import com.openmaps.app.core.roadintelligence.RouteAlert
+import com.openmaps.app.core.roadintelligence.LaneGuidanceReleaseGate
 import com.openmaps.app.core.routing.ManeuverType
 import com.openmaps.app.core.spatial.LiveLocalizationStatus
 import com.openmaps.app.core.spatial.LiveLocalizationStatusMapper
@@ -324,7 +325,7 @@ fun LiveScreen(
                 // Highway navigation must not lose lane recommendations when a hazard is
                 // ranked above the lane alert. Show real lane guidance independently,
                 // then show the highest non-lane hazard/traffic message if available.
-                roadIntelligenceState.laneGuidance?.let { guidance ->
+                roadIntelligenceState.laneGuidance?.takeIf(LaneGuidanceReleaseGate::mayDisplay)?.let { guidance ->
                     LaneGuidanceStrip(
                         guidance = guidance,
                         darkSurface = true,
