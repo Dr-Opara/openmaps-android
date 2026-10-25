@@ -1745,7 +1745,8 @@ class MapViewModel(
 
     /** Ends the trip and returns the map to plain route browsing. Never touches the route itself. */
     fun stopNavigation() {
-        if (_uiState.value.isNavigating) {
+        val wasNavigating = _uiState.value.isNavigating
+        if (wasNavigating) {
             recordReliability(ReliabilityEventName.NavigationEnded, ReliabilityOutcome.Info, reason = "stopped")
         }
         navigationForegroundController.stop()
@@ -1764,6 +1765,12 @@ class MapViewModel(
                 roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
             )
         }
+        // Phase 1 guidance lifecycle: release the AR arrows and anchors immediately, exactly as
+        // endNavigationToHome() does. Relying on the next pipeline update to observe Idle would
+        // leave the previous trip's anchors alive until that update runs. Guarded by
+        // wasNavigating so a repeated stop — or a stop when no trip ever started — cannot invoke
+        // the callback twice; LiveViewModel.onNavigationEnded() itself is idempotent clears.
+        if (wasNavigating) onNavigationEnded()
         navigationRecoveryStore.clear()
         recoveryPending = false
         offlineMapCorridorCache.clear()
