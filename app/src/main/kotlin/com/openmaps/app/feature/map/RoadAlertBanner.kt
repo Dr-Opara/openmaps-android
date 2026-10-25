@@ -20,6 +20,7 @@ import com.openmaps.app.core.roadintelligence.LaneDirection
 import com.openmaps.app.core.localization.LocalAppLocale
 import com.openmaps.app.core.localization.LocalMeasurementSystem
 import com.openmaps.app.core.roadintelligence.LaneGuidance
+import com.openmaps.app.core.roadintelligence.LaneGuidanceSafetyGate
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceState
 import com.openmaps.app.core.roadintelligence.RouteAlert
 
@@ -35,7 +36,11 @@ fun RoadAlertBanner(
     onCommunityDismiss: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val topAlert = roadState.activeAlerts.firstOrNull { it !is RouteAlert.SpeedLimit }
+    // Reject even a lane alert held by the alert-hysteresis cache.
+    val topAlert = roadState.activeAlerts.firstOrNull {
+        it !is RouteAlert.SpeedLimit &&
+            (it !is RouteAlert.Lane || LaneGuidanceSafetyGate.canShow(it.guidance))
+    }
     val speedLimitAlert = roadState.activeAlerts.filterIsInstance<RouteAlert.SpeedLimit>().firstOrNull()
     val measurementSystem = LocalMeasurementSystem.current
     val locale = LocalAppLocale.current
@@ -112,7 +117,8 @@ fun LaneGuidanceStrip(
     modifier: Modifier = Modifier,
     darkSurface: Boolean = false,
 ) {
-    if (guidance.lanes.isEmpty() || guidance.recommendedLaneIndexes.isEmpty()) return
+    // Final UI-level backstop: never render a lane strip until real-world verification passes.
+    if (!LaneGuidanceSafetyGate.canShow(guidance)) return
 
     val container = if (darkSurface) {
         OpenMapsColors.Navy950.copy(alpha = 0.82f)

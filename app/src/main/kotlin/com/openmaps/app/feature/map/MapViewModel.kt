@@ -50,6 +50,7 @@ import com.openmaps.app.core.roadintelligence.RoadAlertPriority
 import com.openmaps.app.core.roadintelligence.RoadEventSeverity
 import com.openmaps.app.core.roadintelligence.RoadEventType
 import com.openmaps.app.core.roadintelligence.LaneGuidanceRepository
+import com.openmaps.app.core.roadintelligence.LaneGuidanceSafetyGate
 import com.openmaps.app.core.roadintelligence.RoadIntelligenceRepository
 import com.openmaps.app.core.roadintelligence.RouteAlert
 import com.openmaps.app.core.roadintelligence.SpeedLimitInfo
@@ -1266,7 +1267,7 @@ class MapViewModel(
         roadState.weather?.let { weather ->
             if (weather.severity >= RoadEventSeverity.Moderate) candidates += RouteAlert.Weather(weather)
         }
-        roadState.laneGuidance?.let { candidates += RouteAlert.Lane(it) }
+        roadState.laneGuidance?.takeIf(LaneGuidanceSafetyGate::canShow)?.let { candidates += RouteAlert.Lane(it) }
         roadState.speedLimit?.let { candidates += RouteAlert.SpeedLimit(it) }
         roadState.traffic?.let { candidates += RouteAlert.Congestion(it) }
 
@@ -1745,7 +1746,8 @@ class MapViewModel(
 
     /** Ends the trip and returns the map to plain route browsing. Never touches the route itself. */
     fun stopNavigation() {
-        if (_uiState.value.isNavigating) {
+        val wasNavigating = _uiState.value.isNavigating
+        if (wasNavigating) {
             recordReliability(ReliabilityEventName.NavigationEnded, ReliabilityOutcome.Info, reason = "stopped")
         }
         navigationForegroundController.stop()
@@ -1764,6 +1766,12 @@ class MapViewModel(
                 roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
             )
         }
+        // Phase 1 guidance lifecycle: release the AR arrows and anchors immediately, exactly as
+        // endNavigationToHome() does. Relying on the next pipeline update to observe Idle would
+        // leave the previous trip's anchors alive until that update runs. Guarded by
+        // wasNavigating so a repeated stop — or a stop when no trip ever started — cannot invoke
+        // the callback twice; LiveViewModel.onNavigationEnded() itself is idempotent clears.
+        if (wasNavigating) onNavigationEnded()
         navigationRecoveryStore.clear()
         recoveryPending = false
         offlineMapCorridorCache.clear()
@@ -1901,6 +1909,10 @@ class MapViewModel(
      * and returns null whenever the evidence is missing, conflicting, or not maneuver-compatible.
      */
     private fun maybeFetchLaneGuidance(progress: RouteProgress) {
+        // Safety issue #87: HERE maneuvers and independently matched OSM/Mapbox lane evidence
+        // are not yet guaranteed to describe the same physical intersection or approach.
+        // Do not fetch or surface plausible-but-wrong lane suggestions during real navigation.
+        if (!LaneGuidanceSafetyGate.canRequest()) return
         val repository = laneGuidanceRepository ?: return
         val route = (_uiState.value.routeState as? RouteState.Ready)?.route ?: return
         val maneuver = progress.currentManeuver
@@ -1931,7 +1943,7 @@ class MapViewModel(
                         _uiState.update { state ->
                             state.copy(
                                 roadIntelligenceState = state.roadIntelligenceState.copy(
-                                    laneGuidance = guidance,
+                                    laneGuidance = guidance?.takeIf(LaneGuidanceSafetyGate::canShow),
                                 ),
                             )
                         }

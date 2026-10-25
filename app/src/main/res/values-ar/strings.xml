@@ -160,7 +160,7 @@
     <string name="nav_error_no_location">نحتاج إلى موقعك لبدء الملاحة.</string>
     <string name="nav_error_no_route">لا يحتوي هذا المسار على إرشادات خطوة بخطوة بعد.</string>
     <string name="nav_action_report">إبلاغ</string>
-    <string name="nav_action_volume">صوت بالذكاء الاصطناعي</string>
+    <string name="nav_action_volume">مستوى الصوت</string>
     <string name="nav_action_share">مشاركة</string>
     <string name="nav_action_reroute">إعادة التوجيه</string>
     <string name="nav_exit">خروج</string>
