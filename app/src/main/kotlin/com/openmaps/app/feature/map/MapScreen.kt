@@ -1,6 +1,5 @@
 package com.openmaps.app.feature.map
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +37,7 @@ import com.openmaps.app.map.MapEngine
 import com.openmaps.app.map.MapLibreHost
 import com.openmaps.app.map.MapLibreMapEngine
 import com.openmaps.app.map.MapStyleProvider
+import com.openmaps.app.map.MapAppearanceMode
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -66,6 +66,8 @@ fun MapScreen(
     onVoiceSearchClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
+    appearanceMode: MapAppearanceMode = MapAppearanceMode.Auto,
+    resolvedNightMode: Boolean = false,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -74,14 +76,15 @@ fun MapScreen(
     val engine: MapEngine = remember(viewModel, styleProvider) {
         MapLibreMapEngine(styleProvider = styleProvider, initialCamera = viewModel.uiState.value.cameraState)
     }
-    val useNightMap = isSystemInDarkTheme()
+    // Appearance is resolved once in AppShell and shared across all Map-related overlays.
+    // Never register a second light-sensor listener only for the basemap.
+    val useNightMap = resolvedNightMode
     LaunchedEffect(engine, state.isNavigating, useNightMap) {
         engine.setCartographyMode(
             when {
                 state.isNavigating && useNightMap -> CartographyMode.NavigationNight
                 state.isNavigating -> CartographyMode.NavigationDay
-                // Browse and Route Preview share one consistent daytime base map.
-                // Night cartography remains available while actively navigating.
+                useNightMap -> CartographyMode.BrowseNight
                 else -> CartographyMode.BrowseDay
             },
         )
@@ -155,12 +158,21 @@ fun MapScreen(
             ) {
                 // A stable light capsule protects navy/blue branding over any map tile.
                 OpenMapsWordmark(
-                    Modifier
-                        .background(Color.White.copy(alpha = 0.96f), RoundedCornerShape(24.dp))
+                    modifier = Modifier
+                        .background(
+                            if (useNightMap) OpenMapsColors.Navy900.copy(alpha = 0.90f)
+                            else Color.White.copy(alpha = 0.96f),
+                            RoundedCornerShape(24.dp),
+                        )
                         .padding(horizontal = 10.dp, vertical = 9.dp),
+                    onLight = !useNightMap,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    MapModeToggle(selected = state.selectedMapMode, onSelected = viewModel::onModeSelected)
+                    MapModeToggle(
+                        selected = state.selectedMapMode,
+                        onSelected = viewModel::onModeSelected,
+                        transparent = useNightMap,
+                    )
                     MapSettingsButton(onClick = onSettingsClick)
                 }
             }
@@ -254,6 +266,10 @@ fun MapScreen(
                     state.navigationProgress != null -> ActiveMapNavigationPanel(
                     progress = state.navigationProgress!!,
                     voiceEnabled = state.voiceEnabled,
+                    currentSpeedMetersPerSecond = state.roadIntelligenceState.currentSpeedMetersPerSecond,
+                    speedLimitAlert = state.roadIntelligenceState.activeAlerts
+                        .filterIsInstance<com.openmaps.app.core.roadintelligence.RouteAlert.SpeedLimit>()
+                        .firstOrNull(),
                     driverReportStatus = state.driverReportStatus,
                     tripShareStatus = state.tripShareStatus,
                     onVoiceMuteToggled = viewModel::onVoiceMuteToggled,
@@ -268,6 +284,8 @@ fun MapScreen(
                 // layered above the route summary it belongs to.
                 state.isShowingSteps && state.stepsRouteSummary != null -> RouteStepsSheet(
                     maneuvers = state.stepsRouteSummary?.maneuvers.orEmpty(),
+                    totalDistanceMeters = state.stepsRouteSummary?.distanceMeters,
+                    totalDurationSeconds = state.stepsRouteSummary?.durationSeconds,
                     onDismiss = viewModel::onStepsDismissed,
                 )
 

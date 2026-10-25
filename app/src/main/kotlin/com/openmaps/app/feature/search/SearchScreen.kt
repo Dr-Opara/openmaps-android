@@ -59,6 +59,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openmaps.app.R
 import com.openmaps.app.core.designsystem.GlassShapes
 import com.openmaps.app.core.designsystem.OpenMapsColors
+import com.openmaps.app.core.designsystem.mapSheetSurfaceColor
+import com.openmaps.app.core.designsystem.mapSheetMutedColor
+import com.openmaps.app.core.designsystem.mapSheetPrimaryTextColor
+import com.openmaps.app.core.designsystem.mapSheetSecondaryTextColor
+import com.openmaps.app.core.designsystem.mapSheetBorderColor
 import com.openmaps.app.core.geocoding.SearchResult
 import com.openmaps.app.core.geocoding.SearchResultKind
 import com.openmaps.app.core.places.PlaceCategory
@@ -113,7 +118,7 @@ fun SearchScreen(
         Column(
             modifier = modifier
                 .fillMaxSize()
-                .background(OpenMapsColors.Surface)
+                .background(mapSheetSurfaceColor())
                 .pointerInput(Unit) { detectTapGestures { } }
                 .statusBarsPadding()
                 .imePadding()
@@ -127,8 +132,8 @@ fun SearchScreen(
                 Icon(Icons.Filled.LocationOn, contentDescription = null, tint = OpenMapsColors.ElectricBlueFilled)
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text("From", style = MaterialTheme.typography.labelSmall, color = OpenMapsColors.TextSecondary)
-                    Text("Your current location", style = MaterialTheme.typography.titleSmall, color = OpenMapsColors.TextPrimary)
+                    Text("From", style = MaterialTheme.typography.labelSmall, color = mapSheetSecondaryTextColor())
+                    Text("Your current location", style = MaterialTheme.typography.titleSmall, color = mapSheetPrimaryTextColor())
                 }
             }
         }
@@ -147,7 +152,7 @@ fun SearchScreen(
                 Icon(
                     Icons.Filled.Search,
                     contentDescription = null,
-                    tint = OpenMapsColors.TextSecondary,
+                    tint = mapSheetSecondaryTextColor(),
                 )
             },
             trailingIcon = {
@@ -161,7 +166,7 @@ fun SearchScreen(
                         tint = if (state.voiceState is VoiceSearchState.Listening) {
                             OpenMapsColors.ElectricBlueFilled
                         } else {
-                            OpenMapsColors.TextSecondary
+                            mapSheetSecondaryTextColor()
                         },
                     )
                 }
@@ -170,7 +175,7 @@ fun SearchScreen(
                         Icon(
                             Icons.Filled.Close,
                             contentDescription = stringResource(R.string.cd_clear_query),
-                            tint = OpenMapsColors.TextSecondary,
+                            tint = mapSheetSecondaryTextColor(),
                         )
                     }
                 }
@@ -178,15 +183,15 @@ fun SearchScreen(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             shape = GlassShapes.Pill,
             colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = OpenMapsColors.TextPrimary,
-                unfocusedTextColor = OpenMapsColors.TextPrimary,
-                focusedContainerColor = OpenMapsColors.SurfaceMuted,
-                unfocusedContainerColor = OpenMapsColors.SurfaceMuted,
+                focusedTextColor = mapSheetPrimaryTextColor(),
+                unfocusedTextColor = mapSheetPrimaryTextColor(),
+                focusedContainerColor = mapSheetMutedColor(),
+                unfocusedContainerColor = mapSheetMutedColor(),
                 focusedBorderColor = Color.Transparent,
                 unfocusedBorderColor = Color.Transparent,
                 cursorColor = OpenMapsColors.ElectricBlueFilled,
-                focusedPlaceholderColor = OpenMapsColors.TextSecondary,
-                unfocusedPlaceholderColor = OpenMapsColors.TextSecondary,
+                focusedPlaceholderColor = mapSheetSecondaryTextColor(),
+                unfocusedPlaceholderColor = mapSheetSecondaryTextColor(),
             ),
         )
 
@@ -221,14 +226,14 @@ fun SearchScreen(
                 Text(
                     text = stringResource(R.string.search_no_results),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                 )
             }
             state.selectedTabIsEmpty -> SearchStatusMessage {
                 Text(
                     text = stringResource(R.string.search_no_results_for_tab, state.selectedTab.label()),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                 )
             }
             else -> SearchResultsList(state.visibleResults, onSelect = ::selectResult)
@@ -250,7 +255,7 @@ private fun VoiceSearchBanner(state: VoiceSearchState, onShown: () -> Unit) {
     Text(
         text = message,
         style = MaterialTheme.typography.bodyMedium,
-        color = if (state is VoiceSearchState.Listening) OpenMapsColors.ElectricBlueFilled else OpenMapsColors.TextSecondary,
+        color = if (state is VoiceSearchState.Listening) OpenMapsColors.ElectricBlueFilled else mapSheetSecondaryTextColor(),
         modifier = Modifier.padding(bottom = 8.dp),
     )
 }
@@ -287,7 +292,7 @@ private fun SearchFilterTabs(
                     Text(
                         text = stringResource(tab.labelRes()),
                         style = MaterialTheme.typography.labelLarge,
-                        color = if (isSelected) OpenMapsColors.ElectricBlueFilled else OpenMapsColors.TextSecondary,
+                        color = if (isSelected) OpenMapsColors.ElectricBlueFilled else mapSheetSecondaryTextColor(),
                     )
                     Spacer(Modifier.height(6.dp))
                     // Mockup: a short blue underline beneath only the selected tab.
@@ -304,7 +309,7 @@ private fun SearchFilterTabs(
             Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(OpenMapsColors.SurfaceBorder),
+                .background(mapSheetBorderColor()),
         )
     }
 }
@@ -357,7 +362,7 @@ private fun CategoryBrowseList(
                 Box(
                     modifier = Modifier
                         .size(40.dp)
-                        .background(OpenMapsColors.SurfaceMuted, CircleShape),
+                        .background(mapSheetMutedColor(), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -372,18 +377,18 @@ private fun CategoryBrowseList(
                         text = entry.label,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
-                        color = OpenMapsColors.TextPrimary,
+                        color = mapSheetPrimaryTextColor(),
                     )
                     Text(
                         text = stringResource(R.string.search_category_nearby_hint),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = OpenMapsColors.TextSecondary,
+                        color = mapSheetSecondaryTextColor(),
                     )
                 }
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = null,
-                    tint = OpenMapsColors.TextSecondary,
+                    tint = mapSheetSecondaryTextColor(),
                 )
             }
         }
@@ -392,7 +397,7 @@ private fun CategoryBrowseList(
                 Text(
                     text = stringResource(R.string.search_category_no_match),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                     modifier = Modifier.padding(vertical = 20.dp),
                 )
             }
@@ -442,7 +447,7 @@ private fun LoadingRow() {
         Text(
             text = stringResource(R.string.search_loading),
             style = MaterialTheme.typography.bodyMedium,
-            color = OpenMapsColors.TextSecondary,
+            color = mapSheetSecondaryTextColor(),
         )
     }
 }
@@ -452,7 +457,7 @@ private fun ErrorRow(error: SearchError) {
     Text(
         text = stringResource(error.toMessageRes()),
         style = MaterialTheme.typography.bodyMedium,
-        color = OpenMapsColors.TextSecondary,
+        color = mapSheetSecondaryTextColor(),
     )
 }
 
@@ -477,7 +482,7 @@ private fun RecentSearchesList(recents: List<SearchResult>, onSelect: (SearchRes
             Text(
                 text = stringResource(R.string.search_recent_empty),
                 style = MaterialTheme.typography.bodyMedium,
-                color = OpenMapsColors.TextSecondary,
+                color = mapSheetSecondaryTextColor(),
             )
         } else {
             LazyColumn {
@@ -496,7 +501,7 @@ private fun SearchResultsList(results: List<SearchResult>, onSelect: (SearchResu
             SearchResultRow(result, onClick = { onSelect(result) })
             // Mockup: a hairline divider between rows, not after the last one.
             if (index != results.lastIndex) {
-                Box(Modifier.fillMaxWidth().height(1.dp).background(OpenMapsColors.SurfaceBorder))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(mapSheetBorderColor()))
             }
         }
     }
@@ -533,7 +538,7 @@ private fun SearchResultRow(
             modifier = Modifier
                 .size(40.dp)
                 .background(
-                    if (isBusiness) OpenMapsColors.ElectricBlueFilled else OpenMapsColors.SurfaceMuted,
+                    if (isBusiness) OpenMapsColors.ElectricBlueFilled else mapSheetMutedColor(),
                     CircleShape,
                 ),
             contentAlignment = Alignment.Center,
@@ -551,13 +556,13 @@ private fun SearchResultRow(
                 text = result.name.ifBlank { result.displayName },
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = OpenMapsColors.TextPrimary,
+                color = mapSheetPrimaryTextColor(),
             )
             if (result.subtitle.isNotBlank()) {
                 Text(
                     text = result.subtitle,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -568,7 +573,7 @@ private fun SearchResultRow(
                 Text(
                     text = category.replaceFirstChar { it.uppercase() },
                     style = MaterialTheme.typography.labelMedium,
-                    color = OpenMapsColors.TextSecondary,
+                    color = mapSheetSecondaryTextColor(),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -577,7 +582,7 @@ private fun SearchResultRow(
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
-            tint = OpenMapsColors.TextSecondary,
+            tint = mapSheetSecondaryTextColor(),
         )
     }
 }
