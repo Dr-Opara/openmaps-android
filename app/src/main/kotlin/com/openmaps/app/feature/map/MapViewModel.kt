@@ -25,6 +25,7 @@ import com.openmaps.app.core.navigation.NavigationForegroundController
 import com.openmaps.app.core.navigation.NavigationRecoveryStore
 import com.openmaps.app.core.navigation.NoopNavigationRecoveryStore
 import com.openmaps.app.core.navigation.NoopNavigationForegroundController
+import com.openmaps.app.core.navigation.MapMatchConfidence
 import com.openmaps.app.core.navigation.RouteProgress
 import com.openmaps.app.core.reliability.NoopReliabilityReporter
 import com.openmaps.app.core.reliability.ReliabilityEvent
@@ -75,6 +76,7 @@ import com.openmaps.app.core.voice.VoiceGuidancePrefs
 import com.openmaps.app.core.voice.VoiceLanguage
 import com.openmaps.app.feature.live.LiveReadiness
 import com.openmaps.app.map.CameraState
+import com.openmaps.app.map.FollowCameraMotion
 import com.openmaps.app.map.MapCommand
 import com.openmaps.app.map.OfflineMapCorridorCache
 import com.openmaps.app.map.NoopOfflineMapCorridorCache
@@ -324,6 +326,7 @@ class MapViewModel(
      * rather than never, which is the Phase 1 behaviour for a non-navigating map.
      */
     private var navigationFollowSuspended = false
+    private var lastFollowStepAtMillis = 0L
 
     /** Guards against stacking reroutes while one is already in flight. */
     private var rerouteInFlight = false
@@ -1443,6 +1446,7 @@ class MapViewModel(
             )
         }
         navigationFollowSuspended = false
+        lastFollowStepAtMillis = 0L
         // A fresh trip must not inherit the previous one's confirmed environment mode.
         environmentHysteresis.reset()
         // ...nor a previous trip's "already announced this stage" state (section 16).
@@ -1707,6 +1711,7 @@ class MapViewModel(
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
+        lastFollowStepAtMillis = 0L
         rerouteInFlight = false
         liveAutoFallbackArmed = false
         laneGuidanceJob?.cancel()
@@ -1745,13 +1750,15 @@ class MapViewModel(
 
     /** Ends the trip and returns the map to plain route browsing. Never touches the route itself. */
     fun stopNavigation() {
-        if (_uiState.value.isNavigating) {
+        val wasNavigating = _uiState.value.isNavigating
+        if (wasNavigating) {
             recordReliability(ReliabilityEventName.NavigationEnded, ReliabilityOutcome.Info, reason = "stopped")
         }
         navigationForegroundController.stop()
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
+        lastFollowStepAtMillis = 0L
         rerouteInFlight = false
         liveAutoFallbackArmed = false
         laneGuidanceJob?.cancel()
@@ -1764,6 +1771,12 @@ class MapViewModel(
                 roadIntelligenceState = it.roadIntelligenceState.copy(laneGuidance = null),
             )
         }
+        // Phase 1 guidance lifecycle: release the AR arrows and anchors immediately, exactly as
+        // endNavigationToHome() does. Relying on the next pipeline update to observe Idle would
+        // leave the previous trip's anchors alive until that update runs. Guarded by
+        // wasNavigating so a repeated stop — or a stop when no trip ever started — cannot invoke
+        // the callback twice; LiveViewModel.onNavigationEnded() itself is idempotent clears.
+        if (wasNavigating) onNavigationEnded()
         navigationRecoveryStore.clear()
         recoveryPending = false
         offlineMapCorridorCache.clear()
@@ -1989,6 +2002,7 @@ class MapViewModel(
         stopTripSharingIfNeeded()
         session = null
         navigationFollowSuspended = false
+        lastFollowStepAtMillis = 0L
         rerouteInFlight = false
         liveAutoFallbackArmed = false
         laneGuidanceJob?.cancel()
@@ -2120,7 +2134,20 @@ class MapViewModel(
 
     /** Pushes the traveled/remaining split to the renderer. */
     private fun publishRouteProgress(progress: RouteProgress) {
-        _routeProgressView.value = RouteProgressView(progress.snappedShapeIndex)
+        val snapped = progress.snappedCoordinate?.takeIf {
+            !progress.isOffRoute && when (progress.mapMatchConfidence) {
+                MapMatchConfidence.High -> true
+                // Medium tolerates up to 35 m / 60 deg; only trust the closer half of that band, so a
+                // parallel carriageway or frontage road cannot pull the puck onto the wrong road.
+                MapMatchConfidence.Medium -> progress.lateralDistanceMeters <= SNAP_PUCK_MAX_LATERAL_METERS
+                MapMatchConfidence.Low, MapMatchConfidence.OffRoute -> false
+            }
+        }
+        _routeProgressView.value = RouteProgressView(
+            traveledShapeIndex = progress.snappedShapeIndex,
+            snappedLatitude = snapped?.latitude,
+            snappedLongitude = snapped?.longitude,
+        )
     }
 
     /** Moves the camera to the follow position, unless the user has taken over. */
@@ -2137,19 +2164,21 @@ class MapViewModel(
             zoom = profile.navigationCameraZoom,
             lookAheadMeters = profile.navigationCameraLookAheadMeters,
         ) ?: return
-        moveCamera(
-            CameraState(
-                latitude = target.latitude,
-                longitude = target.longitude,
-                zoom = target.zoom,
-                bearing = target.bearingDegrees,
-                pitch = target.pitch,
-            ),
-            // Short, non-animated steps: a nav camera tracks continuously, so easing between every
-            // GPS tick would read as lag rather than as smoothness.
-            durationMillis = NAVIGATION_CAMERA_DURATION_MILLIS,
-            animated = false,
+        val next = CameraState(
+            latitude = target.latitude,
+            longitude = target.longitude,
+            zoom = target.zoom,
+            bearing = target.bearingDegrees,
+            pitch = target.pitch,
         )
+        val now = System.currentTimeMillis()
+        val motion = FollowCameraMotion.plan(
+            previous = _uiState.value.cameraState,
+            target = next,
+            millisSinceLastStep = lastFollowStepAtMillis.takeIf { it > 0L }?.let { now - it },
+        )
+        lastFollowStepAtMillis = now
+        moveCamera(next, durationMillis = motion.durationMillis, animated = motion.animated, linear = motion.linear)
     }
 
     /** [RouteProgress.isOffRoute] is owned by the detector, so it is stamped on at the boundary. */
@@ -2317,10 +2346,10 @@ class MapViewModel(
 
     // endregion
 
-    private fun moveCamera(target: CameraState, durationMillis: Int, animated: Boolean = true) {
+    private fun moveCamera(target: CameraState, durationMillis: Int, animated: Boolean = true, linear: Boolean = false) {
         // Optimistic update so a configuration change mid-animation restores the destination.
         _uiState.update { it.copy(cameraState = target) }
-        commandChannel.trySend(MapCommand.MoveCamera(target, animated = animated, durationMillis = durationMillis))
+        commandChannel.trySend(MapCommand.MoveCamera(target, animated = animated, durationMillis = durationMillis, linear = linear))
     }
 
     private fun UserLocation.toCoordinate(): Coordinate = Coordinate(latitude, longitude)
@@ -2413,10 +2442,13 @@ class MapViewModel(
         const val KMH_PER_MPH = 1.60934
 
         /**
-         * Camera step while following. Short and non-animated: the target updates on every GPS
-         * tick, so easing each step would read as lag rather than as smooth tracking.
+         * Follow-camera glide length: about one GPS fix interval, applied linearly (see
+         * [followCameraWith]). 0 here meant a hard jump per fix, which reads as stutter.
          */
-        const val NAVIGATION_CAMERA_DURATION_MILLIS = 0
+        const val NAVIGATION_CAMERA_DURATION_MILLIS = 1000
+
+        /** Only draw the puck on the route when the fix is within this lateral distance of it. */
+        const val SNAP_PUCK_MAX_LATERAL_METERS = 22.0
 
         /** Maps any bearing to [-180, 180) so "rotated" checks and the compass needle are symmetric. */
         fun normalizeBearing(degrees: Double): Float = (((degrees % 360.0) + 540.0) % 360.0 - 180.0).toFloat()

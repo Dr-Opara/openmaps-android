@@ -17,12 +17,16 @@ import com.openmaps.app.core.reliability.ReliabilityOutcome
 import com.openmaps.app.core.reliability.ReliabilityReporter
 import com.openmaps.app.core.spatial.NoopSpatialLocalization
 import com.openmaps.app.core.spatial.SpatialAvailability
+import com.openmaps.app.core.spatial.SpatialFailure
+import com.openmaps.app.core.spatial.ArRecovery
+import com.openmaps.app.core.spatial.ArFailurePolicy
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
 import com.openmaps.app.core.spatial.SpatialLocalizationState
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -191,8 +195,22 @@ class LiveViewModel(
      */
     fun startSpatialLocalization(lifecycleOwner: LifecycleOwner) {
         if (!canStartCamera) return
+        spatialOwner = lifecycleOwner
+        val previousFailure = lastSpatialFailure
         lastSpatialFailure = null
         arReadyReported = false
+        // Re-entering Live gets a fresh attempt when the last fallback was for a cause that can clear
+        // (camera in use, transient ARCore error, quota). Permanent configuration failures are not
+        // retried: they would only flip the preview AR -> CameraX again.
+        if (_previewProvider.value == PreviewProvider.CameraX &&
+            previousFailure is SpatialLocalizationState.Failed &&
+            !ArFailurePolicy.isPermanentConfiguration(previousFailure.reason) &&
+            spatialEngine.providesPreview &&
+            spatialEngine.probeAvailability() == SpatialAvailability.Supported
+        ) {
+            arRetryAttempts = 0
+            _previewProvider.value = PreviewProvider.Spatial
+        }
         spatialEngine.start(lifecycleOwner)
         // Watch for AR dying mid-session and hand the camera back to the CameraX fallback. Without
         // this, a session that fails *after* a successful probe leaves Live with no camera at all.
@@ -211,6 +229,18 @@ class LiveViewModel(
                             ),
                         )
                     }
+                    if (state is SpatialLocalizationState.Tracking) arRetryAttempts = 0
+
+                    // Recoverable failures are retried with backoff while AR keeps the camera;
+                    // only permanent ones (or an exhausted retry budget) hand over to CameraX.
+                    // See ArFailurePolicy for the classification and why a frame counter is not it.
+                    if (state is SpatialLocalizationState.Failed) {
+                        val recovery = ArFailurePolicy.decide(state.reason, arRetryAttempts)
+                        if (recovery is ArRecovery.Retry) {
+                            scheduleSpatialRetry(state.reason, recovery.delayMillis)
+                            return@collect
+                        }
+                    }
                     if (state is SpatialLocalizationState.Failed ||
                         state is SpatialLocalizationState.Unsupported ||
                         state is SpatialLocalizationState.NotInstalled
@@ -222,23 +252,53 @@ class LiveViewModel(
                         // here, before `stop()` runs, for the debug overlay to show instead of a bare
                         // post-fallback "Idle".
                         lastSpatialFailure = state
+                        val permanent = state is SpatialLocalizationState.Failed &&
+                            ArFailurePolicy.isPermanentConfiguration(state.reason)
                         reliabilityReporter.record(
                             ReliabilityEvent(
                                 name = ReliabilityEventName.ArFallback,
                                 outcome = ReliabilityOutcome.Degraded,
                                 reason = when (state) {
-                                    is SpatialLocalizationState.Failed -> state.reason.name
+                                    is SpatialLocalizationState.Failed ->
+                                        state.reason.name + if (permanent) ":permanent_configuration" else ":retries_exhausted"
                                     is SpatialLocalizationState.Unsupported -> "unsupported"
                                     is SpatialLocalizationState.NotInstalled -> "not_installed"
                                     else -> "unknown"
                                 },
                             ),
                         )
+                        retryJob?.cancel()
                         spatialEngine.stop()
                         _previewProvider.value = PreviewProvider.CameraX
                     }
                 }
             }
+        }
+    }
+
+    private var arRetryAttempts = 0
+    private var retryJob: Job? = null
+    private var spatialOwner: LifecycleOwner? = null
+
+    /**
+     * Rebuilds the AR session after [delayMillis] while AR still owns the camera. One retry in flight
+     * at a time, so a burst of identical failure emissions cannot schedule several restarts.
+     */
+    private fun scheduleSpatialRetry(reason: SpatialFailure, delayMillis: Long) {
+        if (retryJob?.isActive == true) return
+        val owner = spatialOwner ?: return
+        arRetryAttempts++
+        reliabilityReporter.record(
+            ReliabilityEvent(
+                name = ReliabilityEventName.ArAvailability,
+                outcome = ReliabilityOutcome.Degraded,
+                reason = "retry_${arRetryAttempts}_${reason.name}",
+            ),
+        )
+        retryJob = viewModelScope.launch {
+            delay(delayMillis)
+            spatialEngine.stop()
+            spatialEngine.start(owner)
         }
     }
 
@@ -254,6 +314,8 @@ class LiveViewModel(
     fun stopSpatialLocalization() {
         spatialFallbackJob?.cancel()
         spatialFallbackJob = null
+        retryJob?.cancel()
+        retryJob = null
         spatialEngine.stop()
         // Never leave anchors or arrows alive over a camera that is no longer being driven.
         routeAnchorManager?.clear()

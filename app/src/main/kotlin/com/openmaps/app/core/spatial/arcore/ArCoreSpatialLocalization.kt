@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import androidx.lifecycle.Lifecycle
@@ -20,12 +21,17 @@ import com.google.ar.core.Session
 import com.google.ar.core.TrackingFailureReason
 import com.google.ar.core.TrackingState
 import com.google.ar.core.exceptions.CameraNotAvailableException
+import com.google.ar.core.exceptions.DeadlineExceededException
+import com.google.ar.core.exceptions.ResourceExhaustedException
+import com.google.ar.core.exceptions.SessionPausedException
 import com.google.ar.core.exceptions.NotYetAvailableException
 import com.google.ar.core.exceptions.SessionUnsupportedException
 import com.google.ar.core.exceptions.UnavailableException
+import com.openmaps.app.BuildConfig
 import com.openmaps.app.core.spatial.LimitedReason
 import com.openmaps.app.core.spatial.LocalizationQualityMapper
 import com.openmaps.app.core.spatial.SpatialAvailability
+import com.openmaps.app.core.spatial.ArFailurePolicy
 import com.openmaps.app.core.spatial.SpatialFailure
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
 import com.openmaps.app.core.spatial.SpatialLocalizationState
@@ -35,6 +41,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import java.util.Locale
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -105,6 +112,10 @@ class ArCoreSpatialLocalization(
     private var surfaceView: GLSurfaceView? = null
     private var boundOwner: LifecycleOwner? = null
     private var installPrompted = false
+
+    /** GL-thread-only, debug-only diagnostic throttling: never log coordinates or headings. */
+    private var lastGateSignature = ""
+    private var lastGateLogMillis = 0L
 
     /** GL texture ARCore writes camera frames into. Owned by the renderer; -1 until GL is ready. */
     @Volatile
@@ -193,6 +204,15 @@ class ArCoreSpatialLocalization(
         boundOwner?.lifecycle?.removeObserver(this)
         boundOwner = lifecycleOwner
         lifecycleOwner.lifecycle.addObserver(this)
+        // Live may be entered while the Activity is *already* RESUMED. In that case
+        // LifecycleRegistry does not dispatch another ON_RESUME to this new observer.
+        // The persistent GLSurfaceView was paused on our previous stop(), so explicitly
+        // resume its GL render thread before resuming the new ARCore Session. Without
+        // this the camera image and Earth frame pump can remain black/TrackingNotReady
+        // until the entire Activity is backgrounded and foregrounded.
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            surfaceView?.onResume()
+        }
         resumeSession()
     }
 
@@ -329,10 +349,19 @@ class ArCoreSpatialLocalization(
             Log.w(TAG, "ARCore close failed", t)
         }
         session = null
-        cameraTextureId = NO_TEXTURE
+        // Do NOT clear cameraTextureId here. GLSurfaceView uses
+        // preserveEGLContextOnPause=true, so its OES texture may still exist after
+        // stop() closes the Session. Clearing the ID while retaining the GL context
+        // means the *next* Session has no camera texture and cannot render frames.
+        // CameraBackgroundRenderer.onSurfaceCreated() replaces this ID if EGL actually
+        // recreates the context. No Session holds onto the old texture on close.
         // The world frame dies with the session; a pose left over from it would place arrows in a
         // frame that no longer exists.
         cameraTransform = null
+        lastFrameFailure = null
+        lastReportedEarthFailure = null
+        lastGateSignature = ""
+        lastGateLogMillis = 0L
     }
 
     // endregion
@@ -371,18 +400,46 @@ class ArCoreSpatialLocalization(
                     qw = p.qw().toDouble(),
                 )
             }
-            _events.tryEmit(toState(frame.camera, activeSession.earth))
+            val earth = activeSession.earth
+            val spatialState = toState(frame.camera, earth)
+            logGeospatialGate(frame.camera, earth, spatialState)
+            lastFrameFailure = null
+            _events.tryEmit(spatialState)
             return frame
+        } catch (e: SessionPausedException) {
+            // Ordinary pause/resume race: the GL thread drew once more after the session paused.
+            return null
+        } catch (e: DeadlineExceededException) {
+            // `update()` timed out waiting for a camera frame. One late frame is not an AR failure.
+            return null
+        } catch (e: NotYetAvailableException) {
+            return null
+        } catch (e: ResourceExhaustedException) {
+            return failFrame(SpatialFailure.ResourceExhausted, e)
         } catch (e: CameraNotAvailableException) {
-            Log.w(TAG, "ARCore lost the camera", e)
-            _events.tryEmit(SpatialLocalizationState.Failed(SpatialFailure.CameraUnavailable))
-            return null
+            return failFrame(SpatialFailure.CameraUnavailable, e)
         } catch (t: Throwable) {
-            Log.w(TAG, "ARCore frame failed", t)
-            _events.tryEmit(SpatialLocalizationState.Failed(SpatialFailure.ArCoreError))
-            return null
+            return failFrame(SpatialFailure.ArCoreError, t)
         }
     }
+
+    /**
+     * Reports a frame failure **once per distinct failure** (not once per frame at 30 fps), and lets
+     * [ArFailurePolicy] — not a frame counter — decide what it means: `LiveViewModel` retries
+     * recoverable failures with backoff and only falls back to CameraX for permanent ones.
+     * Cleared on the next good frame and whenever the session is rebuilt.
+     */
+    private fun failFrame(failure: SpatialFailure, t: Throwable): Frame? {
+        if (lastFrameFailure != failure) {
+            lastFrameFailure = failure
+            Log.w(TAG, "ARCore frame failed: ${failure.name} (${t.javaClass.simpleName})", t)
+            _events.tryEmit(SpatialLocalizationState.Failed(failure))
+        }
+        return null
+    }
+
+    private var lastFrameFailure: SpatialFailure? = null
+    private var lastReportedEarthFailure: SpatialFailure? = null
 
     private fun toState(camera: Camera, earth: Earth?): SpatialLocalizationState {
         // Camera tracking gates everything: without a tracked camera there is no usable pose.
@@ -400,13 +457,18 @@ class ArCoreSpatialLocalization(
 
         // The Earth (geospatial) solution may still be converging or erroring.
         when (earth.earthState) {
-            Earth.EarthState.ENABLED -> Unit // good; fall through
+            Earth.EarthState.ENABLED -> lastReportedEarthFailure = null
             Earth.EarthState.ERROR_NOT_AUTHORIZED ->
-                return SpatialLocalizationState.Failed(SpatialFailure.EarthUnavailable)
+                return earthFailure(SpatialFailure.EarthUnavailable)
             Earth.EarthState.ERROR_GEOSPATIAL_MODE_DISABLED ->
-                return SpatialLocalizationState.Failed(SpatialFailure.GeospatialDisabled)
+                return earthFailure(SpatialFailure.GeospatialDisabled)
+            Earth.EarthState.ERROR_RESOURCE_EXHAUSTED ->
+                return earthFailure(SpatialFailure.ResourceExhausted)
+            Earth.EarthState.ERROR_INTERNAL ->
+                return earthFailure(SpatialFailure.EarthInternal)
             Earth.EarthState.ERROR_APK_VERSION_TOO_OLD ->
                 return SpatialLocalizationState.NotInstalled(requestInstall = true)
+            // Anything not explicitly an error: still converging.
             else -> return SpatialLocalizationState.Limited(LimitedReason.PoorGeolocation)
         }
 
@@ -466,6 +528,72 @@ class ArCoreSpatialLocalization(
                 quality = quality,
             ),
         )
+    }
+
+    /**
+     * DEBUG-only, privacy-minimal explanation of the exact ARCore tracking gate.
+     *
+     * The consumer HUD only shows a quiet status label. Engineers need to distinguish camera
+     * tracking, Earth authorization, Earth tracking and accuracy gating; otherwise all three
+     * look like "sampled 0" on a device. Never log latitude, longitude, altitude, heading,
+     * API credentials or a route trace. Log only on state transitions or every 10 seconds.
+     *
+     * Invoked exclusively from onDrawFrame's GL thread.
+     */
+    private fun logGeospatialGate(
+        camera: Camera,
+        earth: Earth?,
+        spatialState: SpatialLocalizationState,
+    ) {
+        if (!BuildConfig.DEBUG) return
+        val pose = (spatialState as? SpatialLocalizationState.Tracking)?.pose
+        val reason = when (spatialState) {
+            is SpatialLocalizationState.Limited -> "Limited:" + spatialState.reason.name
+            is SpatialLocalizationState.Failed -> "Failed:" + spatialState.reason.name
+            is SpatialLocalizationState.Tracking ->
+                if (pose == null) "Tracking:PosePending" else "Tracking:" + pose.quality.name
+            else -> spatialState.javaClass.simpleName
+        }
+        val cameraState = camera.trackingState.name
+        val cameraFailure = if (camera.trackingState == TrackingState.TRACKING) {
+            "none"
+        } else {
+            camera.trackingFailureReason.name
+        }
+        val earthState = earth?.earthState?.name ?: "UNAVAILABLE"
+        val earthTracking = earth?.trackingState?.name ?: "UNAVAILABLE"
+        val signature = "$cameraState|$cameraFailure|$earthState|$earthTracking|$reason"
+        val now = SystemClock.elapsedRealtime()
+        if (signature == lastGateSignature && now - lastGateLogMillis < GATE_DIAGNOSTIC_INTERVAL_MS) {
+            return
+        }
+        lastGateSignature = signature
+        lastGateLogMillis = now
+
+        fun accuracy(value: Double?): String = value
+            ?.takeIf { it.isFinite() && it >= 0 }
+            ?.let { String.format(Locale.US, "%.1f", it) } ?: "unknown"
+        Log.d(
+            TAG,
+            "geospatialGate camera=$cameraState cameraFailure=$cameraFailure " +
+                "earth=$earthState earthTracking=$earthTracking " +
+                "localization=$reason posePresent=${pose != null} " +
+                "horizontalAccuracyM=${accuracy(pose?.horizontalAccuracyMeters)} " +
+                "yawAccuracyDeg=${accuracy(pose?.headingAccuracyDegrees)}",
+        )
+    }
+
+    /**
+     * Maps an ARCore Earth error to a state and, once per distinct failure, logs a plain-language
+     * cause at ERROR level in *all* build types (a release APK that silently loses AR is the failure
+     * mode this exists to prevent). Never logs the API key itself — only whether one was compiled in.
+     */
+    private fun earthFailure(failure: SpatialFailure): SpatialLocalizationState {
+        if (lastReportedEarthFailure != failure) {
+            lastReportedEarthFailure = failure
+            Log.e(TAG, "Geospatial unavailable: ${ArFailurePolicy.explanation(failure, BuildConfig.ARCORE_GEOSPATIAL_CONFIGURED)}")
+        }
+        return SpatialLocalizationState.Failed(failure)
     }
 
     private fun mapLimited(camera: Camera): LimitedReason = when (camera.trackingFailureReason) {
@@ -619,6 +747,7 @@ class ArCoreSpatialLocalization(
     companion object {
         internal const val NO_TEXTURE = -1
         private const val TAG = "ArCoreSpatialLoc"
+        private const val GATE_DIAGNOSTIC_INTERVAL_MS = 10_000L
 
         /** GL_TEXTURE_EXTERNAL_OES (0x8D65), declared here to avoid importing GLES30 for one constant. */
         private const val TEXTURE_TARGET = 0x8D65

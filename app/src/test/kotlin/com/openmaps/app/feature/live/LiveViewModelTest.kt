@@ -275,6 +275,49 @@ class LiveViewModelTest {
     }
 
     @Test
+    fun transientArFailure_isRetriedAndDoesNotPermanentlyDisableAr() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Supported)
+        val vm = LiveViewModel(engine, spatial)
+        vm.onCameraPermissionChanged(CameraPermissionState.Granted)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+
+        spatial.emit(SpatialLocalizationState.Failed(SpatialFailure.ArCoreError))
+
+        assertEquals("a transient error must not hand the camera away", PreviewProvider.Spatial, vm.previewProvider.value)
+        assertNull(vm.lastSpatialFailure)
+    }
+
+    @Test
+    fun authorizationFailure_fallsBackImmediatelyAndRecordsTheExactReason() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Supported)
+        val vm = LiveViewModel(engine, spatial)
+        vm.onCameraPermissionChanged(CameraPermissionState.Granted)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+
+        spatial.emit(SpatialLocalizationState.Failed(SpatialFailure.EarthUnavailable))
+
+        assertEquals(PreviewProvider.CameraX, vm.previewProvider.value)
+        assertEquals(SpatialLocalizationState.Failed(SpatialFailure.EarthUnavailable), vm.lastSpatialFailure)
+    }
+
+    @Test
+    fun reenteringLiveRetriesAfterARecoverableFallbackButNotAfterAConfigurationOne() = runTest(dispatcher) {
+        val spatial = FakeSpatialLocalization(providesPreview = true, availability = SpatialAvailability.Supported)
+        val vm = LiveViewModel(engine, spatial)
+        vm.onCameraPermissionChanged(CameraPermissionState.Granted)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+        spatial.emit(SpatialLocalizationState.Failed(SpatialFailure.SessionCreationFailed)) // not retryable in-session, not permanent
+        assertEquals(PreviewProvider.CameraX, vm.previewProvider.value)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+        assertEquals(PreviewProvider.Spatial, vm.previewProvider.value)
+
+        spatial.emit(SpatialLocalizationState.Failed(SpatialFailure.EarthUnavailable))
+        assertEquals(PreviewProvider.CameraX, vm.previewProvider.value)
+        vm.startSpatialLocalization(FakeLifecycleOwner())
+        assertEquals("authorization failures must not flip the preview back and forth", PreviewProvider.CameraX, vm.previewProvider.value)
+    }
+
+    @Test
     fun arReportingLimited_doesNotFallBack() = runTest(dispatcher) {
         // Degraded tracking is still ARCore owning a working camera; switching would flicker the
         // preview for no reason.

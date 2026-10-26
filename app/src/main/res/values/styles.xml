@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      Google Places UI Kit (Phase 1, Issue #78).
+
+      `PlacesMaterialTheme` lives in the com.google.android.libraries.places AAR. It IS present in
+      the app module's merged resource table (confirmed in
+      app/build/intermediates/runtime_symbol_list/debug/processDebugResources/R.txt), but AGP's
+      non-transitive R class means dependency (AAR) resources are not re-exported through the app
+      module's own R class — `com.openmaps.app.R.style.PlacesMaterialTheme` does not compile
+      (confirmed: absent from R.jar's compiled R$style, despite the non-zero id in the runtime
+      symbol list). Referencing it here via `parent=`, resolved against the full merged resource
+      table rather than a module's R class symbols, is the documented way around that. This style
+      has no items of its own: `PlacesMaterialTheme` already extends `Theme.AppCompat.DayNight`
+      and carries its own night-qualified attribute values inside the library AAR, so day/night
+      resolution is inherited for free — no `values-night/` override needed here unless a future
+      change actually wants different values from the library's own.
+    -->
+    <style name="OpenMapsPlacesDetailsTheme" parent="PlacesMaterialTheme" />
+
+</resources>

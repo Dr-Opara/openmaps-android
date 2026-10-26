@@ -175,7 +175,9 @@ class MapLibreMapEngine(
     private fun loadStyle(readyMap: MapLibreMap) {
         styleLoaded = false
         val builder = Style.Builder()
-        when (val source = styleProvider.resolve()) {
+        val nighttime = cartographyMode == CartographyMode.BrowseNight ||
+            cartographyMode == CartographyMode.NavigationNight
+        when (val source = OpenMapsNightStyle.resolve(styleProvider.resolve(), nighttime)) {
             is MapStyleSource.Url -> builder.fromUri(source.url)
             is MapStyleSource.InlineJson -> builder.fromJson(source.json)
         }
@@ -223,7 +225,13 @@ class MapLibreMapEngine(
 
     private fun applyMove(readyMap: MapLibreMap, move: MapCommand.MoveCamera) {
         val update = CameraUpdateFactory.newCameraPosition(move.target.toCameraPosition())
-        if (move.animated) readyMap.animateCamera(update, move.durationMillis) else readyMap.moveCamera(update)
+        when {
+            !move.animated || move.durationMillis <= 0 -> readyMap.moveCamera(update)
+            // Chained follow steps: constant speed, no ease-in/out, so back-to-back glides join into
+            // one continuous motion instead of pulsing at every GPS fix.
+            move.linear -> readyMap.easeCamera(update, move.durationMillis, false)
+            else -> readyMap.animateCamera(update, move.durationMillis)
+        }
     }
 
     override fun setUserLocation(location: UserLocation?) {
@@ -268,7 +276,7 @@ class MapLibreMapEngine(
             component.renderMode = RenderMode.NORMAL
         }
         component.isLocationComponentEnabled = true
-        component.forceLocationUpdate(location.toAndroidLocation())
+        component.forceLocationUpdate(location.toAndroidLocation(snappedOnRoute()))
     }
 
     override fun setDestination(destination: SearchResult?) {
@@ -329,7 +337,31 @@ class MapLibreMapEngine(
     }
 
     override fun setRouteProgress(progress: RouteProgressView?) {
+        val previous = routeProgress
         routeProgress = progress
+        // The puck follows the snapped position, so it must update on every progress tick…
+        if (progress?.snappedLatitude != previous?.snappedLatitude ||
+            progress?.snappedLongitude != previous?.snappedLongitude
+        ) {
+            syncUserLocation()
+        }
+        // …but the route line only needs re-cutting when the split point actually moved. Rebuilding
+        // and re-uploading the whole polyline (thousands of vertices on a long route) on every GPS
+        // fix was a main-thread cost paid ~once a second for the entire drive.
+        val newIndex = progress?.traveledShapeIndex
+        val oldIndex = previous?.traveledShapeIndex
+        if (newIndex == oldIndex && (progress == null) == (previous == null)) return
+        if (progress != null && previous != null && newIndex != null && oldIndex != null &&
+            newIndex > oldIndex && newIndex - oldIndex < ROUTE_RESPLIT_MIN_POINTS
+        ) {
+            // Tiny advance on a dense polyline: invisible at map scale. Keep the old split until it
+            // has moved a few vertices (the bookkeeping field keeps the *drawn* index, not the latest).
+            routeProgress = previous.copy(
+                snappedLatitude = progress.snappedLatitude,
+                snappedLongitude = progress.snappedLongitude,
+            )
+            return
+        }
         syncRoute()
     }
 
@@ -518,8 +550,20 @@ class MapLibreMapEngine(
 
     override fun setCartographyMode(mode: CartographyMode) {
         if (cartographyMode == mode) return
+        val wasNight = cartographyMode == CartographyMode.BrowseNight ||
+            cartographyMode == CartographyMode.NavigationNight
+        val nowNight = mode == CartographyMode.BrowseNight ||
+            mode == CartographyMode.NavigationNight
         cartographyMode = mode
-        val style = map?.style ?: return
+        val currentMap = map ?: return
+        if (wasNight != nowNight && OpenMapsNightStyle.isSupported(styleProvider.resolve())) {
+            // Only reload the style when switching between Stadia's verified companion
+            // light/dark styles, not on navigation start/stop. loadStyle restores route,
+            // destination, location puck, places and hazard layers after async completion.
+            loadStyle(currentMap)
+            return
+        }
+        val style = currentMap.style ?: return
         if (!styleLoaded) return
         applyCartography(style)
     }
@@ -714,9 +758,17 @@ class MapLibreMapEngine(
         return CameraState(center.latitude, center.longitude, zoom, bearing, tilt)
     }
 
-    private fun UserLocation.toAndroidLocation(): Location = Location(PROVIDER_TAG).also {
-        it.latitude = latitude
-        it.longitude = longitude
+    /** The map-matched road position, when navigating with a confident match; null = use the raw fix. */
+    private fun snappedOnRoute(): Pair<Double, Double>? {
+        val progress = routeProgress ?: return null
+        val lat = progress.snappedLatitude ?: return null
+        val lng = progress.snappedLongitude ?: return null
+        return lat to lng
+    }
+
+    private fun UserLocation.toAndroidLocation(snapped: Pair<Double, Double>? = null): Location = Location(PROVIDER_TAG).also {
+        it.latitude = snapped?.first ?: latitude
+        it.longitude = snapped?.second ?: longitude
         accuracyMeters?.let { accuracy -> it.accuracy = accuracy }
         bearingDegrees?.let { bearing -> it.bearing = bearing }
         it.time = if (timestampMillis > 0L) timestampMillis else System.currentTimeMillis()
@@ -727,6 +779,8 @@ class MapLibreMapEngine(
         const val MAX_ZOOM = 20.0
         const val BEARING_EPSILON_DEGREES = 0.5
         const val ATTRIBUTION_MARGIN_DP = 8
+        /** Re-cut the traveled/remaining route split only after this many new polyline vertices. */
+        const val ROUTE_RESPLIT_MIN_POINTS = 3
         const val PROVIDER_TAG = "openmaps"
         val ACCENT_BLUE: Int = Color.parseColor("#2F7BFF")
         const val DESTINATION_SOURCE_ID = "openmaps-destination-source"

@@ -4,7 +4,11 @@
 # (egress to Google Maven / Maven Central is blocked there). Verify on first
 # sync in Android Studio and bump as you like.
 agp = "8.7.3"
-kotlin = "2.0.21"
+# Bumped from 2.0.21 for the Places UI Kit addition below: places:5.0.0 transitively requires
+# kotlin-stdlib 2.1.0, and Gradle resolves to the higher version regardless of this plugin's own
+# pin, which made compileDebugKotlin hard-fail ("Internal compiler error") at 2.0.21. Confirmed by
+# an actual local build (see docs/SETUP.md "Google Places UI Kit provisioning"), not guessed.
+kotlin = "2.1.0"
 composeBom = "2024.12.01"
 coreKtx = "1.15.0"
 coreSplashscreen = "1.0.1"
@@ -22,6 +26,20 @@ arcore = "1.56.0"
 playServicesLocation = "21.3.0"
 junit = "4.13.2"
 json = "20260814"
+# androidx.fragment: MainActivity needs a FragmentManager to host the Google Places UI Kit's
+# PlaceDetailsFragment (Phase 1, Issue #78), which is an androidx.fragment.app.Fragment.
+fragment = "1.8.5"
+# Google Places SDK for Android (New). Place Details UI Kit widget only; MapLibre remains the
+# map renderer. See docs/SETUP.md "Google Places UI Kit provisioning" for the Cloud Console side.
+# Pinned to 5.0.0, not the latest 6.0.2: 6.0.2 transitively pulls kotlin-stdlib 2.4.0, which no
+# available Kotlin Gradle plugin in this project's AGP 8.7.3 line can compile against yet. 5.0.0
+# still ships the full PlaceDetailsFragment widget (confirmed via its AAR's class list) at the
+# more moderate kotlin-stdlib 2.1.0 floor. Revisit once the Kotlin version is bumped further.
+googlePlaces = "5.0.0"
+# LatLng only (PlaceDetailsCompactFragment.loadWithCoordinates takes a
+# com.google.android.gms.maps.model.LatLng). Declared explicitly rather than relying on it being
+# pulled in transitively by the places artifact above.
+playServicesMaps = "19.0.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -59,6 +77,13 @@ google-play-services-location = { group = "com.google.android.gms", name = "play
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 json = { group = "org.json", name = "json", version.ref = "json" }
+
+androidx-fragment-ktx = { group = "androidx.fragment", name = "fragment-ktx", version.ref = "fragment" }
+
+# Places UI Kit (Phase 1, Issue #78): the Place Details widget only, not Autocomplete/Search.
+# Runtime-gated on GOOGLE_PLACES_API_KEY being configured; absent key -> feature stays hidden.
+google-places = { group = "com.google.android.libraries.places", name = "places", version.ref = "googlePlaces" }
+google-play-services-maps = { group = "com.google.android.gms", name = "play-services-maps", version.ref = "playServicesMaps" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

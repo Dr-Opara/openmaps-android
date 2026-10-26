@@ -551,6 +551,37 @@ class MapViewModelTest {
     }
 
     @Test
+    fun navigating_followCameraGlidesLinearlyInsteadOfJumping() = runTest(dispatcher) {
+        val commands = collectCommands()
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0005))) // ~55 m: a normal step, not a teleport
+
+        val follow = commands.filterIsInstance<MapCommand.MoveCamera>().last()
+        assertTrue("follow steps must animate, a hard jump per GPS fix reads as stutter", follow.animated)
+        assertTrue("chained follow steps use constant speed", follow.linear)
+        assertTrue(follow.durationMillis > 0)
+    }
+
+    @Test
+    fun navigating_snapsThePuckToTheRoadOnlyWhenTheMatchIsConfident() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.004)))
+
+        val view = viewModel.routeProgressView.value!!
+        // On the route itself the matcher is confident, so a snapped position is published.
+        assertNotNull(view.snappedLatitude)
+        assertNotNull(view.snappedLongitude)
+    }
+
+    @Test
     fun stopNavigation_clearsTheTraveledSplit() = runTest(dispatcher) {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
@@ -581,6 +612,57 @@ class MapViewModelTest {
         assertNull(viewModel.routeProgressView.value)
         // The route itself survives stopping: browsing back to it should not need a refetch.
         assertTrue(viewModel.uiState.value.routeState is RouteState.Ready)
+    }
+
+    @Test
+    fun stopNavigation_notifiesNavigationEndedExactlyOnce() = runTest(dispatcher) {
+        // Phase 1 lifecycle: a user-initiated stop must release the AR content immediately,
+        // exactly as endNavigationToHome() and arrival already do — not leave it until the
+        // next pipeline update happens to observe Idle.
+        var ended = 0
+        viewModel.onNavigationEnded = { ended++ }
+
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        assertEquals(0, ended)
+
+        viewModel.stopNavigation()
+
+        assertEquals("stopping must release the AR content exactly once", 1, ended)
+        assertEquals(NavigationState.Idle, viewModel.uiState.value.navigationState)
+    }
+
+    @Test
+    fun stopNavigationTwice_notifiesNavigationEndedOnlyOnce() = runTest(dispatcher) {
+        // Idempotence: a repeated stop must not re-fire the teardown callback.
+        var ended = 0
+        viewModel.onNavigationEnded = { ended++ }
+
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+
+        viewModel.stopNavigation()
+        viewModel.stopNavigation()
+
+        assertEquals(1, ended)
+    }
+
+    @Test
+    fun stopNavigationWhenIdle_doesNotNotifyNavigationEnded() = runTest(dispatcher) {
+        // No trip, no teardown: stopping without ever starting must not fire the callback.
+        var ended = 0
+        viewModel.onNavigationEnded = { ended++ }
+
+        startWithPermission()
+        viewModel.stopNavigation()
+
+        assertEquals(0, ended)
     }
 
     @Test
