@@ -551,6 +551,36 @@ class MapViewModelTest {
     }
 
     @Test
+    fun navigating_followCameraGlidesLinearlyInsteadOfJumping() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.004)))
+
+        val follow = commands.filterIsInstance<MapCommand.MoveCamera>().last()
+        assertTrue("follow steps must animate, a hard jump per GPS fix reads as stutter", follow.animated)
+        assertTrue("chained follow steps use constant speed", follow.linear)
+        assertTrue(follow.durationMillis > 0)
+    }
+
+    @Test
+    fun navigating_snapsThePuckToTheRoadOnlyWhenTheMatchIsConfident() = runTest(dispatcher) {
+        startWithPermission()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
+        routingRepository.result = Result.success(navigableRoute())
+        viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
+        viewModel.startNavigation()
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.004)))
+
+        val view = viewModel.routeProgressView.value!!
+        // On the route itself the matcher is confident, so a snapped position is published.
+        assertNotNull(view.snappedLatitude)
+        assertNotNull(view.snappedLongitude)
+    }
+
+    @Test
     fun stopNavigation_clearsTheTraveledSplit() = runTest(dispatcher) {
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))

@@ -25,6 +25,7 @@ import com.openmaps.app.core.navigation.NavigationForegroundController
 import com.openmaps.app.core.navigation.NavigationRecoveryStore
 import com.openmaps.app.core.navigation.NoopNavigationRecoveryStore
 import com.openmaps.app.core.navigation.NoopNavigationForegroundController
+import com.openmaps.app.core.navigation.MapMatchConfidence
 import com.openmaps.app.core.navigation.RouteProgress
 import com.openmaps.app.core.reliability.NoopReliabilityReporter
 import com.openmaps.app.core.reliability.ReliabilityEvent
@@ -2127,7 +2128,17 @@ class MapViewModel(
 
     /** Pushes the traveled/remaining split to the renderer. */
     private fun publishRouteProgress(progress: RouteProgress) {
-        _routeProgressView.value = RouteProgressView(progress.snappedShapeIndex)
+        val snapped = progress.snappedCoordinate?.takeIf {
+            !progress.isOffRoute &&
+                progress.mapMatchConfidence != MapMatchConfidence.Low &&
+                progress.mapMatchConfidence != MapMatchConfidence.OffRoute &&
+                progress.lateralDistanceMeters <= SNAP_PUCK_MAX_LATERAL_METERS
+        }
+        _routeProgressView.value = RouteProgressView(
+            traveledShapeIndex = progress.snappedShapeIndex,
+            snappedLatitude = snapped?.latitude,
+            snappedLongitude = snapped?.longitude,
+        )
     }
 
     /** Moves the camera to the follow position, unless the user has taken over. */
@@ -2152,10 +2163,13 @@ class MapViewModel(
                 bearing = target.bearingDegrees,
                 pitch = target.pitch,
             ),
-            // Short, non-animated steps: a nav camera tracks continuously, so easing between every
-            // GPS tick would read as lag rather than as smoothness.
+            // One constant-speed glide per GPS fix. The previous revision teleported the camera on
+            // every ~1 Hz fix (animated = false), which is exactly the once-a-second stepping seen
+            // as "lag" on a real drive. Gliding for roughly one fix interval, linearly, chains the
+            // fixes into continuous motion; each new fix cancels and replaces the previous glide.
             durationMillis = NAVIGATION_CAMERA_DURATION_MILLIS,
-            animated = false,
+            animated = true,
+            linear = true,
         )
     }
 
@@ -2324,10 +2338,10 @@ class MapViewModel(
 
     // endregion
 
-    private fun moveCamera(target: CameraState, durationMillis: Int, animated: Boolean = true) {
+    private fun moveCamera(target: CameraState, durationMillis: Int, animated: Boolean = true, linear: Boolean = false) {
         // Optimistic update so a configuration change mid-animation restores the destination.
         _uiState.update { it.copy(cameraState = target) }
-        commandChannel.trySend(MapCommand.MoveCamera(target, animated = animated, durationMillis = durationMillis))
+        commandChannel.trySend(MapCommand.MoveCamera(target, animated = animated, durationMillis = durationMillis, linear = linear))
     }
 
     private fun UserLocation.toCoordinate(): Coordinate = Coordinate(latitude, longitude)
@@ -2420,10 +2434,13 @@ class MapViewModel(
         const val KMH_PER_MPH = 1.60934
 
         /**
-         * Camera step while following. Short and non-animated: the target updates on every GPS
-         * tick, so easing each step would read as lag rather than as smooth tracking.
+         * Follow-camera glide length: about one GPS fix interval, applied linearly (see
+         * [followCameraWith]). 0 here meant a hard jump per fix, which reads as stutter.
          */
-        const val NAVIGATION_CAMERA_DURATION_MILLIS = 0
+        const val NAVIGATION_CAMERA_DURATION_MILLIS = 1000
+
+        /** Only draw the puck on the route when the fix is within this lateral distance of it. */
+        const val SNAP_PUCK_MAX_LATERAL_METERS = 30.0
 
         /** Maps any bearing to [-180, 180) so "rotated" checks and the compass needle are symmetric. */
         fun normalizeBearing(degrees: Double): Float = (((degrees % 360.0) + 540.0) % 360.0 - 180.0).toFloat()

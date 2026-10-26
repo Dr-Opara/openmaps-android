@@ -34,6 +34,13 @@ data class CameraState(
  */
 data class RouteProgressView(
     val traveledShapeIndex: Int,
+    /**
+     * Where the vehicle is on the road, when the map-matcher is confident. The location puck is drawn
+     * here instead of at the raw GPS fix so it sits on the route line like Google Maps' does, instead
+     * of hovering beside it on a wide or divided road. Null means "draw the raw fix".
+     */
+    val snappedLatitude: Double? = null,
+    val snappedLongitude: Double? = null,
 )
 
 /** Commands from the ViewModel to the map engine. */
@@ -42,6 +49,8 @@ sealed interface MapCommand {
         val target: CameraState,
         val animated: Boolean = true,
         val durationMillis: Int = 600,
+        /** Constant-speed glide (no ease-in/out) for chained follow-camera steps; see MapViewModel. */
+        val linear: Boolean = false,
     ) : MapCommand
 
     /** Reload the style after a failure ("Map unavailable" -> Retry). */

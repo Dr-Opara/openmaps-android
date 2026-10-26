@@ -21,6 +21,9 @@ import com.google.ar.core.Session
 import com.google.ar.core.TrackingFailureReason
 import com.google.ar.core.TrackingState
 import com.google.ar.core.exceptions.CameraNotAvailableException
+import com.google.ar.core.exceptions.DeadlineExceededException
+import com.google.ar.core.exceptions.ResourceExhaustedException
+import com.google.ar.core.exceptions.SessionPausedException
 import com.google.ar.core.exceptions.NotYetAvailableException
 import com.google.ar.core.exceptions.SessionUnsupportedException
 import com.google.ar.core.exceptions.UnavailableException
@@ -397,18 +400,43 @@ class ArCoreSpatialLocalization(
             val earth = activeSession.earth
             val spatialState = toState(frame.camera, earth)
             logGeospatialGate(frame.camera, earth, spatialState)
+            consecutiveFrameFailures = 0
             _events.tryEmit(spatialState)
             return frame
+        } catch (e: SessionPausedException) {
+            // Normal during pause/resume races (GL thread draws once more after the session paused).
+            // Never a reason to abandon AR.
+            return null
+        } catch (e: DeadlineExceededException) {
+            return skipFrame("deadline", e)
+        } catch (e: ResourceExhaustedException) {
+            return skipFrame("resource_exhausted", e)
         } catch (e: CameraNotAvailableException) {
-            Log.w(TAG, "ARCore lost the camera", e)
-            _events.tryEmit(SpatialLocalizationState.Failed(SpatialFailure.CameraUnavailable))
-            return null
+            return skipFrame("camera_unavailable", e, SpatialFailure.CameraUnavailable)
         } catch (t: Throwable) {
-            Log.w(TAG, "ARCore frame failed", t)
-            _events.tryEmit(SpatialLocalizationState.Failed(SpatialFailure.ArCoreError))
-            return null
+            return skipFrame("frame_error", t, SpatialFailure.ArCoreError)
         }
     }
+
+    /**
+     * A single failed `update()` used to emit `Failed` immediately, and `LiveViewModel` answers any
+     * `Failed` by permanently handing the camera to CameraX for the rest of the session — so one
+     * transient frame error silently and permanently disabled AR ("CameraXFallback · sampled 0").
+     * Failures now have to persist for [FRAME_FAILURE_TOLERANCE] consecutive frames (about a second and
+     * a half) before they are reported; isolated ones just skip that frame.
+     */
+    private fun skipFrame(reason: String, t: Throwable, escalateTo: SpatialFailure? = null): Frame? {
+        consecutiveFrameFailures++
+        if (consecutiveFrameFailures == 1 || consecutiveFrameFailures % FRAME_FAILURE_TOLERANCE == 0) {
+            Log.w(TAG, "ARCore frame skipped ($reason, x$consecutiveFrameFailures)", t)
+        }
+        if (escalateTo != null && consecutiveFrameFailures >= FRAME_FAILURE_TOLERANCE) {
+            _events.tryEmit(SpatialLocalizationState.Failed(escalateTo))
+        }
+        return null
+    }
+
+    private var consecutiveFrameFailures = 0
 
     private fun toState(camera: Camera, earth: Earth?): SpatialLocalizationState {
         // Camera tracking gates everything: without a tracked camera there is no usable pose.
@@ -699,6 +727,7 @@ class ArCoreSpatialLocalization(
         internal const val NO_TEXTURE = -1
         private const val TAG = "ArCoreSpatialLoc"
         private const val GATE_DIAGNOSTIC_INTERVAL_MS = 10_000L
+        private const val FRAME_FAILURE_TOLERANCE = 45
 
         /** GL_TEXTURE_EXTERNAL_OES (0x8D65), declared here to avoid importing GLES30 for one constant. */
         private const val TEXTURE_TARGET = 0x8D65
