@@ -79,3 +79,19 @@ before real-road Live AR acceptance.
 - VPS availability: https://developers.google.com/ar/develop/java/geospatial/check-vps-availability
 - Earth state reference: https://developers.google.com/ar/reference/java/com/google/ar/core/Earth.EarthState
 - Current release-blocker issue: https://github.com/Dr-Opara/openmaps-android/issues/80
+
+## Failure classification and recovery (added on `fix/map-smooth-follow-snapped-puck-v1`)
+
+AR failures are classified by `ArFailurePolicy` instead of "any failure permanently switches to CameraX":
+
+| Cause | Class | Behaviour |
+|---|---|---|
+| `ERROR_NOT_AUTHORIZED`, Geospatial disabled/unsupported | Permanent configuration | Immediate CameraX fallback; `Log.e` (all build types) says what to check; reliability event `...:permanent_configuration`; not retried on Live re-entry |
+| Camera lost, ARCore frame error, `ERROR_INTERNAL`, quota | Recoverable | Session rebuilt with 1s/2s/4s backoff (10s/20s/40s for quota) while AR keeps the camera; fallback only after 3 failed attempts; a fresh attempt on the next Live entry |
+| Session paused / frame deadline / not-yet-available | Transient | Frame skipped, nothing reported |
+
+**Builds without a Geospatial key:** the CI workflow (`android-ci.yml`) does not pass `ARCORE_API_KEY`, so APKs
+from CI have an empty `com.google.android.ar.API_KEY` and Earth will report `ERROR_NOT_AUTHORIZED`
+(logged as "this build has no ARCORE_API_KEY"). Use a locally built APK with the key in `local.properties`, or add
+the key as a CI secret restricted to this package name and signing SHA-1 (note CI debug artifacts are downloadable).
+The log line says whether a key was compiled in; it never prints the key.

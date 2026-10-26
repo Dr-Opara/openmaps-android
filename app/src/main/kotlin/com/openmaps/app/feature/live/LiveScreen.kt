@@ -275,6 +275,7 @@ fun LiveScreen(
                 hasRoute = route != null,
                 isNavigating = isNavigating,
                 arrowPipeline = viewModel.arrowPipeline,
+                fallbackCause = viewModel.lastSpatialFailure,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .statusBarsPadding()
@@ -424,6 +425,8 @@ private fun LiveArDiagnosticsOverlay(
     hasRoute: Boolean,
     isNavigating: Boolean,
     arrowPipeline: ARArrowPipeline,
+    /** Why AR was abandoned for CameraX (the engine's own state is back to Idle by then). */
+    fallbackCause: SpatialLocalizationState? = null,
     modifier: Modifier = Modifier,
 ) {
     if (!BuildConfig.DEBUG) return
@@ -455,6 +458,13 @@ private fun LiveArDiagnosticsOverlay(
             append(" · drawn ")
             append(snapshot.arrowCount)
             detail?.let { append(" · "); append(it) }
+            if (previewProvider == PreviewProvider.CameraX && fallbackCause != null) {
+                append(" · cause ")
+                append(
+                    (fallbackCause as? SpatialLocalizationState.Failed)?.reason?.name
+                        ?: fallbackCause.javaClass.simpleName,
+                )
+            }
         },
         style = MaterialTheme.typography.labelSmall,
         color = Color.White,

@@ -31,6 +31,7 @@ import com.openmaps.app.BuildConfig
 import com.openmaps.app.core.spatial.LimitedReason
 import com.openmaps.app.core.spatial.LocalizationQualityMapper
 import com.openmaps.app.core.spatial.SpatialAvailability
+import com.openmaps.app.core.spatial.ArFailurePolicy
 import com.openmaps.app.core.spatial.SpatialFailure
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
 import com.openmaps.app.core.spatial.SpatialLocalizationState
@@ -357,6 +358,8 @@ class ArCoreSpatialLocalization(
         // The world frame dies with the session; a pose left over from it would place arrows in a
         // frame that no longer exists.
         cameraTransform = null
+        lastFrameFailure = null
+        lastReportedEarthFailure = null
         lastGateSignature = ""
         lastGateLogMillis = 0L
     }
@@ -400,43 +403,43 @@ class ArCoreSpatialLocalization(
             val earth = activeSession.earth
             val spatialState = toState(frame.camera, earth)
             logGeospatialGate(frame.camera, earth, spatialState)
-            consecutiveFrameFailures = 0
+            lastFrameFailure = null
             _events.tryEmit(spatialState)
             return frame
         } catch (e: SessionPausedException) {
-            // Normal during pause/resume races (GL thread draws once more after the session paused).
-            // Never a reason to abandon AR.
+            // Ordinary pause/resume race: the GL thread drew once more after the session paused.
             return null
         } catch (e: DeadlineExceededException) {
-            return skipFrame("deadline", e)
+            // `update()` timed out waiting for a camera frame. One late frame is not an AR failure.
+            return null
+        } catch (e: NotYetAvailableException) {
+            return null
         } catch (e: ResourceExhaustedException) {
-            return skipFrame("resource_exhausted", e)
+            return failFrame(SpatialFailure.ResourceExhausted, e)
         } catch (e: CameraNotAvailableException) {
-            return skipFrame("camera_unavailable", e, SpatialFailure.CameraUnavailable)
+            return failFrame(SpatialFailure.CameraUnavailable, e)
         } catch (t: Throwable) {
-            return skipFrame("frame_error", t, SpatialFailure.ArCoreError)
+            return failFrame(SpatialFailure.ArCoreError, t)
         }
     }
 
     /**
-     * A single failed `update()` used to emit `Failed` immediately, and `LiveViewModel` answers any
-     * `Failed` by permanently handing the camera to CameraX for the rest of the session — so one
-     * transient frame error silently and permanently disabled AR ("CameraXFallback · sampled 0").
-     * Failures now have to persist for [FRAME_FAILURE_TOLERANCE] consecutive frames (about a second and
-     * a half) before they are reported; isolated ones just skip that frame.
+     * Reports a frame failure **once per distinct failure** (not once per frame at 30 fps), and lets
+     * [ArFailurePolicy] — not a frame counter — decide what it means: `LiveViewModel` retries
+     * recoverable failures with backoff and only falls back to CameraX for permanent ones.
+     * Cleared on the next good frame and whenever the session is rebuilt.
      */
-    private fun skipFrame(reason: String, t: Throwable, escalateTo: SpatialFailure? = null): Frame? {
-        consecutiveFrameFailures++
-        if (consecutiveFrameFailures == 1 || consecutiveFrameFailures % FRAME_FAILURE_TOLERANCE == 0) {
-            Log.w(TAG, "ARCore frame skipped ($reason, x$consecutiveFrameFailures)", t)
-        }
-        if (escalateTo != null && consecutiveFrameFailures >= FRAME_FAILURE_TOLERANCE) {
-            _events.tryEmit(SpatialLocalizationState.Failed(escalateTo))
+    private fun failFrame(failure: SpatialFailure, t: Throwable): Frame? {
+        if (lastFrameFailure != failure) {
+            lastFrameFailure = failure
+            Log.w(TAG, "ARCore frame failed: ${failure.name} (${t.javaClass.simpleName})", t)
+            _events.tryEmit(SpatialLocalizationState.Failed(failure))
         }
         return null
     }
 
-    private var consecutiveFrameFailures = 0
+    private var lastFrameFailure: SpatialFailure? = null
+    private var lastReportedEarthFailure: SpatialFailure? = null
 
     private fun toState(camera: Camera, earth: Earth?): SpatialLocalizationState {
         // Camera tracking gates everything: without a tracked camera there is no usable pose.
@@ -454,13 +457,18 @@ class ArCoreSpatialLocalization(
 
         // The Earth (geospatial) solution may still be converging or erroring.
         when (earth.earthState) {
-            Earth.EarthState.ENABLED -> Unit // good; fall through
+            Earth.EarthState.ENABLED -> lastReportedEarthFailure = null
             Earth.EarthState.ERROR_NOT_AUTHORIZED ->
-                return SpatialLocalizationState.Failed(SpatialFailure.EarthUnavailable)
+                return earthFailure(SpatialFailure.EarthUnavailable)
             Earth.EarthState.ERROR_GEOSPATIAL_MODE_DISABLED ->
-                return SpatialLocalizationState.Failed(SpatialFailure.GeospatialDisabled)
+                return earthFailure(SpatialFailure.GeospatialDisabled)
+            Earth.EarthState.ERROR_RESOURCE_EXHAUSTED ->
+                return earthFailure(SpatialFailure.ResourceExhausted)
+            Earth.EarthState.ERROR_INTERNAL ->
+                return earthFailure(SpatialFailure.EarthInternal)
             Earth.EarthState.ERROR_APK_VERSION_TOO_OLD ->
                 return SpatialLocalizationState.NotInstalled(requestInstall = true)
+            // Anything not explicitly an error: still converging.
             else -> return SpatialLocalizationState.Limited(LimitedReason.PoorGeolocation)
         }
 
@@ -573,6 +581,19 @@ class ArCoreSpatialLocalization(
                 "horizontalAccuracyM=${accuracy(pose?.horizontalAccuracyMeters)} " +
                 "yawAccuracyDeg=${accuracy(pose?.headingAccuracyDegrees)}",
         )
+    }
+
+    /**
+     * Maps an ARCore Earth error to a state and, once per distinct failure, logs a plain-language
+     * cause at ERROR level in *all* build types (a release APK that silently loses AR is the failure
+     * mode this exists to prevent). Never logs the API key itself — only whether one was compiled in.
+     */
+    private fun earthFailure(failure: SpatialFailure): SpatialLocalizationState {
+        if (lastReportedEarthFailure != failure) {
+            lastReportedEarthFailure = failure
+            Log.e(TAG, "Geospatial unavailable: ${ArFailurePolicy.explanation(failure, BuildConfig.ARCORE_GEOSPATIAL_CONFIGURED)}")
+        }
+        return SpatialLocalizationState.Failed(failure)
     }
 
     private fun mapLimited(camera: Camera): LimitedReason = when (camera.trackingFailureReason) {
@@ -727,7 +748,6 @@ class ArCoreSpatialLocalization(
         internal const val NO_TEXTURE = -1
         private const val TAG = "ArCoreSpatialLoc"
         private const val GATE_DIAGNOSTIC_INTERVAL_MS = 10_000L
-        private const val FRAME_FAILURE_TOLERANCE = 45
 
         /** GL_TEXTURE_EXTERNAL_OES (0x8D65), declared here to avoid importing GLES30 for one constant. */
         private const val TEXTURE_TARGET = 0x8D65

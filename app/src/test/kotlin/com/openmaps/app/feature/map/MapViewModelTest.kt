@@ -557,7 +557,7 @@ class MapViewModelTest {
         routingRepository.result = Result.success(navigableRoute())
         viewModel.selectAndRequestDirections(place("dest", 0.009, 0.0))
         viewModel.startNavigation()
-        repository.emit(LocationUpdate.Fix(at(0.0, 0.004)))
+        repository.emit(LocationUpdate.Fix(at(0.0, 0.0005))) // ~55 m: a normal step, not a teleport
 
         val follow = commands.filterIsInstance<MapCommand.MoveCamera>().last()
         assertTrue("follow steps must animate, a hard jump per GPS fix reads as stutter", follow.animated)

@@ -136,6 +136,12 @@ enum class SpatialFailure {
 
     /** Camera permission was revoked or the camera is held by another app. */
     CameraUnavailable,
+
+    /** `ERROR_RESOURCE_EXHAUSTED` / `ResourceExhaustedException`: Geospatial quota or rate limit hit. */
+    ResourceExhausted,
+
+    /** `Earth.EarthState.ERROR_INTERNAL`: ARCore's own transient internal error. */
+    EarthInternal,
 }
 
 /**
