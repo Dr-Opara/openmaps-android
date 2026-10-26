@@ -552,6 +552,7 @@ class MapViewModelTest {
 
     @Test
     fun navigating_followCameraGlidesLinearlyInsteadOfJumping() = runTest(dispatcher) {
+        val commands = collectCommands()
         startWithPermission()
         repository.emit(LocationUpdate.Fix(at(0.0, 0.0)))
         routingRepository.result = Result.success(navigableRoute())
