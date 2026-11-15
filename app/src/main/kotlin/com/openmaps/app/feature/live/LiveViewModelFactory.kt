@@ -7,6 +7,8 @@ import com.openmaps.app.AppContainer
 import com.openmaps.app.camera.CameraXRearEngine
 import com.openmaps.app.camera.RearCameraEngine
 import com.openmaps.app.core.spatial.SpatialLocalizationEngine
+import com.openmaps.app.BuildConfig
+import com.openmaps.app.core.spatial.NoopSpatialLocalization
 
 /**
  * Builds [LiveViewModel] from the app container (no DI framework), mirroring
@@ -23,7 +25,14 @@ fun liveViewModelFactory(container: AppContainer): ViewModelProvider.Factory = v
             // Live degrades to it rather than showing nothing.
             cameraEngine = CameraXRearEngine() as RearCameraEngine,
             // Phase 6: ARCore engine (support checked on start, never at construction).
-            spatialEngine = container.spatialLocalizationEngine,
+            // Visual-navigation prototype (debug builds on this branch): CameraX owns the camera and
+            // ARCore is never started, so Live cannot depend on Geospatial authorization or Earth
+            // tracking. The ARCore engine itself is untouched and still used when the flag is off.
+            spatialEngine = if (BuildConfig.LIVE_VISUAL_PROTOTYPE) {
+                NoopSpatialLocalization()
+            } else {
+                container.spatialLocalizationEngine
+            },
             reliabilityReporter = container.reliabilityReporter,
         )
     }

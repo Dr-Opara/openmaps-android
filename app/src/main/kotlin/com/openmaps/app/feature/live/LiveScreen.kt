@@ -87,6 +87,7 @@ import com.openmaps.app.R
 import com.openmaps.app.camera.CameraEngineEvent
 import com.openmaps.app.camera.CameraFailure
 import com.openmaps.app.camera.CameraXRearEngine
+import com.openmaps.app.vision.CameraXFrameProvider
 import com.openmaps.app.camera.RearCameraHost
 import com.openmaps.app.camera.RearCameraState
 import com.openmaps.app.core.camera.CameraPermissionState
@@ -1033,9 +1034,15 @@ private fun RearCameraPreview(
     onCameraEvent: (CameraEngineEvent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val engine = remember { CameraXRearEngine() }
+    // Visual-navigation prototype (debug builds on the experimental branch only): the frame provider
+    // shares the CameraX binding, and the calibration test pattern is drawn over the preview.
+    val frameProvider = remember { if (BuildConfig.LIVE_VISUAL_PROTOTYPE) CameraXFrameProvider() else null }
+    val engine = remember { CameraXRearEngine(companion = frameProvider) }
     Box(modifier) {
         RearCameraHost(engine = engine, onEvent = onCameraEvent, modifier = Modifier.fillMaxSize())
+        if (frameProvider != null && cameraState == RearCameraState.Ready) {
+            LiveCalibrationOverlay(frameProvider = frameProvider)
+        }
 
         when (cameraState) {
             is RearCameraState.Starting, RearCameraState.Idle -> CameraStatusOverlay(

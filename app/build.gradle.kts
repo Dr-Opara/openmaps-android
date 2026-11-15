@@ -254,7 +254,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Experimental branch only: debug builds run Live on CameraX with the Stage 1
+            // calibration overlay and never start ARCore. Release builds are unchanged.
+            buildConfigField("boolean", "LIVE_VISUAL_PROTOTYPE", "true")
+        }
         release {
+            buildConfigField("boolean", "LIVE_VISUAL_PROTOTYPE", "false")
             if (releaseSigningConfigured) {
                 signingConfig = signingConfigs.getByName("release")
             }
