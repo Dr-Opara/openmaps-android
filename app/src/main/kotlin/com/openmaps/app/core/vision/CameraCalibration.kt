@@ -56,6 +56,40 @@ data class CameraIntrinsics(
 
     companion object {
         /**
+         * Intrinsics from `LENS_INTRINSIC_CALIBRATION` (`fx, fy, cx, cy` in pixels of the sensor's
+         * active array), rescaled to an output buffer that is a centred aspect-ratio crop of that
+         * array, uniformly scaled. Returns null for values no real camera would report.
+         */
+        fun fromDeviceCalibration(
+            focalXArrayPixels: Double,
+            focalYArrayPixels: Double,
+            principalXArrayPixels: Double,
+            principalYArrayPixels: Double,
+            arrayWidth: Int,
+            arrayHeight: Int,
+            imageWidth: Int,
+            imageHeight: Int,
+        ): CameraIntrinsics? {
+            if (arrayWidth <= 0 || arrayHeight <= 0 || imageWidth <= 0 || imageHeight <= 0) return null
+            if (!(focalXArrayPixels > 0) || !(focalYArrayPixels > 0)) return null
+            if (principalXArrayPixels !in 0.0..arrayWidth.toDouble() || principalYArrayPixels !in 0.0..arrayHeight.toDouble()) {
+                return null
+            }
+            val arrayAspect = arrayWidth.toDouble() / arrayHeight
+            val imageAspect = imageWidth.toDouble() / imageHeight
+            val scale = if (imageAspect >= arrayAspect) imageWidth.toDouble() / arrayWidth else imageHeight.toDouble() / arrayHeight
+            return CameraIntrinsics(
+                focalXPixels = focalXArrayPixels * scale,
+                focalYPixels = focalYArrayPixels * scale,
+                principalXPixels = (principalXArrayPixels - arrayWidth / 2.0) * scale + imageWidth / 2.0,
+                principalYPixels = (principalYArrayPixels - arrayHeight / 2.0) * scale + imageHeight / 2.0,
+                imageWidth = imageWidth,
+                imageHeight = imageHeight,
+                source = IntrinsicsSource.DeviceReported,
+            )
+        }
+
+        /**
          * Intrinsics derived from the lens focal length and physical sensor size, for an output
          * buffer that is a **centred aspect-ratio crop of the full sensor, then uniformly scaled**.
          *
@@ -98,34 +132,19 @@ data class CameraIntrinsics(
 }
 
 enum class IntrinsicsSource {
-    /** Derived from focal length and sensor size reported by the device. Not a calibration. */
+    /**
+     * **Estimated.** Derived from the focal length and sensor size the device reports. Not a
+     * calibration: it assumes square pixels, a centred principal point and no distortion.
+     */
     SensorGeometry,
+
+    /**
+     * **Manufacturer-reported.** From `LENS_INTRINSIC_CALIBRATION`. Better than an estimate when
+     * present, but it is the vendor's value for the camera module, not a measurement of this
+     * phone, and it is scaled to the output buffer under the same crop assumption as the estimate.
+     */
+    DeviceReported,
 
     /** Measured for this exact phone with a calibration target (not implemented in Stage 1). */
     Measured,
-}
-
-/**
- * How the phone sits in the vehicle. Stage 1 supports exactly one fixed configuration: these values
- * are **measured by a person**, never estimated by the app.
- */
-data class MountConfiguration(
-    val name: String,
-    /** Height of the camera lens above the road surface, in metres. */
-    val cameraHeightMeters: Double,
-    /** True once a person has measured [cameraHeightMeters] for the vehicle under test. */
-    val heightMeasured: Boolean,
-) {
-    companion object {
-        /**
-         * Placeholder until the test vehicle is measured. 1.25 m is a plausible windshield/dash mount
-         * in a passenger car, used only to draw the calibration grid; [heightMeasured] = false keeps
-         * [GuidanceConfidenceGate] closed regardless of anything else.
-         */
-        val UnmeasuredPrototype = MountConfiguration(
-            name = "prototype-unmeasured",
-            cameraHeightMeters = 1.25,
-            heightMeasured = false,
-        )
-    }
 }

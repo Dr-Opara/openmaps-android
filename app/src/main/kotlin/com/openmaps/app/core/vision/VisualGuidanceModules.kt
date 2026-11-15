@@ -24,17 +24,35 @@ data class FrameMetadata(
     val rotationDegrees: Int,
 )
 
-/** What is known about the camera producing the frames. */
+/** What the device says about the camera producing the frames. Nothing here is measured by OpenMaps. */
 data class CameraCalibration(
-    /** Intrinsics for the buffer as delivered (before rotation); null when the device reports no lens/sensor data. */
+    /** Camera2 id of the bound camera. */
+    val cameraId: String?,
+    /** Physical cameras behind a logical multi-camera; empty for a single physical camera. */
+    val physicalCameraIds: List<String> = emptyList(),
+    /** Intrinsics to use for the buffer as delivered (before rotation): reported if available, else estimated. */
     val bufferIntrinsics: CameraIntrinsics?,
+    /** [IntrinsicsSource.DeviceReported] intrinsics, when the device publishes `LENS_INTRINSIC_CALIBRATION`. */
+    val reportedIntrinsics: CameraIntrinsics? = null,
+    /** [IntrinsicsSource.SensorGeometry] estimate, kept alongside so the two can be compared. */
+    val estimatedIntrinsics: CameraIntrinsics? = null,
     val sensorOrientationDegrees: Int?,
     val focalLengthMm: Double?,
     val sensorWidthMm: Double?,
     val sensorHeightMm: Double?,
-    /** True when the device also publishes `LENS_INTRINSIC_CALIBRATION` (not yet consumed). */
-    val deviceReportsIntrinsicCalibration: Boolean,
-)
+    /** Raw `LENS_INTRINSIC_CALIBRATION` `[fx, fy, cx, cy, skew]`, active-array pixels. */
+    val rawIntrinsicCalibration: List<Double>? = null,
+    /** Raw `LENS_DISTORTION` `[k1, k2, k3, p1, p2]`. Recorded, not yet applied. */
+    val lensDistortion: List<Double>? = null,
+    val activeArrayWidth: Int? = null,
+    val activeArrayHeight: Int? = null,
+    /** True when frame timestamps are on the boot clock (`SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME`); null when unreported. */
+    val timestampSourceRealtime: Boolean? = null,
+    val hardwareLevel: Int? = null,
+) {
+    val deviceReportsIntrinsicCalibration: Boolean get() = rawIntrinsicCalibration != null
+    val deviceReportsDistortion: Boolean get() = lensDistortion != null
+}
 
 /** 1. Camera frames, timestamps, calibration and coordinate transforms. */
 interface CameraFrameProvider {

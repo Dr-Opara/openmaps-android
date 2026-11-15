@@ -8,7 +8,7 @@ import kotlin.math.tan
 data class ImagePoint(val u: Double, val v: Double)
 
 /**
- * Projects points on a **flat plane [MountConfiguration.cameraHeightMeters] below the camera** into
+ * Projects points on a **flat plane a measured lens height ([CalibrationProfile.lensHeightMeters]) below the camera** into
  * the upright image.
  *
  * This is geometry, not perception. It knows nothing about where the road actually is: it assumes
@@ -131,6 +131,13 @@ object CalibrationGrid {
             val right = projector.project(distance, HALF_WIDTH_METERS, attitude)
             if (left != null && right != null) add(GridSegment(left, right, GridSegment.Kind.Cross))
         }
-        projector.horizon(attitude)?.let { (left, right) -> add(GridSegment(left, right, GridSegment.Kind.Horizon)) }
+        addAll(horizonOnly(projector, attitude))
     }
+
+    /**
+     * Just the horizon line. It depends on intrinsics and attitude only, not on lens height, so it
+     * can be shown (and used to trim pitch and roll) before a height has been entered.
+     */
+    fun horizonOnly(projector: GroundPlaneProjector, attitude: CameraAttitude): List<GridSegment> =
+        listOfNotNull(projector.horizon(attitude)?.let { (left, right) -> GridSegment(left, right, GridSegment.Kind.Horizon) })
 }

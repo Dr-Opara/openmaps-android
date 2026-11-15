@@ -7,11 +7,18 @@ import org.junit.Test
 class GuidanceConfidenceGateTest {
     private val measuredIntrinsics = CameraIntrinsics(500.0, 500.0, 180.0, 320.0, 360, 640, IntrinsicsSource.Measured)
     private val derivedIntrinsics = measuredIntrinsics.copy(source = IntrinsicsSource.SensorGeometry)
-    private val measuredMount = MountConfiguration("test", 1.3, heightMeasured = true)
+    private val profile = CalibrationProfile(
+        deviceModel = DeviceTargets.PRIMARY_MODEL,
+        cameraId = "0",
+        displayRotationDegrees = 0,
+        lensHeightMeters = 1.3,
+        referencePitchDownDegrees = 4.0,
+        referenceRollDegrees = 0.0,
+    )
 
     private val allGood = GateEvidence(
         intrinsics = measuredIntrinsics,
-        mount = measuredMount,
+        profile = profile,
         attitudeAgeNanos = 20_000_000,
         roadConfidence = 0.95,
         yawSigmaRadians = 0.01,
@@ -60,8 +67,15 @@ class GuidanceConfidenceGateTest {
     @Test
     fun derivedIntrinsicsNeedHumanVerification() {
         assertEquals(setOf(GateReason.CalibrationUnverified), reasons(allGood.copy(intrinsics = derivedIntrinsics)))
+        // Manufacturer-reported intrinsics are still not a measurement of this phone.
+        assertEquals(
+            setOf(GateReason.CalibrationUnverified),
+            reasons(allGood.copy(intrinsics = measuredIntrinsics.copy(source = IntrinsicsSource.DeviceReported))),
+        )
         assertTrue(
-            GuidanceConfidenceGate.decide(allGood.copy(intrinsics = derivedIntrinsics, calibrationVerifiedOnDevice = true))
+            GuidanceConfidenceGate.decide(
+                allGood.copy(intrinsics = derivedIntrinsics, profile = profile.copy(verifiedOnDevice = true)),
+            )
                 is GuidanceDecision.RoadAnchored,
         )
     }
@@ -69,7 +83,13 @@ class GuidanceConfidenceGateTest {
     @Test
     fun eachSingleWeaknessClosesTheGateOnItsOwn() {
         assertEquals(setOf(GateReason.CameraUncalibrated), reasons(allGood.copy(intrinsics = null)))
-        assertEquals(setOf(GateReason.MountUnmeasured), reasons(allGood.copy(mount = MountConfiguration.UnmeasuredPrototype)))
+        assertEquals(setOf(GateReason.MountUnmeasured), reasons(allGood.copy(profile = null)))
+        assertEquals(setOf(GateReason.MountUnmeasured), reasons(allGood.copy(profile = profile.copy(lensHeightMeters = null))))
+        assertEquals(
+            setOf(GateReason.MountUnmeasured),
+            reasons(allGood.copy(profile = profile.copy(referencePitchDownDegrees = null))),
+        )
+        assertEquals(setOf(GateReason.MountMoved), reasons(allGood.copy(mountMoved = true)))
         assertEquals(setOf(GateReason.AttitudeStale), reasons(allGood.copy(attitudeAgeNanos = 900_000_000)))
         assertEquals(setOf(GateReason.AttitudeStale), reasons(allGood.copy(attitudeAgeNanos = null)))
         assertEquals(setOf(GateReason.NoRoadObservation), reasons(allGood.copy(roadConfidence = null)))

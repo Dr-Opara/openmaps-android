@@ -6,6 +6,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import com.openmaps.app.core.vision.CameraAttitude
+import com.openmaps.app.core.vision.RotationVector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,8 +37,6 @@ class DeviceAttitudeSource(
 
     val isAvailable: Boolean get() = sensor != null
 
-    private val rotationMatrix = FloatArray(9)
-
     fun start() {
         val rotationSensor = sensor ?: return
         sensorManager?.registerListener(this, rotationSensor, SensorManager.SENSOR_DELAY_GAME)
@@ -49,7 +48,8 @@ class DeviceAttitudeSource(
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+        // Plain-Kotlin maths shared with JVM replay, so a recorded drive reproduces this exactly.
+        val rotationMatrix = RotationVector.toRotationMatrix(event.values) ?: return
         _attitude.value = CameraAttitude.fromRotationMatrix(
             rotationMatrix = rotationMatrix,
             displayRotationDegrees = displayRotationDegrees(),

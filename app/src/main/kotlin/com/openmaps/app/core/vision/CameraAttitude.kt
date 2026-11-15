@@ -53,3 +53,39 @@ data class CameraAttitude(
         }
     }
 }
+
+/** Android rotation-vector maths in plain Kotlin, so live code and JVM replay compute identical attitudes. */
+object RotationVector {
+    /**
+     * Same result as `SensorManager.getRotationMatrixFromVector` for a 3x3 matrix: [values] is the
+     * sensor's `(x, y, z[, w])` unit quaternion. Returns null for input that is not a rotation.
+     */
+    fun toRotationMatrix(values: FloatArray): FloatArray? {
+        if (values.size < 3) return null
+        val q1 = values[0]
+        val q2 = values[1]
+        val q3 = values[2]
+        if (q1.isNaN() || q2.isNaN() || q3.isNaN()) return null
+        val q0 = if (values.size >= 4) {
+            values[3]
+        } else {
+            val rest = 1f - q1 * q1 - q2 * q2 - q3 * q3
+            if (rest > 0f) kotlin.math.sqrt(rest) else 0f
+        }
+        if (q0.isNaN()) return null
+        val sq1 = 2 * q1 * q1
+        val sq2 = 2 * q2 * q2
+        val sq3 = 2 * q3 * q3
+        val q1q2 = 2 * q1 * q2
+        val q3q0 = 2 * q3 * q0
+        val q1q3 = 2 * q1 * q3
+        val q2q0 = 2 * q2 * q0
+        val q2q3 = 2 * q2 * q3
+        val q1q0 = 2 * q1 * q0
+        return floatArrayOf(
+            1 - sq2 - sq3, q1q2 - q3q0, q1q3 + q2q0,
+            q1q2 + q3q0, 1 - sq1 - sq3, q2q3 - q1q0,
+            q1q3 - q2q0, q2q3 + q1q0, 1 - sq1 - sq2,
+        )
+    }
+}

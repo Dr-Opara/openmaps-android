@@ -49,6 +49,9 @@ class CameraXRearEngine(
 
     /** Adds use cases to the rear-camera binding and is told which camera was bound. */
     interface CameraCompanion {
+        /** A stricter rear-camera selector (for example "the main camera"), or null for the default. */
+        fun cameraSelector(): CameraSelector? = null
+
         fun useCases(): List<UseCase>
         fun onBound(camera: Camera)
         fun onReleased()
@@ -131,11 +134,12 @@ class CameraXRearEngine(
         try {
             cameraProvider.unbindAll()
             val extra = companion?.useCases().orEmpty()
-            val camera = if (extra.isEmpty()) {
+            val preferred = companion?.cameraSelector() ?: selector
+            val camera = if (extra.isEmpty() && preferred === selector) {
                 cameraProvider.bindToLifecycle(owner, selector, preview)
             } else {
                 try {
-                    cameraProvider.bindToLifecycle(owner, selector, preview, *extra.toTypedArray())
+                    cameraProvider.bindToLifecycle(owner, preferred, preview, *extra.toTypedArray())
                 } catch (e: IllegalArgumentException) {
                     // Unsupported use-case combination on this device: keep the preview regardless.
                     Log.w(TAG, "Combined camera binding rejected; binding preview only", e)

@@ -19,8 +19,11 @@ enum class GateReason {
     /** Intrinsics are derived from sensor geometry and have not been verified on this phone. */
     CalibrationUnverified,
 
-    /** The mount height has not been measured for this vehicle. */
+    /** No calibration profile for this phone, camera and orientation, or no lens height entered. */
     MountUnmeasured,
+
+    /** The phone's angle has changed since the mount angle was captured; recalibration is required. */
+    MountMoved,
 
     /** Device attitude is missing or older than [GuidanceConfidenceGate.MAX_ATTITUDE_AGE_NANOS]. */
     AttitudeStale,
@@ -42,9 +45,9 @@ enum class GateReason {
 /** Everything the gate looks at. Every field defaults to "no evidence". */
 data class GateEvidence(
     val intrinsics: CameraIntrinsics? = null,
-    /** A person has confirmed the calibration grid lines up on this phone and mount. */
-    val calibrationVerifiedOnDevice: Boolean = false,
-    val mount: MountConfiguration = MountConfiguration.UnmeasuredPrototype,
+    /** The profile that applies to the phone, camera and orientation in use; null when there is none. */
+    val profile: CalibrationProfile? = null,
+    val mountMoved: Boolean = false,
     val attitudeAgeNanos: Long? = null,
     val roadConfidence: Double? = null,
     val yawSigmaRadians: Double? = null,
@@ -73,10 +76,12 @@ object GuidanceConfidenceGate {
         val reasons = linkedSetOf<GateReason>()
         if (evidence.intrinsics == null) {
             reasons += GateReason.CameraUncalibrated
-        } else if (evidence.intrinsics.source != IntrinsicsSource.Measured && !evidence.calibrationVerifiedOnDevice) {
+        } else if (evidence.intrinsics.source != IntrinsicsSource.Measured && evidence.profile?.verifiedOnDevice != true) {
             reasons += GateReason.CalibrationUnverified
         }
-        if (!evidence.mount.heightMeasured) reasons += GateReason.MountUnmeasured
+        val profile = evidence.profile
+        if (profile == null || !profile.hasLensHeight || !profile.hasMountAngle) reasons += GateReason.MountUnmeasured
+        if (evidence.mountMoved) reasons += GateReason.MountMoved
         val attitudeAge = evidence.attitudeAgeNanos
         if (attitudeAge == null || attitudeAge < 0 || attitudeAge > MAX_ATTITUDE_AGE_NANOS) reasons += GateReason.AttitudeStale
         val road = evidence.roadConfidence

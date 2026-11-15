@@ -178,6 +178,12 @@ fun LiveScreen(
     // Reactive: flips from Spatial to CameraX mid-session if AR fails, which is what guarantees a
     // camera is always available in Live.
     val previewProvider by viewModel.previewProvider.collectAsState()
+    // Visual-navigation prototype (debug builds on the experimental branch only). Hoisted here, above
+    // the camera preview, because its controls must sit above the touch sink below.
+    val prototypeContext = LocalContext.current
+    val frameProvider = remember {
+        if (BuildConfig.LIVE_VISUAL_PROTOTYPE) CameraXFrameProvider(prototypeContext) else null
+    }
 
     Box(
         modifier
@@ -200,7 +206,7 @@ fun LiveScreen(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    RearCameraPreview(state.cameraState, viewModel::onCameraEvent, Modifier.fillMaxSize())
+                    RearCameraPreview(state.cameraState, viewModel::onCameraEvent, Modifier.fillMaxSize(), frameProvider)
                 }
 
             else ->
@@ -260,6 +266,14 @@ fun LiveScreen(
                 modifier = Modifier.align(Alignment.Center),
             )
             return@Box
+        }
+
+        if (frameProvider != null && previewProvider != PreviewProvider.Spatial && state.cameraState == RearCameraState.Ready) {
+            LiveVisualPrototypeOverlay(
+                frameProvider = frameProvider,
+                route = route,
+                navigationState = navigationState,
+            )
         }
 
         // One content-sized top stack: the main maneuver, its following instruction and
@@ -1033,16 +1047,12 @@ private fun RearCameraPreview(
     cameraState: RearCameraState,
     onCameraEvent: (CameraEngineEvent) -> Unit,
     modifier: Modifier = Modifier,
+    /** Visual-navigation prototype only: shares the CameraX binding to read frames and calibration. */
+    frameProvider: CameraXFrameProvider? = null,
 ) {
-    // Visual-navigation prototype (debug builds on the experimental branch only): the frame provider
-    // shares the CameraX binding, and the calibration test pattern is drawn over the preview.
-    val frameProvider = remember { if (BuildConfig.LIVE_VISUAL_PROTOTYPE) CameraXFrameProvider() else null }
-    val engine = remember { CameraXRearEngine(companion = frameProvider) }
+    val engine = remember(frameProvider) { CameraXRearEngine(companion = frameProvider) }
     Box(modifier) {
         RearCameraHost(engine = engine, onEvent = onCameraEvent, modifier = Modifier.fillMaxSize())
-        if (frameProvider != null && cameraState == RearCameraState.Ready) {
-            LiveCalibrationOverlay(frameProvider = frameProvider)
-        }
 
         when (cameraState) {
             is RearCameraState.Starting, RearCameraState.Idle -> CameraStatusOverlay(
