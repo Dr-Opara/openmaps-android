@@ -87,6 +87,7 @@ import com.openmaps.app.R
 import com.openmaps.app.camera.CameraEngineEvent
 import com.openmaps.app.camera.CameraFailure
 import com.openmaps.app.camera.CameraXRearEngine
+import com.openmaps.app.vision.CameraXFrameProvider
 import com.openmaps.app.camera.RearCameraHost
 import com.openmaps.app.camera.RearCameraState
 import com.openmaps.app.core.camera.CameraPermissionState
@@ -177,6 +178,12 @@ fun LiveScreen(
     // Reactive: flips from Spatial to CameraX mid-session if AR fails, which is what guarantees a
     // camera is always available in Live.
     val previewProvider by viewModel.previewProvider.collectAsState()
+    // Visual-navigation prototype (debug builds on the experimental branch only). Hoisted here, above
+    // the camera preview, because its controls must sit above the touch sink below.
+    val prototypeContext = LocalContext.current
+    val frameProvider = remember {
+        if (BuildConfig.LIVE_VISUAL_PROTOTYPE) CameraXFrameProvider(prototypeContext) else null
+    }
 
     Box(
         modifier
@@ -199,7 +206,7 @@ fun LiveScreen(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    RearCameraPreview(state.cameraState, viewModel::onCameraEvent, Modifier.fillMaxSize())
+                    RearCameraPreview(state.cameraState, viewModel::onCameraEvent, Modifier.fillMaxSize(), frameProvider)
                 }
 
             else ->
@@ -259,6 +266,14 @@ fun LiveScreen(
                 modifier = Modifier.align(Alignment.Center),
             )
             return@Box
+        }
+
+        if (frameProvider != null && previewProvider != PreviewProvider.Spatial && state.cameraState == RearCameraState.Ready) {
+            LiveVisualPrototypeOverlay(
+                frameProvider = frameProvider,
+                route = route,
+                navigationState = navigationState,
+            )
         }
 
         // One content-sized top stack: the main maneuver, its following instruction and
@@ -1032,8 +1047,10 @@ private fun RearCameraPreview(
     cameraState: RearCameraState,
     onCameraEvent: (CameraEngineEvent) -> Unit,
     modifier: Modifier = Modifier,
+    /** Visual-navigation prototype only: shares the CameraX binding to read frames and calibration. */
+    frameProvider: CameraXFrameProvider? = null,
 ) {
-    val engine = remember { CameraXRearEngine() }
+    val engine = remember(frameProvider) { CameraXRearEngine(companion = frameProvider) }
     Box(modifier) {
         RearCameraHost(engine = engine, onEvent = onCameraEvent, modifier = Modifier.fillMaxSize())
 

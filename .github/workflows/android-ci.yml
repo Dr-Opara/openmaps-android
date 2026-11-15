@@ -27,16 +27,51 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Assemble debug
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug 2>&1 | tee -a build.log
+
+      - name: Upload debug APK for device QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: openmaps-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
 
       - name: Compile release bundle
-        run: ./gradlew bundleRelease
+        run: ./gradlew bundleRelease 2>&1 | tee -a build.log
 
       - name: Unit tests
-        run: ./gradlew testDebugUnitTest
+        run: ./gradlew testDebugUnitTest 2>&1 | tee -a build.log
 
       - name: Lint
-        run: ./gradlew lint
+        run: ./gradlew lint 2>&1 | tee -a build.log
+
+      # Raw job logs are not always reachable; surface compiler, test and lint failures as annotations.
+      - name: Annotate build failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob, re, xml.etree.ElementTree as ET
+          def emit(title, text):
+              text = text.replace('%', ' ').replace('\r', ' ').replace('\n', ' ')[:700]
+              print(f"::error title={title}::{text}")
+          n = 0
+          try:
+              for line in open('build.log', errors='replace'):
+                  if re.match(r'^(e: |.*: error: |.*Lint found errors|.*What went wrong|> .*failed)', line) and n < 40:
+                      emit('Build', line.strip()); n += 1
+          except FileNotFoundError:
+              pass
+          for f in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              for case in ET.parse(f).getroot().iter('testcase'):
+                  for bad in list(case.findall('failure')) + list(case.findall('error')):
+                      emit('Unit test', f"{case.get('classname')}.{case.get('name')}: {bad.get('message') or bad.text or ''}"); n += 1
+          for f in glob.glob('app/build/reports/lint-results-*.xml'):
+              for issue in ET.parse(f).getroot().iter('issue'):
+                  if issue.get('severity') in ('Error', 'Fatal') and n < 60:
+                      loc = issue.find('location')
+                      emit('Lint', f"{issue.get('id')}: {issue.get('message')} ({loc.get('file') if loc is not None else ''}:{loc.get('line') if loc is not None else ''})"); n += 1
+          print(f"{n} annotation(s)")
+          PY
 
       - name: Production backend gateway acceptance
         if: ${{ hashFiles('scripts/production-backend-gateway-acceptance.ps1') != '' }}

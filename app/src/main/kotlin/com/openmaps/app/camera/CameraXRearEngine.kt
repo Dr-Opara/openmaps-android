@@ -4,8 +4,10 @@ import android.content.Context
 import android.util.Log
 import android.util.Size
 import android.view.View
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCase
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -36,7 +38,25 @@ import java.util.concurrent.Executor
  * logged per frame.
  */
 @Suppress("LogNotTimber")
-class CameraXRearEngine : RearCameraEngine {
+class CameraXRearEngine(
+    /**
+     * Optional second consumer of the same camera (the visual-navigation frame provider). Preview
+     * never depends on it: if the device rejects the combined binding, the engine binds preview
+     * alone, so Live always has a camera.
+     */
+    private val companion: CameraCompanion? = null,
+) : RearCameraEngine {
+
+    /** Adds use cases to the rear-camera binding and is told which camera was bound. */
+    interface CameraCompanion {
+        /** A stricter rear-camera selector (for example "the main camera"), or null for the default. */
+        fun cameraSelector(): CameraSelector? = null
+
+        fun useCases(): List<UseCase>
+        fun onBound(camera: Camera)
+        fun onReleased()
+    }
+
 
     private val _events = MutableSharedFlow<CameraEngineEvent>(
         extraBufferCapacity = 8,
@@ -113,7 +133,21 @@ class CameraXRearEngine : RearCameraEngine {
 
         try {
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(owner, selector, preview)
+            val extra = companion?.useCases().orEmpty()
+            val preferred = companion?.cameraSelector() ?: selector
+            val camera = if (extra.isEmpty() && preferred === selector) {
+                cameraProvider.bindToLifecycle(owner, selector, preview)
+            } else {
+                try {
+                    cameraProvider.bindToLifecycle(owner, preferred, preview, *extra.toTypedArray())
+                } catch (e: IllegalArgumentException) {
+                    // Unsupported use-case combination on this device: keep the preview regardless.
+                    Log.w(TAG, "Combined camera binding rejected; binding preview only", e)
+                    cameraProvider.unbindAll()
+                    cameraProvider.bindToLifecycle(owner, selector, preview)
+                }
+            }
+            companion?.onBound(camera)
             emit(RearCameraState.Ready)
         } catch (e: IllegalArgumentException) {
             // Most often "no back-facing camera exists" or the selector matched nothing.
@@ -144,6 +178,7 @@ class CameraXRearEngine : RearCameraEngine {
                 Log.w(TAG, "Unbind failed", t)
             }
         }
+        companion?.onReleased()
         provider = null
         boundOwner = null
         previewView = null
